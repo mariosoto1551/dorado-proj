@@ -1,0 +1,45 @@
+# Progreso de ejecución — Proyecto Dorado
+
+> Esta carpeta es el registro de lo que **realmente se hizo**, sesión a sesión de Claude Code — a diferencia de `docs/phases/`, que es la especificación (no cambia una vez escrita). Un archivo por fase, mismo nombre que su spec en `docs/phases/`, en `docs/progreso/`.
+
+## Protocolo (leer esto antes de tocar código en cualquier sesión nueva)
+
+### Al empezar una sesión
+
+1. Leer esta tabla para saber qué fase está en curso o cuál sigue.
+2. Abrir `docs/progreso/fase-XX-*.md` de la última fase marcada `COMPLETADA` (o `COMPLETADA_CON_DESVIACIONES`) y leer su "Registro de ejecución" completo — ahí están las desviaciones del plan original y qué hay que verificar antes de confiar en que esa fase sigue funcionando.
+3. **No asumir que el código de una fase anterior anda solo porque el archivo dice `COMPLETADA`.** Correr los comandos de verificación que esa fase dejó anotados (tests, `docker compose up`, etc.) antes de construir encima.
+4. Si la fase que vas a ejecutar ya tiene un archivo en `docs/progreso/` con estado `EN_PROGRESO`, retomar desde ahí — no volver a empezar de cero ni asumir que no se hizo nada.
+
+### Al terminar una fase (o un corte de trabajo significativo dentro de una fase larga)
+
+1. Completar (o actualizar) `docs/progreso/fase-XX-*.md` con el template de abajo — no dejarlo a medio llenar "para después".
+2. Actualizar la fila correspondiente en la tabla de este README.
+3. Un commit de git por fase (o por corte), con mensaje `fase-XX: <resumen corto>` — el historial de git es parte de este mismo sistema de trazabilidad, no algo aparte.
+4. Si te desviaste de lo que dice `docs/phases/fase-XX-*.md` (agregaste un campo, cambiaste un endpoint, etc.), **documentar la desviación acá, no editar el archivo de spec original** — el spec queda como quedó decidido; el registro de ejecución es donde se anota la realidad.
+
+## Tabla de estado
+
+| Fase | Estado | Última actualización | Resumen |
+|---|---|---|---|
+| Fase 0 — Especificación | COMPLETADA | 2026-07-14 | Docs de arquitectura y las 15 fases generados. |
+| Fase 1 — Monorepo | PENDIENTE | — | — |
+| Fase 2 — Identity & Access | PENDIENTE | — | — |
+| Fase 3 — Gateway + auth frontend | PENDIENTE | — | — |
+| Fase 4 — Billing | PENDIENTE | — | — |
+| Fase 5 — Activity Catalog | PENDIENTE | — | — |
+| Fase 6 — Session/Section | PENDIENTE | — | — |
+| Fase 7 — Scoring Engine | PENDIENTE | — | — |
+| Fase 8 — Rewards | PENDIENTE | — | — |
+| Fase 9 — Notification & Audit | PENDIENTE | — | — |
+| Fase 10 — Frontend completo | PENDIENTE | — | — |
+| Fase 11 — Public site | PENDIENTE | — | — |
+| Fase 12 — QA/hardening | PENDIENTE | — | — |
+| Fase 13 — Piloto/deploy | PENDIENTE | — | — |
+| Fase 14 — Post-MVP | PENDIENTE | — | — |
+
+Estados posibles: `PENDIENTE` · `EN_PROGRESO` · `COMPLETADA` · `COMPLETADA_CON_DESVIACIONES` (completada pero con algo documentado que se apartó del plan o quedó como deuda técnica — ver su archivo en esta carpeta).
+
+## Por qué está separado de `docs/phases/`
+
+Mismo principio que la regla de puntaje del proyecto: lo ya escrito no se edita silenciosamente. `docs/phases/` es la decisión tomada de antemano; `docs/progreso/` es el hecho consumado. Si en algún momento la realidad obliga a cambiar la spec misma (no solo registrar una desviación puntual), eso se hace a mano, a propósito, y se nota en el historial de git — no se pisa silenciosamente vía una sesión de Claude Code ejecutando código.
