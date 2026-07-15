@@ -7,6 +7,9 @@
   "types": "./src/index.d.ts",
   "dependencies": {
     "tslib": "^2.3.0",
-    "@nestjs/common": "^11.0.0"
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "jose": "^6.2.3",
+    "@dorado/shared-types": "0.0.1"
   }
 }

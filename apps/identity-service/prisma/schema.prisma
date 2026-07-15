@@ -1,0 +1,152 @@
+// Schema de identity-service (base identity_db) — fuente: docs/phases/fase-02-identity.md.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId/grupoId indexados), timestamps createdAt/updatedAt en modelos mutables.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RolTutor {
+  ORG_ADMIN
+  TUTOR
+}
+
+enum EstadoCuenta {
+  ACTIVO
+  INACTIVO
+}
+
+enum EstadoOrganizacion {
+  ACTIVA
+  SUSPENDIDA
+}
+
+enum TipoInvitado {
+  TUTOR
+  USUARIO
+}
+
+enum EstadoInvitacion {
+  PENDIENTE
+  CANJEADA
+  EXPIRADA
+  REVOCADA
+}
+
+model Organizacion {
+  id            String             @id @default(uuid())
+  nombre        String
+  emailContacto String             @unique
+  estado        EstadoOrganizacion @default(ACTIVA)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  grupos        Grupo[]
+  tutores       Tutor[]
+}
+
+model Grupo {
+  id             String       @id @default(uuid())
+  organizacionId String
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  nombre         String
+  // IANA tz, ej "America/La_Paz"
+  timezone       String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  tutorGrupos    TutorGrupo[]
+  usuarios       Usuario[]
+  invitaciones   Invitacion[]
+
+  @@index([organizacionId])
+}
+
+model Tutor {
+  id             String       @id @default(uuid())
+  organizacionId String
+  organizacion   Organizacion @relation(fields: [organizacionId], references: [id])
+  // Único a nivel PLATAFORMA (no solo organización) — permite login sin elegir organización.
+  email          String       @unique
+  passwordHash   String
+  nombre         String
+  rol            RolTutor
+  estado         EstadoCuenta @default(ACTIVO)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  tutorGrupos    TutorGrupo[]
+
+  @@index([organizacionId])
+}
+
+model TutorGrupo {
+  id        String   @id @default(uuid())
+  tutorId   String
+  tutor     Tutor    @relation(fields: [tutorId], references: [id])
+  grupoId   String
+  grupo     Grupo    @relation(fields: [grupoId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([tutorId, grupoId])
+}
+
+model Usuario {
+  id             String       @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  grupo          Grupo        @relation(fields: [grupoId], references: [id])
+  // Único a nivel PLATAFORMA — mismo motivo que Tutor.email.
+  username       String       @unique
+  passwordHash   String
+  nombre         String
+  // Identificador de avatar predefinido, no archivo de imagen.
+  avatarId       String
+  estado         EstadoCuenta @default(ACTIVO)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+model Invitacion {
+  id               String           @id @default(uuid())
+  organizacionId   String
+  grupoId          String
+  grupo            Grupo            @relation(fields: [grupoId], references: [id])
+  tipoInvitado     TipoInvitado
+  // 8 chars, alfanumérico mayúsculas, sin 0/O/1/I.
+  codigo           String           @unique
+  creadoPorTutorId String
+  estado           EstadoInvitacion @default(PENDIENTE)
+  expiraEn         DateTime
+  // id del Tutor o Usuario creado al canjear.
+  canjeadaPorId    String?
+  canjeadaEn       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+// Opción (a) de la nota de la spec (fase-02, "Nota Prisma"): `principalId` es un
+// string suelto SIN @relation (Prisma no admite dos relaciones distintas sobre el
+// mismo scalar field). La integridad referencial hacia Tutor/Usuario se maneja en
+// código (TokensService), discriminando por `principalType`.
+model RefreshToken {
+  id            String   @id @default(uuid())
+  // 'TUTOR' | 'USUARIO'
+  principalType String
+  principalId   String
+  tokenHash     String   @unique
+  expiraEn      DateTime
+  revocado      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([principalId])
+}

@@ -46,6 +46,12 @@ export default [
     rules: {
       curly: ['error', 'all'],
       'max-params': ['error', 7],
+      // Prefijo _ = parámetro intencionalmente sin usar (ej. placeholders de
+      // fase futura como resolvePlan(_organizacionId)).
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
     },
   },
 ];

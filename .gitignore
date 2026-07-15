@@ -59,6 +59,9 @@ __screenshots__/
 # Variables de entorno locales
 .env
 
+# Cliente Prisma generado (se regenera con `nx run <servicio>:prisma-generate`)
+apps/*/src/generated/
+
 # Tipos generados por Astro
 .astro/
 .claude/settings.json

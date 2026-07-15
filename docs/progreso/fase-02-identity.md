@@ -1,14 +1,44 @@
 # Registro de ejecución — Fase 2: Identity & Access Service
 
-- **Estado**: PENDIENTE
-- **Fecha de finalización**: —
-- **Commit/rama**: —
-- **Resumen de lo implementado**: —
-- **Desviaciones del plan documentado** (si las hubo, y por qué): —
-- **Verificación de criterios de aceptación** (copiado de `docs/phases/fase-02-identity.md`):
-  - [ ] Flujo completo probado manualmente: registro → crear grupo → generar invitación → canjear como USUARIO → login → `GET /identity/me` correcto.
-  - [ ] RabbitMQ management UI muestra los 4 eventos publicándose durante ese flujo.
-  - [ ] Un TUTOR sin `TutorGrupo` hacia un Grupo recibe 403 en `GET /identity/grupos/:grupoId/usuarios` de ese grupo.
-  - [ ] Tests unitarios de los guards de `libs/shared-auth` (JWT inválido/expirado/rol insuficiente) y de invitación vencida.
-- **Deuda técnica / pendientes conocidos**: —
-- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**: —
+- **Estado**: COMPLETADA_CON_DESVIACIONES
+- **Fecha de finalización**: 2026-07-15
+- **Commit/rama**: `master`, commit `fase-02: identity & access service`
+- **Resumen de lo implementado**:
+  - `libs/shared-logging` (era scaffold): `correlationMiddleware` funcional (lee/genera `x-correlation-id`, lo deja en AsyncLocalStorage vía `getCorrelationId()`), `SharedLoggingModule.forService(nombre)` como wrapper de `nestjs-pino` (pino-pretty en dev, JSON en prod, `service` y `correlationId` en cada línea).
+  - `libs/shared-auth` (era scaffold): `TenantContextGuard` (JWT RS256 con `jose`, adjunta `req.tenant` y llena `tenantStorage`), `RolesGuard` + `@Roles(...)`, `@CurrentTenant()`, `InternalSecretGuard` (`x-internal-secret`, comparación en tiempo constante), `HttpExceptionFilter` + `ApiErrorResponse` + `DomainException` (ADR-00 §7), `crearTenantExtension` (filtro automático de tenant para Prisma), helpers de claves (`decodificarPem`, `obtenerClavePublicaJwt`). Tests Vitest: 16 (JWT inválido/expirado/sin header, rol insuficiente, secreto interno, extensión de tenant).
+  - `apps/identity-service` completo: schema Prisma 7 (`prisma/schema.prisma` + migración `20260715140725_init_identity` aplicada a `identity_db`), todos los endpoints públicos/autenticados/internos de la spec, publicación de los 4 eventos (`OrganizacionCreada`, `InvitacionGenerada`, `InvitacionCanjeada`, `UsuarioUnido`) vía `@golevelup/nestjs-rabbitmq` con `EventEnvelope` completo, validación de env al arranque (ADR-00 §8), argon2id con defaults OWASP, refresh token opaco rotado en cookie `dorado_refresh` httpOnly. Tests Vitest: 5 (reglas de invitación vencida/revocada/canjeada + preview).
+  - Herramientas: `tools/generar-claves-jwt.mjs` (par RS256 para dev, PEM base64), `.env.example` documentado, targets Nx `prisma-generate` (cacheado, dependencia de build/test) y `prisma-migrate`.
+- **Verificación de criterios de aceptación** (todos corridos contra el servicio real en `localhost:3001` el 2026-07-15):
+  - [x] Flujo completo probado manualmente: `POST /auth/organizaciones` → `POST /identity/grupos` → `POST /identity/grupos/:id/invitaciones` → `POST /auth/invitaciones/:codigo/canjear` (USUARIO) → `POST /auth/login` con ese usuario → `GET /identity/me` devuelve el usuario correcto. Además: refresh rota el token (reuso del viejo → 401 `REFRESH_TOKEN_INVALIDO`), logout 204, preview público de invitación, canje como TUTOR con `TutorGrupo`.
+  - [x] Los 4 eventos publicándose en `dorado.events` durante ese flujo, verificados consumiendo una cola de debug bindeada a `identity.#` (6 mensajes: 1 organizacion_creada, 2 invitacion_generada, 2 invitacion_canjeada, 1 usuario_unido; envelope completo; `InvitacionCanjeada` y `UsuarioUnido` del mismo request comparten `correlationId`).
+  - [x] TUTOR sin `TutorGrupo` hacia un Grupo → 403 `PROHIBIDO` en `GET /identity/grupos/:grupoId/usuarios` (y 200 sobre su grupo asignado).
+  - [x] Tests unitarios de los guards de `libs/shared-auth` (16) y de las reglas de invitación vencida (5). `pnpm nx run-many -t lint,test,build` en verde para los 16 proyectos.
+- **Desviaciones del plan / decisiones de implementación** (la spec las dejaba abiertas o la realidad de las versiones obligó):
+  1. **`RefreshToken` opción (a)** de la nota de la spec: `principalId` sin `@relation`, integridad en código (`TokensService`). Documentado en el schema.
+  2. **Prisma 7 cambió el layout**: `url` ya no se admite en el `datasource` del schema → va en `prisma.config.ts` (con `process.env` + placeholder para que `generate` corra sin `.env`, ej. CI; `migrate` sí exige `DATABASE_URL` real). El cliente se genera en `src/generated/prisma` (gitignorado; `nx run identity-service:prisma-generate` lo regenera y build/test dependen de ese target). Generador `prisma-client` con `moduleFormat = "cjs"`.
+  3. **`PrismaTenantMiddleware` es una *client extension*** (`crearTenantExtension`): Prisma 7 eliminó `$use`. Misma semántica que ADR-00 §2. Limitación documentada en el código: las operaciones sobre índice único (`findUnique`/`update`/`delete`) no se pueden interceptar — regla de servicio: usar `findFirst`/`updateMany`/`deleteMany` para lo tenant-scoped.
+  4. **En identity la extensión filtra solo `organizacionId`** (`conGrupoId: false` en todos los modelos): la visibilidad por grupo acá es autorización con fuente de verdad `TutorGrupo` en la base (no el snapshot `grupoIds` del JWT, que queda viejo si un tutor crea un grupo post-login) y se resuelve en `AccesoGrupoService`. Los servicios de Fases 5+ sí usarán el filtro por `grupoIds` del JWT.
+  5. **`HttpExceptionFilter`/`ApiErrorResponse` viven en `shared-auth`** (ADR-00 §7 dejaba elegir entre eso y una lib nueva). `ApiErrorResponse` NO se agregó a `shared-types` para no desviar el contrato documentado — reevaluar en Fase 3/10 cuando el frontend lo consuma.
+  6. **Validación de env con `class-validator`** (no zod): mismo mecanismo que los DTOs, un solo stack de validación en el monorepo.
+  7. **Sin prefijo global `/api`** en identity (el scaffold de Fase 1 lo traía): las rutas quedan `/auth/*`, `/identity/*`, `/internal/*` exactas a la spec; el `/api` público lo agrega el Gateway (Fase 3).
+  8. **Claves RS256 por env como PEM codificado en base64** (una línea de `.env`); `decodificarPem` acepta también PEM crudo. Generador: `node tools/generar-claves-jwt.mjs`.
+  9. **Refresh token hasheado con SHA-256** (no argon2): token opaco de 256 bits de entropía, argon2 es para passwords humanas.
+  10. **Cookie `dorado_refresh` con `path: '/'` y `secure` por env** (`REFRESH_COOKIE_SECURE=false` en dev http): el path que ve el navegador atraviesa el Gateway y este servicio no conoce ese prefijo; acotar en Fase 3 si se quiere.
+  11. **`GET /internal/health` sin guard** (los demás `/internal/*` sí lo llevan): no expone datos y así lo puede usar un healthcheck de Docker sin el secreto.
+  12. **Huecos de la spec señalados** (regla "no inventes" — se resolvieron con lo mínimo y quedan anotados):
+      - `POST /auth/organizaciones` no pide nombre del tutor → el Tutor ORG_ADMIN toma el `nombre` de la organización. Si molesta en la UI (Fase 3/10), agregar campo opcional.
+      - El body de canje de USUARIO no trae `avatarId` (el modelo lo exige) → default `'avatar-01'` server-side, editable después vía `PATCH /identity/usuarios/:id`.
+      - `DELETE /identity/tutores/:id` (solo ORG_ADMIN) no impide desactivar a un ORG_ADMIN ni a uno mismo — la spec no lo restringe; **riesgo conocido**: el único admin puede dejarse fuera de la organización. Candidato a regla en Fase 14.
+  13. **Cambios de workspace**: `nx.json` → `testTargetName` del plugin `@nx/vitest` pasó de `vite:test` a `test` (si no, el CI `-t lint,test,build` no corría los tests de Vitest); eslint raíz → `@typescript-eslint/no-unused-vars` con `argsIgnorePattern: '^_'` (placeholders tipo `resolvePlan(_organizacionId)`); `pnpm-workspace.yaml` → `allowBuilds` aprobado para `argon2`, `prisma`, `@prisma/engines`; `.gitignore` → `apps/*/src/generated/`.
+  14. **Targets de Prisma usan `npx`** (no `pnpm exec`): `pnpm exec` falla con `ERR_PNPM_RECURSIVE_EXEC_NO_PACKAGE` al correr desde un subdirectorio sin `package.json` propio.
+  15. Dependencias nuevas en el root: `@prisma/client` 7.8, `@prisma/adapter-pg`, `pg`, `argon2` 0.44, `jose` 6.2, `@golevelup/nestjs-rabbitmq` 9.0, `@nestjs/config`, `nestjs-pino`, `pino`, `pino-http`, `class-validator`, `class-transformer`, `cookie-parser` (+ types y `prisma`/`pino-pretty` como dev).
+- **Deuda técnica / pendientes conocidos**:
+  - CI en GitHub sigue sin verificarse (el repo aún no tiene remote — pendiente heredado de Fase 1). El pipeline ahora incluye `prisma-generate` vía `dependsOn`; verificado localmente que corre sin `.env`.
+  - No hay rate-limiting en `/auth/login` ni lockout por intentos — no lo pide la spec; va en Fase 12 (hardening).
+  - Las filas de `RefreshToken` expiradas/revocadas se acumulan (no hay job de limpieza) — sin impacto funcional; candidato a Fase 12/14.
+  - `PLATFORM_ADMIN` existe en el enum compartido pero no hay forma de emitir un JWT con ese rol (correcto para el MVP, anotado para Fase 14).
+- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**:
+  1. `docker compose -f infra/docker-compose.yml up -d` y `pnpm nx run-many -t lint,test,build` en verde (16 proyectos).
+  2. Si `apps/identity-service/.env` no existe (repo recién clonado): copiar `.env.example`, correr `node tools/generar-claves-jwt.mjs` y pegar las dos claves; después `pnpm nx run identity-service:prisma-migrate`.
+  3. `pnpm nx serve identity-service` y `curl http://localhost:3001/internal/health` → `{"status":"ok",...}`. Flujo rápido: registrar organización → crear grupo → invitación → canje → login → `GET /identity/me`.
+  4. La Fase 3 (Gateway) debe reusar `TenantContextGuard`/`InternalSecretGuard` de `@dorado/shared-auth` y respetar la decisión 7 (el Gateway agrega el prefijo `/api`).

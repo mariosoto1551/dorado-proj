@@ -1,10 +1,38 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { ConfigModule } from '@nestjs/config';
+
+import { SharedLoggingModule } from '@dorado/shared-logging';
+
+import { AuthModule } from '../auth/auth.module';
+import { validarEnv } from '../config/env.schema';
+import { EventosModule } from '../eventos/eventos.module';
+import { GruposModule } from '../grupos/grupos.module';
+import { InternalModule } from '../internal/internal.module';
+import { InvitacionesModule } from '../invitaciones/invitaciones.module';
+import { MeModule } from '../me/me.module';
+import { PrismaModule } from '../prisma/prisma.module';
+import { TutoresModule } from '../tutores/tutores.module';
+import { UsuariosModule } from '../usuarios/usuarios.module';
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    // validate: el servicio NO arranca con env inválido (ADR-00 §8).
+    // envFilePath relativo al cwd del workspace (nx serve corre desde la raíz).
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validarEnv,
+      envFilePath: ['apps/identity-service/.env', '.env'],
+    }),
+    SharedLoggingModule.forService('identity-service'),
+    PrismaModule,
+    EventosModule,
+    AuthModule,
+    InvitacionesModule,
+    GruposModule,
+    UsuariosModule,
+    TutoresModule,
+    MeModule,
+    InternalModule,
+  ],
 })
 export class AppModule {}
