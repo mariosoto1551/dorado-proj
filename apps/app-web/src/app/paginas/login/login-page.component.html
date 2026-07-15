@@ -1,0 +1,63 @@
+<main class="flex min-h-dvh items-center justify-center px-4 py-8">
+  <section class="w-full max-w-sm">
+    <h1 class="mb-1 text-center text-3xl font-bold tracking-tight">Dorado</h1>
+    <p class="mb-6 text-center text-sm text-slate-600">Ingresá a tu cuenta</p>
+
+    <form
+      [formGroup]="form"
+      (ngSubmit)="enviar()"
+      class="space-y-4 rounded-xl bg-white p-6 shadow-sm"
+    >
+      <div>
+        <label for="identificador" class="mb-1 block text-sm font-medium">
+          Email o nombre de usuario
+        </label>
+        <input
+          id="identificador"
+          type="text"
+          formControlName="identificador"
+          autocomplete="username"
+          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        />
+        @if (form.controls.identificador.touched && form.controls.identificador.invalid) {
+          <p class="mt-1 text-sm text-red-600">Ingresá tu email o usuario.</p>
+        }
+      </div>
+
+      <div>
+        <label for="password" class="mb-1 block text-sm font-medium">Contraseña</label>
+        <input
+          id="password"
+          type="password"
+          formControlName="password"
+          autocomplete="current-password"
+          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        />
+        @if (form.controls.password.touched && form.controls.password.invalid) {
+          <p class="mt-1 text-sm text-red-600">Ingresá tu contraseña.</p>
+        }
+      </div>
+
+      @if (error(); as mensaje) {
+        <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ mensaje }}
+        </p>
+      }
+
+      <button
+        type="submit"
+        [disabled]="cargando()"
+        class="h-11 w-full rounded-lg bg-amber-500 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+      >
+        {{ cargando() ? 'Ingresando…' : 'Ingresar' }}
+      </button>
+    </form>
+
+    <p class="mt-4 text-center text-sm text-slate-600">
+      ¿Tu organización todavía no existe?
+      <a routerLink="/registro" class="font-medium text-amber-700 hover:underline">
+        Registrala acá
+      </a>
+    </p>
+  </section>
+</main>

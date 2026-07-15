@@ -1,19 +1,60 @@
-﻿/**
- * This is not a production server yet!
- * This is only a minimal backend to get started.
- */
-
-import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app/app.module';
+import { Logger } from 'nestjs-pino';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  const globalPrefix = 'api';
-  app.setGlobalPrefix(globalPrefix);
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-  Logger.log(`ðŸš€ Application is running on: http://localhost:${port}/${globalPrefix}`);
+import { correlationMiddleware } from '@dorado/shared-logging';
+
+import { AppModule } from './app/app.module';
+import { crearJwtValidationMiddleware } from './proxy/jwt-validation.middleware';
+import { crearProxyMiddlewares } from './proxy/proxy.middleware';
+import { crearRateLimitMiddleware } from './proxy/rate-limit.middleware';
+import { crearTenantHeaderInjector } from './proxy/tenant-header-injector.middleware';
+
+/**
+ * Gateway (fase-03): proxy puro + cross-cutting concerns. Sin base de datos
+ * ni lógica de negocio. Orden de middlewares EXACTO al de la spec — los
+ * registrados acá corren antes que cualquier middleware interno de Nest
+ * (body-parser incluido), así los bodies llegan al proxy sin consumir.
+ */
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const logger = app.get(Logger);
+
+  app.useLogger(logger);
+  app.flushLogs();
+
+  // 1. CORS — primero de todo: el preflight OPTIONS del navegador no debe
+  //    atravesar el resto de la cadena. Lista explícita de orígenes, nunca
+  //    '*': con credentials (cookie dorado_refresh) el wildcard no funciona.
+  app.enableCors({
+    origin: [process.env.APP_WEB_URL as string, process.env.PUBLIC_SITE_URL as string],
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
+  // 2. Correlation id — lee/genera x-correlation-id y lo propaga al proxy.
+  app.use(correlationMiddleware);
+
+  // 3. Rate limiting por IP (100/min global, 10/min login y registro).
+  app.use(crearRateLimitMiddleware());
+
+  // 4. Validación JWT RS256 (rutas exentas: lista explícita en el middleware).
+  app.use(crearJwtValidationMiddleware());
+
+  // 5. Headers de contexto de tenant + x-internal-secret (ADR-00 §4).
+  app.use(
+    crearTenantHeaderInjector(() => process.env.GATEWAY_INTERNAL_SECRET as string)
+  );
+
+  // 6. Proxy por prefijo según la tabla de ruteo (503 si el servicio no está).
+  for (const proxy of crearProxyMiddlewares(logger)) {
+    app.use(proxy);
+  }
+
+  app.enableShutdownHooks();
+
+  const puerto = process.env.PORT ?? 3000;
+  await app.listen(puerto);
 }
 
 bootstrap();

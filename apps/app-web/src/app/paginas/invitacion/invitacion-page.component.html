@@ -1,0 +1,113 @@
+<main class="flex min-h-dvh items-center justify-center px-4 py-8">
+  <section class="w-full max-w-sm">
+    <h1 class="mb-6 text-center text-3xl font-bold tracking-tight">Dorado</h1>
+
+    @switch (estado()) {
+      @case ('cargando') {
+        <p class="text-center text-slate-600">Cargando invitación…</p>
+      }
+
+      @case ('error') {
+        <div class="rounded-xl bg-white p-6 text-center shadow-sm">
+          <p role="alert" class="mb-4 text-slate-800">{{ mensajeEstado() }}</p>
+          <a routerLink="/login" class="font-medium text-amber-700 hover:underline">
+            Ir al ingreso
+          </a>
+        </div>
+      }
+
+      @case ('valida') {
+        @if (preview(); as datos) {
+          <div class="mb-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">
+            Te invitaron a unirte a
+            <strong>{{ datos.grupoNombre }}</strong> de
+            <strong>{{ datos.organizacionNombre }}</strong>
+            como {{ esUsuario() ? 'participante' : 'tutor' }}.
+          </div>
+
+          <form
+            [formGroup]="form"
+            (ngSubmit)="enviar()"
+            class="space-y-4 rounded-xl bg-white p-6 shadow-sm"
+          >
+            <div>
+              <label for="nombre" class="mb-1 block text-sm font-medium">Tu nombre</label>
+              <input
+                id="nombre"
+                type="text"
+                formControlName="nombre"
+                autocomplete="name"
+                class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+              />
+              @if (form.controls.nombre.touched && form.controls.nombre.invalid) {
+                <p class="mt-1 text-sm text-red-600">Ingresá tu nombre.</p>
+              }
+            </div>
+
+            @if (esUsuario()) {
+              <div>
+                <label for="username" class="mb-1 block text-sm font-medium">
+                  Nombre de usuario
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  formControlName="username"
+                  autocomplete="username"
+                  class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                />
+                @if (form.controls.username.touched && form.controls.username.invalid) {
+                  <p class="mt-1 text-sm text-red-600">
+                    De 3 a 30 caracteres: letras, números, punto o guion.
+                  </p>
+                }
+              </div>
+            } @else {
+              <div>
+                <label for="email" class="mb-1 block text-sm font-medium">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  formControlName="email"
+                  autocomplete="email"
+                  class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                />
+                @if (form.controls.email.touched && form.controls.email.invalid) {
+                  <p class="mt-1 text-sm text-red-600">Ingresá un email válido.</p>
+                }
+              </div>
+            }
+
+            <div>
+              <label for="password" class="mb-1 block text-sm font-medium">Contraseña</label>
+              <input
+                id="password"
+                type="password"
+                formControlName="password"
+                autocomplete="new-password"
+                class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+              />
+              @if (form.controls.password.touched && form.controls.password.invalid) {
+                <p class="mt-1 text-sm text-red-600">Mínimo 8 caracteres.</p>
+              }
+            </div>
+
+            @if (error(); as mensaje) {
+              <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {{ mensaje }}
+              </p>
+            }
+
+            <button
+              type="submit"
+              [disabled]="cargando()"
+              class="h-11 w-full rounded-lg bg-amber-500 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+            >
+              {{ cargando() ? 'Uniéndote…' : 'Unirme' }}
+            </button>
+          </form>
+        }
+      }
+    }
+  </section>
+</main>

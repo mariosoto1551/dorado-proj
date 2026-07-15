@@ -1,16 +1,40 @@
 # Registro de ejecución — Fase 3: Gateway mínimo + frontend autenticado
 
-- **Estado**: PENDIENTE
-- **Fecha de finalización**: —
-- **Commit/rama**: —
-- **Resumen de lo implementado**: —
-- **Desviaciones del plan documentado** (si las hubo, y por qué): —
-- **Verificación de criterios de aceptación** (copiado de `docs/phases/fase-03-gateway-frontend-auth.md`):
-  - [ ] Todo el tráfico de `app-web` pasa por `/api/*` del Gateway, nunca directo a `identity-service`.
-  - [ ] Flujo manual completo desde el navegador (registro → onboarding → invitación → canje → login).
-  - [ ] Refrescar la página en `/` no desloguea (refresh silencioso funciona).
-  - [ ] `/api/billing/*` (o prefijo aún no implementado) responde 503, no 404 ni 500.
-  - [ ] Rate limiting verificado: 11 intentos de login en <1 min devuelven 429 en el intento 11.
-  - [ ] CORS configurado explícito (no wildcard) entre `app-web`/`public-site` y el Gateway; cookie `dorado_refresh` se guarda correctamente en el navegador entre orígenes distintos.
-- **Deuda técnica / pendientes conocidos**: —
-- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**: —
+- **Estado**: COMPLETADA_CON_DESVIACIONES
+- **Fecha de finalización**: 2026-07-15
+- **Commit/rama**: `master`, commit `fase-03: gateway + auth frontend`
+- **Resumen de lo implementado**:
+  - `apps/gateway` completo (proxy puro, sin base de datos ni lógica de negocio): tabla de ruteo con los 9 prefijos públicos (`src/proxy/tabla-ruteo.ts`, servicios de fases futuras → 503 `SERVICIO_NO_DISPONIBLE` si falta su `<SERVICIO>_INTERNAL_URL`), CORS explícito con `credentials: true` (orígenes `APP_WEB_URL`/`PUBLIC_SITE_URL`, nunca `*`), `correlationMiddleware` compartido, rate limiting por IP (100/min global, 10/min en `POST /api/auth/login` y `POST /api/auth/organizaciones`), validación JWT RS256 con `jose` (lista explícita de rutas exentas), inyección de headers de tenant + `x-internal-secret` (ADR-00 §4) con anti-spoofing, proxy por prefijo con `http-proxy-middleware`, `GET /api/health` que pinga `/internal/health` de cada servicio configurado (timeout 2s, en paralelo). Env validado al arranque (ADR-00 §8). Tests Vitest: 26 (rutas públicas, 401, payload adjunto, anti-spoofing, 503, límites 429).
+  - `apps/app-web` (Angular 22 zoneless, standalone, Tailwind 4): `AuthService` con `accessToken` en `signal` en memoria (nunca localStorage — regla 7), refresh silencioso al bootear (`provideAppInitializer` + cookie httpOnly `dorado_refresh`), `authInterceptor` funcional (Bearer + `withCredentials` en toda request a la API, ante 401 un refresh y reintento, si falla → `/login`), `authGuard`/`soloTutorGuard`, y las 5 pantallas de la fase: `/registro`, `/login` (identificador unificado), `/invitacion/:codigo` (preview + canje según `tipoInvitado`, error explícito si no existe/expiró), shell autenticado (topbar + sidebar placeholder) y `/onboarding` (crear primer grupo con selector de timezone IANA). Mobile-first (< 480px primero). Tests Vitest: 11 (token solo en memoria, refresh 200/401, refresh compartido en vuelo, logout, guard, decode JWT).
+- **Verificación de criterios de aceptación** (corridos el 2026-07-15 con identity+gateway+app-web reales; navegador vía Playwright Chromium headless):
+  - [x] Todo el tráfico de `app-web` pasa por `http://localhost:3000/api/*` — única base URL en `environments/environment.ts`; identity no tiene CORS habilitado, así que cualquier llamada directa habría fallado en consola (no hubo ninguna).
+  - [x] Flujo manual completo desde el navegador: registro → `/onboarding` (crear grupo) → invitación vía API (`POST /api/identity/grupos/:id/invitaciones` — la UI de generación es de Fase 10) → abrir `/invitacion/:codigo` en contexto nuevo sin sesión → canjear como USUARIO → logout → login con ese usuario. Además: invitación inexistente muestra error explícito.
+  - [x] Refrescar la página en `/` no desloguea (refresh silencioso rehidrata la sesión antes de que corran los guards).
+  - [x] `/api/billing/planes` (con JWT) responde **503** `SERVICIO_NO_DISPONIBLE`, no 404 ni 500. (Sin JWT responde 401: la validación JWT corre antes que el proxy, orden exacto de la spec.)
+  - [x] Rate limiting verificado en ventana limpia: intentos 1-10 de login → 401, intento 11 → **429** `DEMASIADAS_SOLICITUDES`.
+  - [x] `app-web` (4200) contra el Gateway (3000) — dos orígenes distintos: login y refresh sin ningún error de CORS en la consola del navegador, y la cookie `dorado_refresh` guardada con `httpOnly=true` para el origen del gateway (verificado vía cookies del contexto de Playwright, equivalente a DevTools → Application → Cookies).
+- **Desviaciones del plan / decisiones de implementación**:
+  1. **Rate limiting con `express-rate-limit`, no `@nestjs/throttler`**: la spec nombraba `ThrottlerGuard`, pero los guards de Nest solo corren para rutas del router de Nest — los requests proxiados se resuelven en la cadena de middlewares Express y nunca llegan ahí. Mismos límites y semántica de la spec; el 429 sale con el sobre `ApiErrorResponse`.
+  2. **Bug real encontrado en `http-proxy-middleware` 4.x**: mezclar path plano y glob en el array de `pathFilter` (`['/api/auth', '/api/auth/**']`) tira `HPM_INVALID_PATH_FILTER_ARRAY_CONFIG` en tiempo de request y el request cae al 404 de Nest. Se usa una **función** de matching por prefijo exacto (`/api/billing` no matchea `/api/billing-x`). Cubierto por test.
+  3. **Errores emitidos por los middlewares del Gateway** (401/429/502/503) ocurren antes del router de Nest, así que el `HttpExceptionFilter` global no los ve — helper `responderErrorGateway` garantiza el mismo sobre ADR-00 §7. Códigos nuevos: `DEMASIADAS_SOLICITUDES` (429), `SERVICIO_NO_DISPONIBLE` (503), `SERVICIO_NO_RESPONDE` (502, proxy hacia un servicio configurado pero caído).
+  4. **`POST /api/auth/logout` NO está exento de JWT** (la lista explícita de la spec no lo incluye) — el frontend limpia la sesión local aunque el POST falle. **Anti-spoofing** (no explícito en la spec): el injector borra SIEMPRE los headers `x-organizacion-id`/`x-grupo-ids`/`x-rol`/`x-principal-id`/`x-principal-type`/`x-internal-secret` entrantes del cliente antes de setearlos desde el JWT verificado.
+  5. **El JWT middleware solo aplica a paths bajo `/api/`** — cualquier otro path cae al router de Nest (404 con sobre estándar). `GET /api/health` es la única ruta que el Gateway atiende por sí mismo.
+  6. **pino-http del Gateway no ve los requests proxiados** (el proxy corre antes en la cadena Express): el Gateway loguea 503s y errores de proxy; el request completo queda logueado por el servicio destino con el mismo `correlationId` (verificado en logs de identity: llegan `x-correlation-id` y los headers de tenant).
+  7. **Frontend con Reactive Forms clásico** (la spec dice "form reactivo"; la skill dejaba Signal Forms como opción abierta) — consistente en toda `app-web`; reevaluar Signal Forms al encarar Fase 10, no mezclar estilos.
+  8. **`environments/environment.ts` simple** con `apiBaseUrl` de dev (`http://localhost:3000/api`); la URL de producción y `fileReplacements` quedan como hueco explícito para Fase 13.
+  9. **Página `inicio` placeholder** como hija default del shell (la spec definía el layout pero no el contenido de `/`) — se reemplaza en Fase 10.
+  10. **Refresh compartido en vuelo** en `AuthService` (`shareReplay`): dos 401 concurrentes disparan UNA sola llamada a `/api/auth/refresh` — con rotación de token (ADR-00 §3), dos refresh paralelos harían que el segundo use un token ya revocado. Cubierto por test.
+  11. **Shapes de respuesta de auth tipados localmente** en `app-web` (`core/auth/auth.types.ts`) espejando el wire real de identity — `libs/shared-types` sigue sin tocarse (es el contrato documentado; sumar ahí `LoginResponse`/`ApiErrorResponse` se reevalúa en Fase 10, mismo criterio que la desviación 5 de Fase 2).
+  12. **Tailwind 4.3 vía `@tailwindcss/postcss`** + `.postcssrc.json` en `apps/app-web` (config CSS-first, sin `tailwind.config.js`); `styles.css` importa `tailwindcss` y los tokens de `libs/shared-ui/src/theme.css`.
+  13. Dependencias nuevas: `http-proxy-middleware` 4.2 y `express-rate-limit` 8.5 (prod); `tailwindcss` 4.3 y `@tailwindcss/postcss` (dev). `express-rate-limit` 8 trae types de Express 5 y el workspace usa `@types/express` 4 (los de Nest 11) — los middlewares del gateway se tipan contra `node:http` para esquivar el conflicto.
+  14. Playwright Chromium se instaló localmente (`npx playwright install chromium`) para la verificación en navegador; el script usado fue temporal (scratchpad), el e2e formal llega en Fase 12.
+- **Deuda técnica / pendientes conocidos**:
+  - CI en GitHub sigue sin verificarse (sin remote — heredado de Fases 1-2).
+  - El rate limit vive en memoria del proceso (un solo nodo). Si en Fase 13 el Gateway escala horizontal, necesita store compartido (Redis) — anotado para entonces.
+  - `apps/gateway/.env` no se comitea (gitignore): recrearlo desde `.env.example` copiando `JWT_PUBLIC_KEY` y `GATEWAY_INTERNAL_SECRET` de `apps/identity-service/.env`.
+  - La cookie `dorado_refresh` sigue con `path: '/'` (decisión 10 de Fase 2); acotarla a `/api/auth` es posible ahora que existe el Gateway, pero tocaría identity — se deja para una fase que ya toque identity.
+- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**:
+  1. `docker compose -f infra/docker-compose.yml up -d` y `pnpm nx run-many -t lint,test,build` en verde (16 proyectos).
+  2. Si falta `apps/gateway/.env`: copiar `.env.example` y pegar la misma `JWT_PUBLIC_KEY` y `GATEWAY_INTERNAL_SECRET` de `apps/identity-service/.env`.
+  3. `pnpm nx serve identity-service`, `pnpm nx serve gateway`, `pnpm nx serve app-web` → `curl http://localhost:3000/api/health` (identity `up`) y flujo rápido en el navegador: registro → onboarding → F5 (sesión se mantiene).
+  4. Fase 4 (billing): la tabla de ruteo del Gateway ya contempla `/api/billing/*` — al levantar billing-service solo hay que agregar `BILLING_INTERNAL_URL=http://localhost:3002` al `.env` del Gateway, sin tocar código.

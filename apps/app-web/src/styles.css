@@ -1,1 +1,9 @@
-/* You can add global styles to this file, and also import other style files */
+/* Entrypoint de estilos de app-web — Tailwind CSS 4, config CSS-first (sin
+ * tailwind.config.js). Los tokens compartidos del proyecto viven en
+ * libs/shared-ui/src/theme.css y se importan acá, nunca se redefinen local. */
+@import 'tailwindcss';
+@import '../../../libs/shared-ui/src/theme.css';
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+}

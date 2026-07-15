@@ -1,0 +1,56 @@
+<section class="mx-auto w-full max-w-sm px-4 py-8">
+  <h2 class="mb-1 text-2xl font-bold tracking-tight">Creá tu primer Grupo</h2>
+  <p class="mb-6 text-sm text-slate-600">
+    Un Grupo reúne a tus participantes: sus actividades, puntos y zonas viven ahí.
+  </p>
+
+  <form
+    [formGroup]="form"
+    (ngSubmit)="enviar()"
+    class="space-y-4 rounded-xl bg-white p-6 shadow-sm"
+  >
+    <div>
+      <label for="nombre" class="mb-1 block text-sm font-medium">Nombre del grupo</label>
+      <input
+        id="nombre"
+        type="text"
+        formControlName="nombre"
+        placeholder="Ej: Familia García"
+        class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+      />
+      @if (form.controls.nombre.touched && form.controls.nombre.invalid) {
+        <p class="mt-1 text-sm text-red-600">Ingresá un nombre (máx. 120 caracteres).</p>
+      }
+    </div>
+
+    <div>
+      <label for="timezone" class="mb-1 block text-sm font-medium">Zona horaria</label>
+      <select
+        id="timezone"
+        formControlName="timezone"
+        class="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+      >
+        @for (tz of timezones; track tz) {
+          <option [value]="tz">{{ tz }}</option>
+        }
+      </select>
+      <p class="mt-1 text-xs text-slate-500">
+        Los horarios de sesiones y deadlines del grupo se calculan en esta zona.
+      </p>
+    </div>
+
+    @if (error(); as mensaje) {
+      <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        {{ mensaje }}
+      </p>
+    }
+
+    <button
+      type="submit"
+      [disabled]="cargando()"
+      class="h-11 w-full rounded-lg bg-amber-500 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+    >
+      {{ cargando() ? 'Creando…' : 'Crear grupo' }}
+    </button>
+  </form>
+</section>

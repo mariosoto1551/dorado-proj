@@ -1,0 +1,76 @@
+<main class="flex min-h-dvh items-center justify-center px-4 py-8">
+  <section class="w-full max-w-sm">
+    <h1 class="mb-1 text-center text-3xl font-bold tracking-tight">Dorado</h1>
+    <p class="mb-6 text-center text-sm text-slate-600">Registrá tu organización</p>
+
+    <form
+      [formGroup]="form"
+      (ngSubmit)="enviar()"
+      class="space-y-4 rounded-xl bg-white p-6 shadow-sm"
+    >
+      <div>
+        <label for="nombre" class="mb-1 block text-sm font-medium">
+          Nombre de la organización
+        </label>
+        <input
+          id="nombre"
+          type="text"
+          formControlName="nombre"
+          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        />
+        @if (form.controls.nombre.touched && form.controls.nombre.invalid) {
+          <p class="mt-1 text-sm text-red-600">Ingresá un nombre (máx. 120 caracteres).</p>
+        }
+      </div>
+
+      <div>
+        <label for="emailContacto" class="mb-1 block text-sm font-medium">
+          Email de contacto
+        </label>
+        <input
+          id="emailContacto"
+          type="email"
+          formControlName="emailContacto"
+          autocomplete="email"
+          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        />
+        @if (form.controls.emailContacto.touched && form.controls.emailContacto.invalid) {
+          <p class="mt-1 text-sm text-red-600">Ingresá un email válido.</p>
+        }
+      </div>
+
+      <div>
+        <label for="password" class="mb-1 block text-sm font-medium">Contraseña</label>
+        <input
+          id="password"
+          type="password"
+          formControlName="password"
+          autocomplete="new-password"
+          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        />
+        @if (form.controls.password.touched && form.controls.password.invalid) {
+          <p class="mt-1 text-sm text-red-600">Mínimo 8 caracteres.</p>
+        }
+      </div>
+
+      @if (error(); as mensaje) {
+        <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ mensaje }}
+        </p>
+      }
+
+      <button
+        type="submit"
+        [disabled]="cargando()"
+        class="h-11 w-full rounded-lg bg-amber-500 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+      >
+        {{ cargando() ? 'Creando…' : 'Crear organización' }}
+      </button>
+    </form>
+
+    <p class="mt-4 text-center text-sm text-slate-600">
+      ¿Ya tenés cuenta?
+      <a routerLink="/login" class="font-medium text-amber-700 hover:underline">Ingresá</a>
+    </p>
+  </section>
+</main>
