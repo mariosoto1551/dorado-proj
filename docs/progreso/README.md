@@ -23,7 +23,7 @@
 | Fase | Estado | Última actualización | Resumen |
 |---|---|---|---|
 | Fase 0 — Especificación | COMPLETADA | 2026-07-14 | Docs de arquitectura y las 15 fases generados. |
-| Fase 1 — Monorepo | PENDIENTE | — | — |
+| Fase 1 — Monorepo | COMPLETADA_CON_DESVIACIONES | 2026-07-14 | Workspace Nx 23 + 12 apps + 5 libs + Docker + CI. Ver desviaciones (Nx 23, plantilla angular, zone.js devDep, shared-logging) y pendiente de CI en su archivo. |
 | Fase 2 — Identity & Access | PENDIENTE | — | — |
 | Fase 3 — Gateway + auth frontend | PENDIENTE | — | — |
 | Fase 4 — Billing | PENDIENTE | — | — |

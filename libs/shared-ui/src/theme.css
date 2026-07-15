@@ -1,0 +1,16 @@
+/*
+ * Design tokens compartidos — Proyecto Dorado.
+ * Consumido por apps/app-web (entrypoint de estilos Tailwind) y por
+ * apps/public-site (Astro) como CSS plano.
+ *
+ * Los colores de zona son el DEFAULT DE SEED (ver CLAUDE.md) — el color real
+ * por Grupo viene de la API (GET /api/scoring/grupos/:grupoId/umbrales,
+ * UmbralZona.colorHex). Esto es solo el fallback visual; la UI de zonas nunca
+ * asume que un Grupo usa estos valores.
+ */
+@theme {
+  --color-zona-rojo: #ef4444;
+  --color-zona-amarillo: #f59e0b;
+  --color-zona-verde: #22c55e;
+  --color-zona-dorado: #eab308;
+}

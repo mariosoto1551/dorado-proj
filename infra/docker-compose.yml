@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: dorado
+      POSTGRES_PASSWORD: dorado_dev
+    ports: ['5432:5432']
+    volumes:
+      # postgres:18 movió PGDATA bajo /var/lib/postgresql/<major>/ — el mount
+      # correcto para persistencia es /var/lib/postgresql, no .../data.
+      - 'pgdata:/var/lib/postgresql'
+      - './docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh'
+
+  rabbitmq:
+    image: rabbitmq:4.3-management
+    ports: ['5672:5672', '15672:15672'] # 15672 = UI de management
+
+  adminer:
+    image: adminer
+    ports: ['8081:8080']
+    depends_on: [postgres]
+
+volumes:
+  pgdata:
