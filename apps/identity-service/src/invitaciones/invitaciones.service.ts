@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 
 import {
@@ -11,16 +11,19 @@ import { DomainException } from '@dorado/shared-auth';
 import { InvitacionDto, TenantContext, TipoInvitado } from '@dorado/shared-types';
 
 import { AuthService, SesionEmitida } from '../auth/auth.service';
+import { BillingClientService } from '../billing/billing-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
   InvitacionNoCanjeableException,
   InvitacionNoEncontradaException,
   InvitacionNoRevocableException,
+  LimitePlanAlcanzadoException,
 } from '../comun/excepciones';
 import { invitacionADto } from '../comun/mapeadores';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Invitacion } from '../generated/prisma/client';
 import {
+  EstadoCuenta,
   EstadoInvitacion,
   RolTutor,
   TipoInvitado as TipoInvitadoPrisma,
@@ -45,11 +48,14 @@ const AVATAR_DEFAULT = 'avatar-01';
 
 @Injectable()
 export class InvitacionesService {
+  private readonly logger = new Logger(InvitacionesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accesoGrupo: AccesoGrupoService,
     private readonly auth: AuthService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly billing: BillingClientService
   ) {}
 
   // ---------- Autenticados (/identity/...) ----------
@@ -186,6 +192,8 @@ export class InvitacionesService {
       throw new DomainException('EMAIL_REQUERIDO', 'email es requerido para canjear una invitación de TUTOR', 400);
     }
 
+    await this.asegurarLimiteCanje(invitacion.organizacionId, TipoInvitadoPrisma.TUTOR);
+
     const email = datos.email;
     const passwordHash = await argon2.hash(datos.password);
 
@@ -227,6 +235,8 @@ export class InvitacionesService {
     if (!datos.username) {
       throw new DomainException('USERNAME_REQUERIDO', 'username es requerido para canjear una invitación de USUARIO', 400);
     }
+
+    await this.asegurarLimiteCanje(invitacion.organizacionId, TipoInvitadoPrisma.USUARIO);
 
     const username = datos.username;
     const passwordHash = await argon2.hash(datos.password);
@@ -314,6 +324,62 @@ export class InvitacionesService {
         tipoInvitado: invitacion.tipoInvitado as TipoInvitado,
       },
     });
+  }
+
+  /**
+   * Chequeo de entitlements previo a crear el Tutor/Usuario del canje (spec
+   * fase-04): cuenta las cuentas ACTIVAS de la organización contra el límite
+   * del plan. Solo ACTIVO: una cuenta desactivada no ocupa cupo (la spec no lo
+   * precisa — decisión documentada en docs/progreso/fase-04-billing.md, igual
+   * que la omisión del chequeo si billing no está disponible).
+   */
+  private async asegurarLimiteCanje(
+    organizacionId: string,
+    tipoInvitado: TipoInvitadoPrisma
+  ): Promise<void> {
+    const entitlements = await this.billing.resolveEntitlements(organizacionId);
+
+    if (!entitlements) {
+      this.logger.warn(
+        `Billing no disponible — se omite el chequeo de límite de ${
+          tipoInvitado === TipoInvitadoPrisma.TUTOR ? 'tutores' : 'usuarios'
+        } para ${organizacionId}`
+      );
+
+      return;
+    }
+
+    if (tipoInvitado === TipoInvitadoPrisma.TUTOR) {
+      const limite = entitlements.limites.tutores;
+
+      if (limite === null) {
+        return;
+      }
+
+      const actuales = await this.prisma.client.tutor.count({
+        where: { organizacionId, estado: EstadoCuenta.ACTIVO },
+      });
+
+      if (actuales >= limite) {
+        throw new LimitePlanAlcanzadoException('tutores');
+      }
+
+      return;
+    }
+
+    const limite = entitlements.limites.usuarios;
+
+    if (limite === null) {
+      return;
+    }
+
+    const actuales = await this.prisma.client.usuario.count({
+      where: { organizacionId, estado: EstadoCuenta.ACTIVO },
+    });
+
+    if (actuales >= limite) {
+      throw new LimitePlanAlcanzadoException('usuarios');
+    }
   }
 
   private async crearConCodigoUnico(params: {

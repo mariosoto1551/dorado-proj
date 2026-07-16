@@ -1,0 +1,68 @@
+// Schema de billing-service (base billing_db) — fuente: docs/phases/fase-04-billing.md.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId indexado en tablas de negocio), timestamps en modelos mutables.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CodigoPlan {
+  FREE
+  PRO
+}
+
+enum EstadoSuscripcion {
+  ACTIVA
+  CANCELADA
+}
+
+enum FuenteSuscripcion {
+  // asignada al crear la organización (siempre FREE)
+  AUTOMATICA
+  // cambiada a mano en base (ej. a PRO) — no hay endpoint de upgrade en el MVP
+  MANUAL
+}
+
+// Catálogo global de planes (NO tenant-scoped: es de plataforma, no de una
+// organización). Filas creadas por prisma/seed.ts, nunca por endpoint.
+model Plan {
+  id                        String        @id @default(uuid())
+  codigo                    CodigoPlan    @unique
+  nombre                    String
+  // null = sin límite
+  limiteTutores             Int?
+  limiteUsuarios            Int?
+  limiteGrupos              Int?
+  limiteActividadesPorGrupo Int?
+  whiteLabel                Boolean       @default(false)
+  reportesAvanzados         Boolean       @default(false)
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+  suscripciones             Suscripcion[]
+}
+
+model Suscripcion {
+  id             String            @id @default(uuid())
+  // una suscripción activa por organización en el MVP
+  organizacionId String            @unique
+  planId         String
+  plan           Plan              @relation(fields: [planId], references: [id])
+  estado         EstadoSuscripcion @default(ACTIVA)
+  fuente         FuenteSuscripcion @default(AUTOMATICA)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+// Idempotencia de consumidores de eventos (ADR-00 §5): un eventId ya presente
+// acá se descarta sin re-aplicar efectos. Inmutable: solo procesadoEn.
+model EventoProcesado {
+  eventId     String   @id
+  consumidor  String
+  procesadoEn DateTime @default(now())
+}

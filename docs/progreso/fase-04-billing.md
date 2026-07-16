@@ -1,14 +1,41 @@
 # Registro de ejecución — Fase 4: Billing/Subscription
 
-- **Estado**: PENDIENTE
-- **Fecha de finalización**: —
-- **Commit/rama**: —
-- **Resumen de lo implementado**: —
-- **Desviaciones del plan documentado** (si las hubo, y por qué): —
-- **Verificación de criterios de aceptación** (copiado de `docs/phases/fase-04-billing.md`):
-  - [ ] Al registrar una organización nueva, aparece su fila en `Suscripcion` (plan FREE) vía evento, no polling.
-  - [ ] Crear un 3er Grupo en una organización FREE (límite 1) devuelve 403 con el código de error documentado.
-  - [ ] Cambiar manualmente `Suscripcion.planId` a PRO hace que el próximo login traiga `plan: 'PRO'` y los límites se levanten.
-  - [ ] Si se detiene `billing-service`, el login sigue funcionando (fallback a FREE), no da 500.
-- **Deuda técnica / pendientes conocidos**: confirmar los límites numéricos del plan Free (puestos como default en la spec, no vienen de los docs fuente) antes de Fase 13.
-- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**: —
+- **Estado**: COMPLETADA_CON_DESVIACIONES
+- **Fecha de finalización**: 2026-07-16
+- **Commit/rama**: `master`, commit `fase-04: billing/subscription`
+- **Resumen de lo implementado**:
+  - `apps/billing-service` completo (base `billing_db`, puerto 3002): schema Prisma 7 (`Plan`, `Suscripcion`, `EventoProcesado`, migración `20260716025213_init_billing`), seed de Planes FREE/PRO (upsert idempotente, corre al bootstrap del servicio vía `SeedPlanesService` y también vía `prisma db seed`), consumidor de `OrganizacionCreada` (cola cuórum `billing.q.suscripciones` + DLQ `billing.dlq`, idempotente por `EventoProcesado` y por unicidad de `Suscripcion.organizacionId`), endpoints internos `GET /internal/billing/organizaciones/:id/plan` y `/entitlements` (guard `x-internal-secret`), `GET /billing/mi-organizacion` (JWT + rol ORG_ADMIN), `GET /internal/health`, env validado al arranque (ADR-00 §8). Tests Vitest: 9.
+  - `apps/identity-service`: `PlanResolverService` (placeholder Fase 2) reemplazado por `BillingClientService` (`src/billing/`) — REST interno con `x-internal-secret`, timeout 2s, propagación de `x-correlation-id`. `resolvePlan` con fallback `FREE` (spec). Chequeos de entitlements reales antes de crear Grupo (`GruposService`) y antes de crear Tutor/Usuario en el canje de invitación (`InvitacionesService`), con 403 `LIMITE_PLAN_ALCANZADO` + `recurso`. Env nueva requerida: `BILLING_INTERNAL_URL`. Tests Vitest: 17 (5 previos + 12 nuevos de límites y cliente billing).
+  - `libs/shared-auth`: `DomainException` acepta `extras` opcionales y `HttpExceptionFilter` los agrega al sobre — necesario para el body `{ code: 'LIMITE_PLAN_ALCANZADO', recurso: '...' }` que pide la spec sin romper ADR-00 §7 (los 4 campos del sobre siempre presentes; los extras no pueden pisarlos).
+  - `apps/gateway`: solo config — `BILLING_INTERNAL_URL` en `.env`/`.env.example` (la tabla de ruteo de Fase 3 ya contemplaba `/api/billing/*`). Cero cambios de código, como estaba previsto.
+- **Verificación de criterios de aceptación** (corridos el 2026-07-16 contra identity+billing+gateway reales, vía Gateway):
+  - [x] Al registrar una organización nueva (`POST /api/auth/organizaciones`), su fila en `Suscripcion` (FREE, ACTIVA, AUTOMATICA) apareció en `billing_db` en ~3 segundos vía evento (verificado por SQL; `EventoProcesado` tiene el `eventId` consumido). Sin polling.
+  - [x] Crear un grupo por encima del límite FREE (límite 1) devuelve **403** `{"recurso":"grupos","statusCode":403,"code":"LIMITE_PLAN_ALCANZADO","message":"El plan actual no permite crear más grupos","correlationId":...}`. (Verificado E2E con el 3er grupo de una organización que ya tenía 2 — ver nota abajo; el bloqueo del 2º con límite 1 está cubierto por unit test.)
+  - [x] `UPDATE "Suscripcion" SET "planId" = <PRO>, fuente = 'MANUAL'` en base, **sin reiniciar servicios**: el siguiente login devolvió JWT con `"plan":"PRO"` y el mismo intento de crear grupo pasó de 403 a **201**. `GET /api/billing/mi-organizacion` devuelve la suscripción PRO/MANUAL + PlanDto completo.
+  - [x] Con `billing-service` detenido, `POST /api/auth/login` responde **200** (JWT con `plan: "FREE"` por fallback, warning en el log de identity con el mismo `correlationId`), no 500.
+  - Topología RabbitMQ verificada con `rabbitmqctl`: `billing.q.suscripciones` (quorum) bindeada a `dorado.events` con `identity.organizacion_creada`; `billing.dlq` (quorum) bindeada a `dorado.events.dlx` con `#`.
+  - `pnpm nx run-many -t "lint,test,build"` en verde para los 16 proyectos (40 tareas).
+- **Desviaciones del plan / decisiones de implementación**:
+  1. **Seed en dos vías con una sola fuente** (`src/prisma/seed-planes.ts`, `PLANES_SEED`): al bootstrap del servicio (upsert idempotente — cumple "corre al levantar el servicio la primera vez") y vía `prisma db seed`/`nx run billing-service:prisma-seed`. El CLI corre con `node -r @swc-node/register` (devDep existente): el type-stripping nativo de Node no resuelve los imports sin extensión del cliente Prisma generado. El upsert re-sincroniza el catálogo con el código en cada arranque — editar `Plan` a mano en base no persiste (lo manual del MVP es `Suscripcion.planId`, no el catálogo).
+  2. **Discrepancia de contrato señalada (no resuelta acá)**: `SuscripcionDto.fuente` en `docs/architecture/shared-types.md` dice `'MANUAL' | 'FLAG'`, pero la spec de esta fase define el enum de base `AUTOMATICA | MANUAL`. Se expone el wire real con tipo local (`SuscripcionWire` en billing) y `libs/shared-types` queda intacta — mismo criterio que Fases 2 y 3. A resolver cuando se toque el contrato (Fase 10 consume este endpoint).
+  3. **`DomainException.extras`** (shared-auth): la spec pide `recurso` en el body del 403 y el sobre ADR-00 §7 no lo contemplaba. Extensión conservadora: campos extra opcionales que el filtro agrega al sobre, los 4 campos garantizados no se pueden pisar. Ningún servicio existente cambia su comportamiento.
+  4. **Fallback de entitlements no definido en la spec** (solo define fallback de login): si billing no responde, el chequeo de límite **se omite con warning** (fail-open). Motivo: los números de límite viven solo en billing (hardcodearlos en identity duplicaría el seed); crear grupos/cuentas es una operación admin poco frecuente y la ventana de caída es corta. `resolvePlan` → FREE (literal de la spec).
+  5. **Límite de tutores/usuarios cuenta solo cuentas `ACTIVO`** (una cuenta desactivada con `DELETE /identity/tutores/:id` libera cupo) — la spec no lo precisa; hueco señalado. Grupos se cuentan todos (el modelo no tiene estado).
+  6. **Organización sin `Suscripcion` (retardo del evento)**: los endpoints internos resuelven **FREE** (plan por defecto del sistema), no 404 — así el login de una organización recién creada nunca falla por la carrera con el consumer. `GET /billing/mi-organizacion` sí devuelve 404 `SUSCRIPCION_NO_ENCONTRADA` (ahí el dato faltante es información, no un default).
+  7. **Solo la suscripción `ACTIVA` cuenta para el plan vigente**; una `CANCELADA` resuelve FREE. En el MVP no existe flujo que cancele — hueco de spec señalado, sin costo actual.
+  8. **Reintentos del consumer**: error → 1 requeue inmediato (flag `redelivered`) → `billing.dlq`. El "retry con backoff vía x-death, 3 veces" de ADR-00 §5 queda como deuda para cuando lleguen los consumidores críticos (Scoring, Fase 7) — con idempotencia por `EventoProcesado`, el esquema actual es seguro (nunca descarta silenciosamente: todo termina en la DLQ).
+  9. **`BILLING_INTERNAL_URL` es requerida** en el env de identity (ADR-00 §8 — nada de opcionales silenciosos); la tolerancia a billing caído es comportamiento de runtime, no de configuración.
+  10. **No se implementó** endpoint de upgrade/downgrade ni nada de `PLATFORM_ADMIN` (explícito en la spec): el paso a PRO es un UPDATE manual en `billing_db` (verificado así en los criterios).
+  11. El registro del evento en `EventoProcesado` y el efecto (crear `Suscripcion`) van en **una transacción**; la carrera entre entregas concurrentes se cierra por P2002 (unique de `eventId` / `organizacionId`) tratado como "ya procesado".
+- **Nota de la verificación E2E**: durante la verificación quedó un proceso viejo de identity (build de Fase 3, sin chequeo de límites) ocupando el 3001, y los 2 primeros grupos de la organización de prueba se crearon contra ese proceso. Matado el proceso y levantado el build real, el 3er grupo dio el 403 esperado. Sin impacto en el resultado (el escenario literal del criterio es justamente el 3er grupo), pero es un recordatorio: **antes de verificar, chequear que los puertos 3000-3002 no tengan procesos de una sesión anterior** (`Get-NetTCPConnection -LocalPort 3001 -State Listen`).
+- **Deuda técnica / pendientes conocidos**:
+  - Confirmar los límites numéricos del plan FREE antes de Fase 13 (default de la spec, no vienen de los docs fuente) — heredado.
+  - Retry con backoff formal (3 intentos, x-death) para consumidores — anotado para Fase 7 (Scoring es el primer consumidor donde perder un mensaje duele).
+  - No hay tooling para revisar/reinyectar mensajes de `billing.dlq` (revisión manual vía management UI, localhost:15672) — candidato a Fase 12.
+  - CI en GitHub sigue sin verificarse (sin remote — heredado de Fases 1-3).
+  - `app-web` todavía no muestra plan/límites en la UI (el 403 `LIMITE_PLAN_ALCANZADO` llega con sobre estándar; pantalla de billing es Fase 10).
+- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**:
+  1. `docker compose -f infra/docker-compose.yml up -d` y `pnpm nx run-many -t "lint,test,build"` en verde (16 proyectos). **Ojo PowerShell**: los targets van entre comillas — `-t lint,test,build` sin comillas hace que Nx reciba argumentos rotos y diga "No tasks were run".
+  2. Si falta `apps/billing-service/.env`: copiar `.env.example` y pegar la misma `JWT_PUBLIC_KEY` de `apps/identity-service/.env`; después `pnpm nx run billing-service:prisma-migrate`. En identity, `.env` necesita `BILLING_INTERNAL_URL=http://localhost:3002` (ya está en su `.env.example`).
+  3. Levantar identity + billing + gateway → `curl http://localhost:3000/api/health` debe mostrar `identity: up, billing: up`. Flujo rápido: registrar organización → en segundos existe su fila FREE en `Suscripcion` (`billing_db`) → crear 2º grupo → 403 `LIMITE_PLAN_ALCANZADO`.
+  4. Fase 5 (Activity Catalog): billing ya expone `GET /internal/billing/organizaciones/:id/entitlements` con `limiteActividadesPorGrupo` — activity lo consume igual que identity (copiar el patrón `BillingClientService`). El gateway ya rutea `/api/activity/*`: solo agregar `ACTIVITY_INTERNAL_URL=http://localhost:3003` a su `.env`.

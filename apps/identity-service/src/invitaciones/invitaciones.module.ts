@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 import { ComunModule } from '../comun/comun.module';
 import { InvitacionesAdminController } from './invitaciones-admin.controller';
 import { InvitacionesPublicController } from './invitaciones-public.controller';
 import { InvitacionesService } from './invitaciones.service';
 
 @Module({
-  imports: [AuthModule, ComunModule],
+  imports: [AuthModule, BillingModule, ComunModule],
   controllers: [InvitacionesPublicController, InvitacionesAdminController],
   providers: [InvitacionesService],
 })

@@ -10,6 +10,7 @@ import {
   UsuarioDto,
 } from '@dorado/shared-types';
 
+import { BillingClientService } from '../billing/billing-client.service';
 import {
   CredencialesInvalidasException,
   IdentificadorEnUsoException,
@@ -22,7 +23,6 @@ import type { Tutor, Usuario } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginRequest } from './dto/login.dto';
 import type { RegistrarOrganizacionRequest } from './dto/registrar-organizacion.dto';
-import { PlanResolverService } from './plan-resolver.service';
 import { RefreshEmitido, TokensService } from './tokens.service';
 
 export interface SesionEmitida {
@@ -42,7 +42,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokensService,
-    private readonly planResolver: PlanResolverService,
+    private readonly billing: BillingClientService,
     private readonly eventos: EventosPublisherService
   ) {}
 
@@ -175,7 +175,7 @@ export class AuthService {
             })
           ).map((asignacion) => asignacion.grupoId);
 
-    const plan = await this.planResolver.resolvePlan(tutor.organizacionId);
+    const plan = await this.billing.resolvePlan(tutor.organizacionId);
     const rol = tutor.rol === RolTutor.ORG_ADMIN ? Rol.ORG_ADMIN : Rol.TUTOR;
 
     const accessToken = await this.tokens.emitirAccessToken({
@@ -198,7 +198,7 @@ export class AuthService {
   }
 
   async emitirSesionUsuario(usuario: Usuario): Promise<SesionEmitida> {
-    const plan = await this.planResolver.resolvePlan(usuario.organizacionId);
+    const plan = await this.billing.resolvePlan(usuario.organizacionId);
 
     const accessToken = await this.tokens.emitirAccessToken({
       principalId: usuario.id,

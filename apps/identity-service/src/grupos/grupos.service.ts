@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { GrupoDto, Rol, TenantContext } from '@dorado/shared-types';
 
+import { BillingClientService } from '../billing/billing-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { LimitePlanAlcanzadoException } from '../comun/excepciones';
 import { grupoADto } from '../comun/mapeadores';
@@ -10,9 +11,12 @@ import type { CrearGrupoRequest, EditarGrupoRequest } from './dto/grupos.dto';
 
 @Injectable()
 export class GruposService {
+  private readonly logger = new Logger(GruposService.name);
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly accesoGrupo: AccesoGrupoService
+    private readonly accesoGrupo: AccesoGrupoService,
+    private readonly billing: BillingClientService
   ) {}
 
   async listar(tenant: TenantContext): Promise<GrupoDto[]> {
@@ -38,11 +42,7 @@ export class GruposService {
   }
 
   async crear(tenant: TenantContext, datos: CrearGrupoRequest): Promise<GrupoDto> {
-    const limite = await this.chequearLimitePlan(tenant.organizacionId);
-
-    if (!limite.permitido) {
-      throw new LimitePlanAlcanzadoException('grupos');
-    }
+    await this.asegurarLimiteGrupos(tenant.organizacionId);
 
     const grupo = await this.prisma.client.$transaction(async (tx) => {
       const nuevoGrupo = await tx.grupo.create({
@@ -90,10 +90,35 @@ export class GruposService {
     return grupoADto(grupo);
   }
 
-  // TODO Fase 4: reemplazar por llamada real a billing-service.
-  private async chequearLimitePlan(
-    _organizacionId: string
-  ): Promise<{ permitido: boolean }> {
-    return { permitido: true };
+  /**
+   * Chequeo de entitlements previo a crear un Grupo (spec fase-04): cuenta los
+   * grupos actuales de la organización contra `limites.grupos`. Si billing no
+   * está disponible el chequeo se omite con warning (decisión documentada en
+   * docs/progreso/fase-04-billing.md — la spec solo define fallback de login).
+   */
+  private async asegurarLimiteGrupos(organizacionId: string): Promise<void> {
+    const entitlements = await this.billing.resolveEntitlements(organizacionId);
+
+    if (!entitlements) {
+      this.logger.warn(
+        `Billing no disponible — se omite el chequeo de límite de grupos para ${organizacionId}`
+      );
+
+      return;
+    }
+
+    const limite = entitlements.limites.grupos;
+
+    if (limite === null) {
+      return;
+    }
+
+    const actuales = await this.prisma.client.grupo.count({
+      where: { organizacionId },
+    });
+
+    if (actuales >= limite) {
+      throw new LimitePlanAlcanzadoException('grupos');
+    }
   }
 }

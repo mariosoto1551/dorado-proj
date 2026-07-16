@@ -68,6 +68,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private traducir(exception: unknown, correlationId: string): ApiErrorResponse {
     if (exception instanceof DomainException) {
       return {
+        // Los extras van primero: no pueden pisar los 4 campos del sobre.
+        ...exception.extras,
         statusCode: exception.getStatus(),
         code: exception.code,
         message: exception.message,

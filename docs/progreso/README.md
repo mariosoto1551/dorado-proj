@@ -26,7 +26,7 @@
 | Fase 1 — Monorepo | COMPLETADA_CON_DESVIACIONES | 2026-07-14 | Workspace Nx 23 + 12 apps + 5 libs + Docker + CI. Ver desviaciones (Nx 23, plantilla angular, zone.js devDep, shared-logging) y pendiente de CI en su archivo. |
 | Fase 2 — Identity & Access | COMPLETADA_CON_DESVIACIONES | 2026-07-15 | identity-service completo (auth, invitaciones, grupos, internos, 4 eventos) + shared-auth/shared-logging reales. Flujo E2E y eventos verificados. Ver desviaciones (Prisma 7 config/extension, huecos de spec señalados) en su archivo. |
 | Fase 3 — Gateway + auth frontend | COMPLETADA_CON_DESVIACIONES | 2026-07-15 | Gateway completo (proxy 9 prefijos, CORS, 429, JWT, headers tenant, health) + auth de app-web (sesión en memoria, refresh silencioso, 5 pantallas). Flujo E2E verificado en navegador. Ver desviaciones (express-rate-limit, pathFilter, tipos locales) en su archivo. |
-| Fase 4 — Billing | PENDIENTE | — | — |
+| Fase 4 — Billing | COMPLETADA_CON_DESVIACIONES | 2026-07-16 | billing-service completo (suscripción FREE vía evento, entitlements, mi-organizacion) + límites reales en identity (grupos/tutores/usuarios) + plan real en el JWT con fallback FREE. 4 criterios verificados E2E. Ver desviaciones (seed dual, extras en sobre de error, fail-open de entitlements) en su archivo. |
 | Fase 5 — Activity Catalog | PENDIENTE | — | — |
 | Fase 6 — Session/Section | PENDIENTE | — | — |
 | Fase 7 — Scoring Engine | PENDIENTE | — | — |

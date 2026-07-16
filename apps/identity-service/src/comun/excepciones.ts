@@ -49,7 +49,10 @@ export class InvitacionNoRevocableException extends DomainException {
 }
 
 export class LimitePlanAlcanzadoException extends DomainException {
-  constructor(recurso: string) {
-    super('LIMITE_PLAN_ALCANZADO', `El plan actual no permite crear más ${recurso}`, 403);
+  constructor(recurso: 'grupos' | 'tutores' | 'usuarios') {
+    // La spec fase-04 pide `recurso` en el body del 403, además del code.
+    super('LIMITE_PLAN_ALCANZADO', `El plan actual no permite crear más ${recurso}`, 403, {
+      recurso,
+    });
   }
 }
