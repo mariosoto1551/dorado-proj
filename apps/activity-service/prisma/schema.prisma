@@ -1,0 +1,82 @@
+// Schema de activity-service (base activity_db) — fuente: docs/phases/fase-05-activity-catalog.md.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId + grupoId indexados), puntos siempre Int.
+// Los modelos de registro (RegistroActividad/RegistroConducta) NO van acá:
+// se agregan en Fase 7 junto con los endpoints de registro.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TipoPuntaje {
+  OPCIONAL // suma puntos al completarse
+  OBLIGATORIA // resta puntos si se marca "no hizo"
+}
+
+enum TipoLimiteTiempo {
+  DEADLINE // fecha/hora límite fija dentro de la Sesión
+  CRONOMETRO // duración desde que el usuario la inicia
+  SIN_LIMITE
+}
+
+enum TipoConducta {
+  BUENA
+  MALA
+}
+
+enum EstadoCatalogo {
+  ACTIVA
+  ARCHIVADA
+}
+
+model Actividad {
+  id                         String           @id @default(uuid())
+  organizacionId             String
+  grupoId                    String
+  nombre                     String
+  descripcion                String?
+  tipoPuntaje                TipoPuntaje
+  // siempre positivo; el signo se aplica al registrar (Fase 7)
+  valorPuntos                Int
+  tipoLimiteTiempo           TipoLimiteTiempo
+  // "HH:mm", solo si tipoLimiteTiempo = DEADLINE, hora local del Grupo
+  deadlineHora               String?
+  // solo si tipoLimiteTiempo = CRONOMETRO
+  duracionCronometroMinutos  Int?
+  repeticionesMaximasSesion  Int              @default(1)
+  // null = sin override; se calcula en Fase 7 como
+  // repeticionesMaximasSesion * cantidad de Sesiones de la Sección
+  repeticionesMaximasSeccion Int?
+  estado                     EstadoCatalogo   @default(ACTIVA)
+  creadaPorTutorId           String
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+model Conducta {
+  id                 String         @id @default(uuid())
+  organizacionId     String
+  grupoId            String
+  nombre             String
+  tipo               TipoConducta
+  // siempre positivo; signo aplicado según tipo al registrar (Fase 7)
+  valorPuntos        Int
+  // solo relevante si tipo = MALA; en BUENA se fuerza a false (spec fase-05)
+  permiteAutoreporte Boolean        @default(false)
+  estado             EstadoCatalogo @default(ACTIVA)
+  creadaPorTutorId   String
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}

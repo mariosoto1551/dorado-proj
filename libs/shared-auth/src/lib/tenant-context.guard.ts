@@ -9,7 +9,7 @@ import { jwtVerify } from 'jose';
 import type { JwtPayload, TenantContext } from '@dorado/shared-types';
 
 import { JWT_ALG, obtenerClavePublicaJwt } from './jwt-keys';
-import { tenantStorage } from './tenant.storage';
+import { setTenantContext } from './tenant.storage';
 
 /**
  * Forma mínima del request que usan los guards/decorators de esta lib
@@ -63,7 +63,10 @@ export class TenantContextGuard implements CanActivate {
     };
 
     req.tenant = tenant;
-    tenantStorage.enterWith(tenant);
+    // Muta el holder abierto por tenantScopeMiddleware — NUNCA enterWith acá:
+    // dentro de un canActivate async se pierde al retomar el llamador
+    // (regresión de aislamiento detectada en Fase 5, ver tenant.storage.ts).
+    setTenantContext(tenant);
 
     return true;
   }

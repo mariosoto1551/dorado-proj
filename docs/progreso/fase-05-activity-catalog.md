@@ -1,14 +1,44 @@
 # Registro de ejecución — Fase 5: Activity Catalog Service
 
-- **Estado**: PENDIENTE
-- **Fecha de finalización**: —
-- **Commit/rama**: —
-- **Resumen de lo implementado**: —
-- **Desviaciones del plan documentado** (si las hubo, y por qué): —
-- **Verificación de criterios de aceptación** (copiado de `docs/phases/fase-05-activity-catalog.md`):
-  - [ ] CRUD completo probado para Actividad y Conducta, incluyendo el chequeo de límite de plan.
-  - [ ] Un USUARIO puede `GET` pero recibe 403 en `POST`/`PATCH`/`DELETE`.
-  - [ ] Un USUARIO no ve actividades/conductas `ARCHIVADA`.
-  - [ ] Validación de campos condicionales de `tipoLimiteTiempo` cubierta con tests (DEADLINE, CRONOMETRO, SIN_LIMITE).
-- **Deuda técnica / pendientes conocidos**: recordar que esta fase es solo CRUD — los endpoints de registro se agregan recién en Fase 7.
-- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**: —
+- **Estado**: COMPLETADA_CON_DESVIACIONES
+- **Fecha de finalización**: 2026-07-16
+- **Commit/rama**: `master`, commit `fase-05: activity catalog`
+- **Resumen de lo implementado**:
+  - `apps/activity-service` completo (base `activity_db`, puerto 3003): schema Prisma 7 (`Actividad`, `Conducta`, enums `TipoPuntaje`/`TipoLimiteTiempo`/`TipoConducta`/`EstadoCatalogo`, migración `20260716043217_init_activity`), CRUD de actividades (5 endpoints) y conductas (4 endpoints — la spec no define GET detalle de conducta) bajo `/activity/*`, guards compartidos (`TenantContextGuard` + `RolesGuard`), extensión de tenant de Prisma con `Actividad`/`Conducta` (`conGrupoId: true`), `GET /internal/health`, env validado al arranque (ADR-00 §8) **sin `RABBITMQ_URL`** (esta fase no publica ni consume eventos, spec). Estructura por feature: `actividades/`, `conductas/`, `clientes/` (REST interno), `comun/`, `config/`, `internal/`, `prisma/`.
+  - Chequeo de límite de plan al crear Actividad: `BillingClientService` (patrón fase-04 copiado de identity, solo `resolveEntitlements`) contra `limites.actividadesPorGrupo`; cuenta **solo** actividades `ACTIVA` del grupo (spec) → archivar libera cupo (verificado E2E). 403 `{ code: 'LIMITE_PLAN_ALCANZADO', recurso: 'actividades' }`. Sin chequeo para conductas (explícito en la spec).
+  - Validación de acceso al grupo (`AccesoGrupoService`): TUTOR/USUARIO por `grupoIds` del JWT (sin REST); ORG_ADMIN (grupoIds vacío) valida pertenencia del grupo vía `IdentityClientService` → `GET /internal/identity/grupos/:id` (regla 3 de CLAUDE.md aplicada a un hueco de la spec — ver desviación 1).
+  - Reglas de negocio: invariante de `tipoLimiteTiempo` (`comun/limite-tiempo.ts`, los 3 casos), `permiteAutoreporte` forzado a `false` en conductas `BUENA` (alta y edición), USUARIO solo ve `ACTIVA` (query param ignorado, también en detalle), soft delete vía `DELETE` → `ARCHIVADA`.
+  - Tests Vitest: **41** en activity (límite de tiempo, acceso a grupo, actividades, conductas) y **+4** de regresión en shared-auth (`tenant.storage.spec.ts`).
+  - `apps/gateway`: solo config — `ACTIVITY_INTERNAL_URL` en `.env`/`.env.example` (la tabla de ruteo de Fase 3 ya contemplaba `/api/activity/*`). Cero cambios de código.
+- **Fix transversal de seguridad (bug latente de Fase 2, detectado por el E2E de esta fase)**:
+  - **Síntoma**: un ORG_ADMIN de la organización B obtenía **200** en `GET /activity/actividades/:id` de una actividad de la organización A (esperado 404).
+  - **Causa**: `TenantContextGuard` hacía `tenantStorage.enterWith(tenant)` dentro de un `canActivate` **async** (después de `await jwtVerify`). En Node, un `enterWith` dentro de un async resource hijo no se propaga a la continuación del llamador que lo `await`-ea: cuando Nest seguía con el handler, `getTenantContext()` devolvía `undefined` y `crearTenantExtension` (fail-open por diseño para rutas internas) **no aplicaba ningún filtro**. El filtro automático de tenant estuvo inactivo en Fases 2–4; identity y billing no expusieron fuga real porque sus queries llevan `where` explícito por tenant, pero la defensa en profundidad estaba apagada.
+  - **Fix** (`libs/shared-auth`): patrón holder mutable — `tenantScopeMiddleware` (`app.use`, igual que `correlationMiddleware`) abre `tenantStorage.run({}, next)` y el guard ahora llama `setTenantContext(tenant)` que **muta** el holder (visible para todo el árbol async del request). Registrado en `main.ts` de identity, billing y activity. Test de regresión que codifica exactamente el límite async (`tenant.storage.spec.ts`) + verificación E2E: el mismo request cross-org pasó de 200 a 404.
+- **Verificación de criterios de aceptación** (corridos el 2026-07-16 contra identity+billing+activity+gateway reales, vía Gateway, scripts Node con fetch):
+  - [x] CRUD completo de Actividad y Conducta probado E2E; 15 actividades creadas (límite FREE del seed de billing), la 16ª devolvió **403** `{"recurso":"actividades","statusCode":403,"code":"LIMITE_PLAN_ALCANZADO",...}`; tras archivar una, la siguiente creación dio 201 (solo cuenta `ACTIVA`).
+  - [x] Un USUARIO (invitación canjeada) hace `GET` de actividades/conductas de su grupo (200) y recibe **403** en `POST`/`PATCH`/`DELETE`.
+  - [x] Un USUARIO no ve actividades `ARCHIVADA` en la lista (ni con `?estado=ARCHIVADA` forzado, ni en detalle → 404).
+  - [x] Validación condicional de `tipoLimiteTiempo` con tests unitarios (los 3 casos) y E2E de los 3 inválidos (400) y los 3 válidos (201).
+  - Extras verificados: TUTOR asignado (invitación TUTOR canjeada) crea en su grupo (201) y recibe 403 en grupo de otra organización; ORG_ADMIN con `grupoId` inexistente recibe 404; aislamiento cross-org de lecturas (404); sin JWT → 401; PATCH que cambia de tipo resetea los condicionales del tipo anterior.
+  - `pnpm nx run-many -t "lint,test,build"` en verde para los 16 proyectos.
+- **Desviaciones del plan / decisiones de implementación**:
+  1. **Validación de pertenencia del grupo para ORG_ADMIN vía REST interno a identity** (`IDENTITY_INTERNAL_URL`, env nueva requerida en activity): la spec no dice cómo activity sabe que un `grupoId` de la URL pertenece a la organización del JWT (hueco señalado). Para TUTOR/USUARIO alcanza el JWT; para ORG_ADMIN se consulta `GET /internal/identity/grupos/:id` **solo en escrituras** (en lecturas el filtro por `organizacionId` ya devuelve vacío/404 para grupos ajenos). 404 tanto para inexistente como para ajeno (no revelar existencia).
+  2. **Fail-closed (503) si identity no responde en esa validación** — a diferencia del chequeo de límites (fail-open, heredado de fase-04): es una validación de aislamiento de datos, no de cupo, y con identity caído tampoco hay logins. Se agregó `503: 'SERVICIO_NO_DISPONIBLE'` a `CODES_POR_STATUS` del `HttpExceptionFilter` (shared-auth, aditivo).
+  3. **`estado` no es editable vía PATCH**: la spec dice "edita cualquier campo" pero también prohíbe reactivar una archivada ("crear una nueva si hace falta"); permitir `estado` en el PATCH derogaría esa regla. Archivar es solo `DELETE` (devuelve la fila con `estado: 'ARCHIVADA'`, HTTP 200).
+  4. **PATCH que cambia `tipoLimiteTiempo` resetea los campos condicionales no provistos** (no arrastra la config del tipo anterior); si el tipo no cambia, los no provistos conservan su valor. El invariante se valida siempre sobre el estado efectivo post-merge.
+  5. **USUARIO tampoco ve el detalle de una `ARCHIVADA`** (404) — la spec solo define la regla para listas; se extendió por consistencia (hueco señalado).
+  6. **Sin `GET /activity/conductas/:id`**: la tabla de endpoints de la spec no lo define; no se inventó.
+  7. **Orden de chequeos al crear**: acceso al grupo → validación de campos (400) → límite de plan (403). Un request malformado falla rápido sin gastar la llamada REST a billing.
+  8. **Sin RabbitMQ en esta fase**: ni módulo ni `RABBITMQ_URL` en el env (la spec de fase-05 no tiene eventos); se agregan en Fase 7.
+  9. Los 400 de campos condicionales usan `BadRequestException` estándar (code `VALIDACION` del sobre) y los 403/404 de acceso usan las excepciones estándar (`PROHIBIDO`/`NO_ENCONTRADO`) — solo `LIMITE_PLAN_ALCANZADO` tiene code propio (el único que la spec nombra para esta fase).
+- **Deuda técnica / pendientes conocidos**:
+  - Heredados de fases anteriores: confirmar límites FREE antes de Fase 13; retry con backoff formal para consumidores (Fase 7); tooling DLQ (Fase 12); CI en GitHub sin verificarse (sin remote).
+  - Los scripts E2E de verificación viven en el scratchpad de la sesión (no comiteados) — el flujo está descrito arriba y es reproducible a mano; candidato a formalizarse como Playwright en Fase 12.
+  - `SuscripcionDto.fuente` en shared-types sigue con la discrepancia documentada en fase-04 (se resuelve cuando Fase 10 consuma ese contrato).
+  - Esta fase es solo CRUD — los endpoints de registro (`completar`, `no-hizo`, `conducta/registrar`) se agregan recién en Fase 7 (recordatorio del placeholder original).
+- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**:
+  1. `docker compose -f infra/docker-compose.yml up -d` y `pnpm nx run-many -t "lint,test,build"` en verde (16 proyectos). **Ojo PowerShell**: targets y proyectos entre comillas (`-t "lint,test,build" -p "a,b"`), y chequear puertos 3000-3003 sin procesos viejos (`Get-NetTCPConnection -LocalPort 3000,3001,3002,3003 -State Listen`).
+  2. Si falta `apps/activity-service/.env`: copiar `.env.example`, pegar la `JWT_PUBLIC_KEY` de billing/identity y correr `pnpm nx run activity-service:prisma-migrate`. El `.env` del gateway necesita `ACTIVITY_INTERNAL_URL=http://localhost:3003`.
+  3. Levantar identity+billing+activity+gateway → `GET /api/health` con `activity: up`. Flujo rápido: registrar org → crear grupo → crear actividad (201) → repetir hasta el límite (403 `LIMITE_PLAN_ALCANZADO`).
+  4. **Chequeo de aislamiento** (regresión del fix transversal): con dos organizaciones, el `GET /api/activity/actividades/:id` de una actividad ajena debe dar **404**. Si alguna vez da 200, el contexto de tenant se volvió a perder (ver `libs/shared-auth/src/lib/tenant.storage.ts`).
+  5. Fase 6 (Session/Section): servicio nuevo `session-service` (puerto 3004, base `session_db`) — mismo patrón de bootstrap que activity; leer su spec completa antes de nada. El gateway ya rutea `/api/session/*`: solo falta `SESSION_INTERNAL_URL=http://localhost:3004` en su `.env`. Los campos `repeticionesMaximasSesion`/`repeticionesMaximasSeccion` de `Actividad` quedaron modelados para que Fase 7 los aplique.

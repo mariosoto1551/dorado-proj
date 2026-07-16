@@ -20,6 +20,7 @@ const CODES_POR_STATUS: Record<number, string> = {
   404: 'NO_ENCONTRADO',
   409: 'CONFLICTO',
   410: 'RECURSO_EXPIRADO',
+  503: 'SERVICIO_NO_DISPONIBLE',
 };
 
 interface ResponseLike {
