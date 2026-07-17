@@ -1,0 +1,112 @@
+// Schema de session-service (base session_db) — fuente: docs/phases/fase-06-session-section.md.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId + grupoId indexados).
+// Este servicio NO sabe nada de puntos, actividades ni zonas — solo el ciclo
+// de vida de Sesión/Sección (nota final de la spec fase-06).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ModoSesion {
+  MANUAL
+  AUTOMATICO
+}
+
+enum EvaluarUmbralesEn {
+  CADA_SESION
+  SOLO_AL_CIERRE_SECCION
+}
+
+enum EstadoSeccion {
+  ABIERTA
+  EVALUACION
+  CERRADA
+}
+
+enum EstadoSesion {
+  ABIERTA
+  CERRADA
+}
+
+model ConfiguracionSesion {
+  // 1 config por Grupo (spec fase-06).
+  grupoId             String            @id
+  organizacionId      String
+  modo                ModoSesion        @default(MANUAL)
+  // cron 5 campos, hora del Grupo. Obligatorio si modo=AUTOMATICO.
+  // Ej. Destino:Dorado: "0 0 * * 1-6" (00:00 lunes a sábado).
+  cronAperturaSesion  String?
+  sesionesPorSeccion  Int               @default(1)
+  // cron, hora del Grupo: cuándo cierra la Sección actual (si seguía en
+  // EVALUACION) y abre la siguiente. Obligatorio si modo=AUTOMATICO.
+  // Ej. Destino:Dorado: "0 0 * * 1" (lunes 00:00).
+  cronAperturaSeccion String?
+  evaluarUmbralesEn   EvaluarUmbralesEn @default(SOLO_AL_CIERRE_SECCION)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([organizacionId])
+}
+
+model Seccion {
+  id             String        @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  // secuencial por grupo, empieza en 1
+  numero         Int
+  estado         EstadoSeccion @default(ABIERTA)
+  fechaInicio    DateTime      @default(now())
+  // se completa al pasar a CERRADA
+  fechaFin       DateTime?
+  sesiones       Sesion[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([grupoId, numero])
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+model Sesion {
+  id             String       @id @default(uuid())
+  seccionId      String
+  seccion        Seccion      @relation(fields: [seccionId], references: [id])
+  organizacionId String
+  grupoId        String
+  // secuencial dentro de la Sección, empieza en 1
+  numero         Int
+  estado         EstadoSesion @default(ABIERTA)
+  fechaInicio    DateTime     @default(now())
+  fechaFin       DateTime?
+  // POST /session/sesiones/:id/extender — el modelo de la spec no persiste la
+  // extensión pero el endpoint la exige (debe sobrevivir reinicios del
+  // scheduler). null = sin extensión; el autocierre automático no corre antes
+  // de este instante. Desviación documentada en docs/progreso/fase-06.
+  autocierrePospuestoHasta DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([seccionId, numero])
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+// Idempotencia del scheduler ante reinicios dentro del mismo minuto — la spec
+// ofrece "memoria o tabla"; tabla para que un reinicio del proceso no
+// re-dispare transiciones ya aplicadas. Operacional, no de negocio (sin
+// organizacionId a propósito: se escribe junto a las transiciones, dentro de
+// la misma transacción).
+model UltimoTickProcesado {
+  grupoId     String   @id
+  // floor(epoch ms / 60000) del último minuto procesado para el grupo
+  minutoEpoch Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
