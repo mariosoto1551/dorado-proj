@@ -1,0 +1,82 @@
+// Schema de rewards-service (base rewards_db) — fuente: docs/phases/fase-08-rewards.md.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId + grupoId indexados), referencias a otros servicios SOLO por
+// ID (umbralZonaId es de scoring_db — nunca join, se valida por REST interno).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EstadoCatalogo {
+  ACTIVA
+  ARCHIVADA
+}
+
+enum MecanicaRecompensa {
+  SELECCION
+  AZAR
+}
+
+enum EstadoCanje {
+  PENDIENTE_ENTREGA
+  ENTREGADA
+}
+
+model Recompensa {
+  id             String @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  // referencia a UmbralZona de scoring-service, solo ID, sin join
+  umbralZonaId String
+  // copiado al crear/editar, para no depender de una llamada en cada lectura
+  nombreZonaSnapshot String
+  nombre             String
+  descripcion        String?
+  // white-label (Pro): el backend solo guarda el dato; el gating visual es
+  // del frontend contra entitlements (nota de la spec, aplicación en Fase 14)
+  imagenUrl        String?
+  permiteSeleccion Boolean        @default(false)
+  permiteAzar      Boolean        @default(false)
+  estado           EstadoCatalogo @default(ACTIVA)
+  creadaPorTutorId String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId])
+  @@index([umbralZonaId])
+}
+
+model CanjeRecompensa {
+  id                  String             @id @default(uuid())
+  organizacionId      String
+  grupoId             String
+  usuarioId           String
+  seccionId           String
+  recompensaId        String
+  mecanica            MecanicaRecompensa
+  estado              EstadoCanje        @default(PENDIENTE_ENTREGA)
+  entregadaPorTutorId String?
+  entregadaEn         DateTime?
+  createdAt           DateTime           @default(now())
+
+  // un canje por usuario por Sección en el MVP, sin importar la mecánica
+  @@unique([usuarioId, seccionId])
+  @@index([organizacionId])
+  @@index([grupoId, seccionId])
+}
+
+// Idempotencia del consumidor RabbitMQ (ADR-00 §5). En esta fase el consumo
+// de ZonaAlcanzada final no tiene efecto de negocio (spec) — la tabla deja la
+// infraestructura lista por si a futuro se precomputa elegibilidad.
+model EventoProcesado {
+  eventId     String   @id
+  consumidor  String
+  procesadoEn DateTime @default(now())
+}

@@ -1,14 +1,36 @@
 # Registro de ejecución — Fase 8: Rewards Service
 
-- **Estado**: PENDIENTE
-- **Fecha de finalización**: —
-- **Commit/rama**: —
-- **Resumen de lo implementado**: —
-- **Desviaciones del plan documentado** (si las hubo, y por qué): —
-- **Verificación de criterios de aceptación** (copiado de `docs/phases/fase-08-rewards.md`):
-  - [ ] Usuario en zona Dorado ve solo las recompensas configuradas para esa zona.
-  - [ ] Seleccionar una recompensa dos veces en la misma Sección da 409 en el segundo intento.
-  - [ ] Usuario descalificado no puede canjear nada en esa Sección.
-  - [ ] El sorteo nunca devuelve una recompensa sin `permiteAzar=true`.
-- **Deuda técnica / pendientes conocidos**: —
-- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**: —
+- **Estado**: COMPLETADA_CON_DESVIACIONES
+- **Fecha de finalización**: 2026-07-18
+- **Commit/rama**: `master`, commit `fase-08: rewards`
+- **Resumen de lo implementado**:
+  - `apps/rewards-service` completo (base `rewards_db`, puerto 3006; era el placeholder de Fase 1): schema exacto de la spec (`Recompensa`, `CanjeRecompensa` con `@@unique([usuarioId, seccionId])`, `EventoProcesado`; migración `20260718133130_init_rewards`), mismo bootstrap que scoring (env validado ADR-00 §8, pino + correlación, `tenantScopeMiddleware`, tenant extension con Recompensa/CanjeRecompensa, targets de Prisma en `project.json`, vitest config).
+  - `recompensas/`: CRUD de la spec — POST valida `umbralZonaId` contra `GET /internal/scoring/umbrales/:id` (400 si no existe o es de otro grupo) y copia `nombreZonaSnapshot`; PATCH re-valida y re-copia el snapshot si cambia la zona; DELETE es soft (`ARCHIVADA`); USUARIO solo ve ACTIVA (criterio fase-05). `imagenUrl` solo se guarda — cero lógica white-label (nota de la spec).
+  - `canjes/`: elegibilidad SIEMPRE derivada en el momento del `ResultadoSeccion` de scoring (REST interno, nunca precomputada) — `elegibles` responde listas vacías con `motivo` (`SECCION_NO_EVALUADA` | `DESCALIFICADO` | `SIN_ZONA`) o las Recompensas ACTIVA de la zona alcanzada separadas en `disponiblesSeleccion`/`disponiblesAzar`; `seleccionar` (SELECCION sobre elegible puntual) y `sortear` (`Math.random` sobre las `permiteAzar`, spec) crean el canje único por usuario+sección (P2002 → 409) y publican `RecompensaCanjeada`; `canjes` del grupo para el panel de Fase 10 y `entregar` (ENTREGADA + tutor + fecha, repetido → 409).
+  - `consumo/`: consumidor de `ZonaAlcanzada` (cola cuórum `rewards.q.zonas-alcanzadas` + `rewards.dlq`): descarta explícitamente `esEvaluacionFinal=false` y marca los `=true` en `EventoProcesado` idempotentemente, sin efecto de negocio (spec: infraestructura lista por si a futuro se precomputa).
+  - Clientes internos: identity (usuario/grupo — autorización regla 3) y scoring (umbral/resultado), fail-closed 503. `acceso-grupo` copiado del patrón fase-05/07.
+  - `apps/gateway`: solo config — `REWARDS_INTERNAL_URL` en `.env`/`.env.example` (ruteo `/api/rewards/*` ya existía de Fase 3). Cero cambios de código.
+  - Tests Vitest: **33** en 4 archivos — canjes (elegibles por motivo y por zona, doble canje, descalificado, sorteo con 100 iteraciones que jamás elige una sin `permiteAzar`, entrega), recompensas (validación de umbral, snapshot, re-snapshot al editar, visibilidad USUARIO), consumidor (descarte de intermedias, marca idempotente), acceso-grupo. `pnpm nx run-many -t "lint,test,build"` en verde para los 16 proyectos.
+- **Verificación de criterios de aceptación** (script E2E `e2e-fase08.mjs`, 29/29 checks el 2026-07-18 contra los 7 servicios reales vía Gateway, captura de eventos vía RabbitMQ management API y checks de BD vía psql):
+  - [x] u1 llega a Dorado (200 pts) → `elegibles` devuelve SOLO las 4 recompensas de Dorado (la de Rojo excluida), separadas por mecánica y con la mixta en ambas listas.
+  - [x] Segunda selección en la misma Sección → 409 (y `sortear` tras un canje también → 409: un canje por sección sin importar mecánica).
+  - [x] u2 descalificado → `elegibles` 200 con `motivo: DESCALIFICADO` y listas vacías (no error genérico); `seleccionar`/`sortear` → 403.
+  - [x] `sortear` devolvió una recompensa con `permiteAzar=true`; una solo-azar no se puede `seleccionar` (400). (La garantía estadística —100 sorteos sin elegir jamás una sin azar— está en el test unitario.)
+  - Extras verificados E2E: elegibles/canje ANTES de evaluar → `SECCION_NO_EVALUADA` / 409 (regla "no se canjea con la Sección ABIERTA" garantizada por el 404 del resultado), `umbralZonaId` inexistente → 400, `nombreZonaSnapshot` copiado de scoring, USUARIO no crea recompensas ni marca entregas (403), panel de canjes del tutor (2 canjes), entregar → ENTREGADA y repetido → 409, `RecompensaCanjeada` con envelope ADR-00 §5 completo por cada canje, rewards consumió las 2 `ZonaAlcanzada` finales (`EventoProcesado` en rewards_db), cross-org: elegibles ajenos → 404 y recompensas ajenas → lista vacía, sin JWT → 401.
+- **Desviaciones del plan / decisiones de implementación**:
+  1. **Roles de canje incluyen ORG_ADMIN** (la spec dice "el propio Usuario, TUTOR (en su nombre)"): mismo criterio que fase-07 — ADR-00 §1 define ORG_ADMIN como Tutor con alcance a todos los grupos.
+  2. **Shape de `elegibles` definido acá** (la spec pide "lista vacía con motivo" sin definir el JSON): `{ motivo: 'SECCION_NO_EVALUADA'|'DESCALIFICADO'|'SIN_ZONA'|null, disponiblesSeleccion: RecompensaDto[], disponiblesAzar: RecompensaDto[] }`. `SIN_ZONA` cubre el caso de fase-07 de puntaje por debajo de la zona más baja (`umbralZonaId` null en el resultado), que la spec de esta fase no contempla.
+  3. **Códigos de estado elegidos donde la spec no los fija**: canje sobre sección sin evaluar → 409 (estado no listo); descalificado que intenta canjear → 403 (criterio 3 ofrecía "403 o lista vacía": 403 en canje, lista-con-motivo en elegibles); recompensa no elegible o sin la mecánica pedida → 400; sorteo sin candidatas → 409. Todos con `ConflictException`/`BadRequestException`/`ForbiddenException` estándar (sin codes propios — la spec no nombra ninguno).
+  4. **El chequeo previo de canje existente se apoya en la P2002** del `@@unique` (la constraint es la garantía real ante carreras; el catch la traduce a 409 con mensaje claro).
+  5. **Una Recompensa con ambas mecánicas en false es válida** (la spec no lo prohíbe): queda invisible para canje hasta que un tutor la edite — señalado, no inventado un rechazo.
+  6. **Consumidor de ZonaAlcanzada**: las intermedias (`esEvaluacionFinal=false`) se descartan SIN marcar `EventoProcesado` (no hay efecto que proteger y evita filas basura); solo las finales se marcan. Lectura razonable del "descartar explícitamente... sí debe consumirlo e idempotentemente ignorarlo" de la spec.
+- **Deuda técnica / pendientes conocidos**:
+  - Heredados: sin outbox (RecompensaCanjeada puede perderse si Rabbit cae entre commit y publish), retry 1-vez → DLQ sin backoff formal (Fase 12), tooling DLQ, CI sin verificar, límites FREE antes de Fase 13.
+  - **Descalificación posterior a la evaluación** (desviación 5 de fase-07): rewards lee el snapshot `ResultadoSeccion`, así que una descalificación cargada DESPUÉS de evaluar la Sección no bloquea el canje (el snapshot dice `descalificado=false`). Si el caso aparece en el piloto, decidir en Fase 12/13 si el interno de scoring debe reflejar descalificaciones vivas o si se prohíbe descalificar tras evaluar.
+  - **TUTOR puede canjear "en nombre de" sin consentimiento del usuario** (así lo define la spec para el MVP) — la UI de Fase 10 debería dejar claro quién canjeó (el dato está en el evento y en `mecanica`+auditoría de Fase 9).
+  - Los scripts E2E viven en el scratchpad de la sesión (no comiteados); candidatos a Playwright en Fase 12.
+- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**:
+  1. **Entorno primero** (memoria de gotchas): `docker ps` con postgres/rabbitmq/adminer up, puertos 3000-3006 libres, `pnpm nx run-many -t "lint,test,build"` (comillas en PowerShell) en verde.
+  2. Si falta `apps/rewards-service/.env`: copiar `.env.example`, pegar la `JWT_PUBLIC_KEY` compartida, `pnpm nx run rewards-service:prisma-migrate`. El `.env` del gateway necesita `REWARDS_INTERNAL_URL=http://localhost:3006`.
+  3. Humo rápido: levantar los 7 servicios → `GET /api/health` con `rewards: up` → con el flujo de fase-07 (org→grupo→umbrales→actividad→sección→completar→forzar-evaluacion) crear una recompensa de la zona alcanzada → `elegibles` la muestra → `seleccionar` crea el canje.
+  4. **Para Fase 9 (Notification/Audit)**: ya circulan TODOS los eventos que Notification consume (`InvitacionGenerada`, `UsuarioUnido`, los 4 de registro, los 5 de session, `ZonaAlcanzada` con ambos flags, `UsuarioDescalificado`, `RecompensaCanjeada`) — capturarlos con una cola propia; el patrón consumidor idempotente + DLQ está triplicado (billing/scoring/rewards) para copiar. `AccionAdministrativaRegistrada` (Audit) todavía NO lo publica nadie: decidir en Fase 9 qué escrituras admin lo emiten (hueco a resolver ahí, el helper `accionAdministrativaRoutingKey` ya existe en shared-events).
