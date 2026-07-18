@@ -7,15 +7,19 @@ import { crearTenantExtension } from '@dorado/shared-auth';
 import { PrismaClient } from '../generated/prisma/client';
 
 /**
- * Modelos tenant-scoped de activity (ADR-00 §2): ambos llevan organizacionId
+ * Modelos tenant-scoped de activity (ADR-00 §2): todos llevan organizacionId
  * y grupoId. Con contexto de tenant, la extensión filtra automáticamente por
  * organizacionId y — cuando tenant.grupoIds no está vacío (TUTOR/USUARIO) —
  * por grupoId IN grupoIds. ORG_ADMIN (lista vacía) ve todos los grupos de su
- * organización.
+ * organización. `CronometroActivo` NO va acá: el modelo de la spec fase-07 no
+ * tiene organizacionId (operacional) — siempre se consulta con la clave
+ * completa usuario+actividad+sesión ya validada contra el tenant.
  */
 const MODELOS_TENANT = {
   Actividad: { conGrupoId: true },
   Conducta: { conGrupoId: true },
+  RegistroActividad: { conGrupoId: true },
+  RegistroConducta: { conGrupoId: true },
 };
 
 export function crearClientePrisma(databaseUrl: string) {

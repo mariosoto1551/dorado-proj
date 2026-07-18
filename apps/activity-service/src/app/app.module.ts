@@ -6,8 +6,10 @@ import { SharedLoggingModule } from '@dorado/shared-logging';
 import { ActividadesModule } from '../actividades/actividades.module';
 import { ConductasModule } from '../conductas/conductas.module';
 import { validarEnv } from '../config/env.schema';
+import { EventosModule } from '../eventos/eventos.module';
 import { InternalModule } from '../internal/internal.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { RegistroModule } from '../registro/registro.module';
 
 @Module({
   imports: [
@@ -20,8 +22,10 @@ import { PrismaModule } from '../prisma/prisma.module';
     }),
     SharedLoggingModule.forService('activity-service'),
     PrismaModule,
+    EventosModule,
     ActividadesModule,
     ConductasModule,
+    RegistroModule,
     InternalModule,
   ],
 })

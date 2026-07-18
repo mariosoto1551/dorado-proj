@@ -1,0 +1,116 @@
+// Schema de scoring-service (base scoring_db) — fuente: docs/phases/fase-07-scoring-engine.md Parte B.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId + grupoId indexados), puntos siempre Int.
+// EventoPuntos es un LEDGER INMUTABLE (regla 1 de CLAUDE.md): nunca UPDATE ni
+// DELETE — correcciones y compensaciones son filas nuevas con corregidoDeId.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TipoOrigenPuntos {
+  ACTIVIDAD_COMPLETADA
+  NO_HIZO
+  CONDUCTA
+  CORRECCION
+}
+
+model EventoPuntos {
+  id             String           @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  seccionId      String
+  sesionId       String
+  tipoOrigen     TipoOrigenPuntos
+  // id del RegistroActividad/RegistroConducta de origen, o del EventoPuntos
+  // original si es CORRECCION (el registroId permite ubicar el asiento a
+  // compensar cuando llega ConductaRegistroEliminado — ver progreso fase-07).
+  origenId       String
+  // con signo ya aplicado (positivo suma, negativo resta)
+  puntosSnapshot Int
+  registradoPorId   String
+  // 'TUTOR' | 'USUARIO' | 'SYSTEM'
+  registradoPorTipo String
+  // referencia a otro EventoPuntos si esto es una corrección explícita
+  corregidoDeId    String?
+  motivoCorreccion String?
+  createdAt        DateTime @default(now())
+  // SIN updatedAt: este modelo nunca se edita, solo se agregan filas nuevas.
+
+  @@index([organizacionId])
+  @@index([usuarioId, seccionId])
+  @@index([origenId])
+}
+
+model UmbralZona {
+  id             String   @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  nombreZona     String
+  // 1 = más bajo
+  orden          Int
+  // inclusive
+  puntosMin      Int
+  // inclusive, null = sin tope (zona más alta)
+  puntosMax      Int?
+  colorHex       String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([grupoId, orden])
+  @@index([grupoId])
+  @@index([organizacionId])
+}
+
+model DescalificacionSeccion {
+  id                   String   @id @default(uuid())
+  organizacionId       String
+  grupoId              String
+  usuarioId            String
+  seccionId            String
+  motivo               String
+  registradaPorTutorId String
+  createdAt            DateTime @default(now())
+
+  @@unique([usuarioId, seccionId])
+  @@index([organizacionId])
+  @@index([seccionId])
+}
+
+// Snapshot inmutable escrito UNA única vez al evaluar la Sección (consumo de
+// SeccionEntroEvaluacion). Existe para que el historial no cambie si después
+// se edita un UmbralZona — y para no reconstruir el ledger en cada consulta
+// de resultados pasados. Correcciones posteriores NO lo actualizan (spec).
+model ResultadoSeccion {
+  id             String   @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  seccionId      String
+  puntajeTotal   Int
+  // null si descalificado (o si ningún umbral matcheó el puntaje)
+  umbralZonaId String?
+  // snapshot del nombre, por si el UmbralZona se edita después
+  nombreZona    String?
+  descalificado Boolean  @default(false)
+  calculadoEn   DateTime @default(now())
+
+  @@unique([usuarioId, seccionId])
+  @@index([organizacionId])
+  @@index([seccionId])
+}
+
+// Idempotencia de consumidores RabbitMQ (ADR-00 §5): se chequea antes de
+// aplicar efectos y se inserta en la MISMA transacción que el efecto.
+model EventoProcesado {
+  eventId     String   @id
+  consumidor  String
+  procesadoEn DateTime @default(now())
+}

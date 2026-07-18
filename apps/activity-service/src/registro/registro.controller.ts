@@ -1,0 +1,77 @@
+import { Body, Controller, Delete, Param, Post, UseGuards } from '@nestjs/common';
+
+import {
+  CurrentTenant,
+  Roles,
+  RolesGuard,
+  TenantContextGuard,
+} from '@dorado/shared-auth';
+import {
+  RegistroActividadDto,
+  RegistroConductaDto,
+  Rol,
+  TenantContext,
+} from '@dorado/shared-types';
+
+import { RegistroService } from './registro.service';
+import {
+  CompletarActividadRequest,
+  IniciarCronometroResponse,
+  RegistrarConductaRequest,
+  RegistrarNoHizoRequest,
+} from './dto/registro.dto';
+
+/** Endpoints de registro de la fase 7 (Parte A), tabla exacta de la spec. */
+@Controller('activity')
+@UseGuards(TenantContextGuard, RolesGuard)
+export class RegistroController {
+  constructor(private readonly registro: RegistroService) {}
+
+  @Post('actividades/:id/iniciar-cronometro')
+  @Roles(Rol.USUARIO)
+  async iniciarCronometro(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') actividadId: string
+  ): Promise<IniciarCronometroResponse> {
+    return await this.registro.iniciarCronometro(tenant, actividadId);
+  }
+
+  @Post('actividades/:id/completar')
+  @Roles(Rol.USUARIO, Rol.TUTOR, Rol.ORG_ADMIN)
+  async completar(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') actividadId: string,
+    @Body() datos: CompletarActividadRequest
+  ): Promise<RegistroActividadDto> {
+    return await this.registro.completar(tenant, actividadId, datos);
+  }
+
+  @Post('actividades/:id/no-hizo')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async registrarNoHizo(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') actividadId: string,
+    @Body() datos: RegistrarNoHizoRequest
+  ): Promise<RegistroActividadDto> {
+    return await this.registro.registrarNoHizo(tenant, actividadId, datos);
+  }
+
+  @Post('conductas/:id/registrar')
+  @Roles(Rol.USUARIO, Rol.TUTOR, Rol.ORG_ADMIN)
+  async registrarConducta(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') conductaId: string,
+    @Body() datos: RegistrarConductaRequest
+  ): Promise<RegistroConductaDto> {
+    return await this.registro.registrarConducta(tenant, conductaId, datos);
+  }
+
+  @Delete('registros-conducta/:id')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async eliminarRegistroConducta(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') registroId: string
+  ): Promise<RegistroConductaDto> {
+    return await this.registro.eliminarRegistroConducta(tenant, registroId);
+  }
+}

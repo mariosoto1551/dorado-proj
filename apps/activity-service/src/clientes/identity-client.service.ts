@@ -2,7 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 
 import { getCorrelationId } from '@dorado/shared-logging';
-import { GrupoDto } from '@dorado/shared-types';
+import { GrupoDto, UsuarioDto } from '@dorado/shared-types';
 
 const TIMEOUT_MS = 2000;
 
@@ -10,10 +10,10 @@ const TIMEOUT_MS = 2000;
  * Cliente REST interno hacia identity-service (ADR-00 §4): header
  * `x-internal-secret`, nunca a través del Gateway público.
  *
- * Uso en esta fase: validar que un `grupoId` recibido por URL pertenece a la
- * organización del JWT antes de escribir (regla 3 de CLAUDE.md — el cliente
- * nunca decide el tenant). Solo hace falta para ORG_ADMIN: un TUTOR/USUARIO
- * ya trae sus grupos válidos en el JWT.
+ * Usos: validar que un `grupoId` recibido por URL pertenece a la organización
+ * del JWT antes de escribir (regla 3 de CLAUDE.md — el cliente nunca decide
+ * el tenant), validar el usuario objetivo de un registro (fase-07) y obtener
+ * `Grupo.timezone` para el chequeo de deadline.
  *
  * A diferencia del chequeo de límites (fail-open), acá una caída de identity
  * es fail-closed (503): es una validación de aislamiento de datos, no de
@@ -38,7 +38,15 @@ export class IdentityClientService {
    * (timeout, red, 5xx) lanza 503 — el llamador no debe adivinar.
    */
   async obtenerGrupo(grupoId: string): Promise<GrupoDto | null> {
-    const ruta = `/internal/identity/grupos/${grupoId}`;
+    return await this.obtener<GrupoDto>(`/internal/identity/grupos/${grupoId}`);
+  }
+
+  /** Usuario por id, o `null` si identity responde 404. Misma semántica. */
+  async obtenerUsuario(usuarioId: string): Promise<UsuarioDto | null> {
+    return await this.obtener<UsuarioDto>(`/internal/identity/usuarios/${usuarioId}`);
+  }
+
+  private async obtener<T>(ruta: string): Promise<T | null> {
     const correlationId = getCorrelationId();
 
     let respuesta: Response;
@@ -57,7 +65,7 @@ export class IdentityClientService {
       );
 
       throw new ServiceUnavailableException(
-        'No se pudo validar el grupo (identity no disponible) — reintentá en unos segundos'
+        'No se pudo consultar identity — reintentá en unos segundos'
       );
     }
 
@@ -69,10 +77,10 @@ export class IdentityClientService {
       this.logger.warn(`GET ${ruta} respondió ${respuesta.status}`);
 
       throw new ServiceUnavailableException(
-        'No se pudo validar el grupo (identity no disponible) — reintentá en unos segundos'
+        'No se pudo consultar identity — reintentá en unos segundos'
       );
     }
 
-    return (await respuesta.json()) as GrupoDto;
+    return (await respuesta.json()) as T;
   }
 }

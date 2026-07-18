@@ -1,8 +1,8 @@
-// Schema de activity-service (base activity_db) — fuente: docs/phases/fase-05-activity-catalog.md.
+// Schema de activity-service (base activity_db) — fuentes:
+// docs/phases/fase-05-activity-catalog.md (catálogo) y
+// docs/phases/fase-07-scoring-engine.md Parte A (registro).
 // Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
 // (organizacionId + grupoId indexados), puntos siempre Int.
-// Los modelos de registro (RegistroActividad/RegistroConducta) NO van acá:
-// se agregan en Fase 7 junto con los endpoints de registro.
 
 generator client {
   provider     = "prisma-client"
@@ -60,6 +60,74 @@ model Actividad {
 
   @@index([organizacionId])
   @@index([grupoId])
+}
+
+enum TipoRegistroActividad {
+  COMPLETADA
+  NO_HIZO
+}
+
+// Ledger de registro (spec fase-07 Parte A): filas inmutables — sin updatedAt
+// a propósito (ADR-00 §6). El puntaje NUNCA se guarda acá como acumulado: cada
+// fila lleva su snapshot con signo y scoring-service deriva sumando.
+model RegistroActividad {
+  id             String                @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  actividadId    String
+  sesionId       String
+  seccionId      String
+  tipo           TipoRegistroActividad
+  // positivo si COMPLETADA, negativo si NO_HIZO (signo aplicado al escribir)
+  valorPuntosSnapshot Int
+  registradoPorId     String
+  // 'TUTOR' | 'USUARIO'
+  registradoPorTipo   String
+  createdAt           DateTime @default(now())
+
+  @@index([organizacionId])
+  @@index([usuarioId, actividadId, sesionId])
+}
+
+// Inmutable salvo el soft-delete explícito de la spec (eliminado +
+// eliminadoPorTutorId + eliminadoEn): nunca UPDATE de los datos de negocio ni
+// DELETE físico — scoring compensa vía evento, no se reescribe historia.
+model RegistroConducta {
+  id             String @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  conductaId     String
+  sesionId       String
+  seccionId      String
+  // positivo si conducta BUENA, negativo si MALA
+  valorPuntosSnapshot Int
+  registradoPorId     String
+  // 'TUTOR' | 'USUARIO'
+  registradoPorTipo   String
+  eliminado           Boolean   @default(false)
+  eliminadoPorTutorId String?
+  eliminadoEn         DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([organizacionId])
+  @@index([usuarioId, conductaId, sesionId])
+}
+
+// Estado operativo del límite CRONOMETRO (spec fase-07): una fila por
+// usuario+actividad+sesión mientras el cronómetro corre; se borra al completar.
+// Sin organizacionId a propósito (modelo de la spec): es operacional, no de
+// negocio — el aislamiento lo garantiza el flujo (la Actividad y la Sesión ya
+// se validan contra el tenant antes de tocar esta tabla).
+model CronometroActivo {
+  id          String   @id @default(uuid())
+  usuarioId   String
+  actividadId String
+  sesionId    String
+  iniciadoEn  DateTime @default(now())
+
+  @@unique([usuarioId, actividadId, sesionId])
 }
 
 model Conducta {

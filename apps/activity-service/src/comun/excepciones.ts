@@ -16,3 +16,65 @@ export class LimitePlanAlcanzadoException extends DomainException {
     );
   }
 }
+
+// Codes de registro (spec fase-07 Parte A, validaciones de `completar`).
+
+export class ObligatoriaNoSeCompletaException extends DomainException {
+  constructor() {
+    super(
+      'OBLIGATORIA_NO_SE_COMPLETA',
+      'Una actividad OBLIGATORIA no se marca como completada — no hacerla es lo que se registra (no-hizo)',
+      400
+    );
+  }
+}
+
+export class NoHaySesionAbiertaException extends DomainException {
+  constructor() {
+    super(
+      'NO_HAY_SESION_ABIERTA',
+      'No hay una Sección ABIERTA con Sesión ABIERTA en este grupo',
+      409
+    );
+  }
+}
+
+export class LimiteRepeticionesAlcanzadoException extends DomainException {
+  constructor() {
+    super(
+      'LIMITE_REPETICIONES_ALCANZADO',
+      'La actividad ya se completó el máximo de veces permitido en esta sesión',
+      409
+    );
+  }
+}
+
+export class DeadlineVencidoException extends DomainException {
+  constructor() {
+    super(
+      'DEADLINE_VENCIDO',
+      'Pasó la hora límite de esta actividad para la sesión en curso',
+      409
+    );
+  }
+}
+
+export class CronometroNoIniciadoException extends DomainException {
+  constructor() {
+    super(
+      'CRONOMETRO_NO_INICIADO',
+      'La actividad exige iniciar el cronómetro antes de completarla',
+      409
+    );
+  }
+}
+
+export class CronometroVencidoException extends DomainException {
+  constructor() {
+    super(
+      'CRONOMETRO_VENCIDO',
+      'El cronómetro de la actividad ya venció — iniciá uno nuevo si corresponde',
+      409
+    );
+  }
+}

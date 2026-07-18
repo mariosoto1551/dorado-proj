@@ -16,9 +16,6 @@ import { decodificarPem } from '@dorado/shared-auth';
  * Schema de variables de entorno de activity-service (ADR-00 §8): el proceso
  * NO arranca si falta una requerida o tiene formato inválido — falla rápido y
  * con mensaje claro, nunca queda a medias.
- *
- * Sin RABBITMQ_URL a propósito: esta fase no publica ni consume eventos
- * (spec fase-05); se agrega en Fase 7 con los endpoints de registro.
  */
 export class EnvSchema {
   @IsOptional()
@@ -51,11 +48,25 @@ export class EnvSchema {
   BILLING_INTERNAL_URL!: string;
 
   // REST interno (ADR-00 §4): validar que un grupoId pertenece a la
-  // organización del JWT antes de escribir (regla 3 de CLAUDE.md).
+  // organización del JWT antes de escribir (regla 3 de CLAUDE.md), validar el
+  // usuario objetivo de un registro, y Grupo.timezone para el deadline.
   @Matches(/^https?:\/\/.+/, {
     message: 'IDENTITY_INTERNAL_URL debe ser una URL http(s)://',
   })
   IDENTITY_INTERNAL_URL!: string;
+
+  // REST interno (ADR-00 §4): resolver la Sección/Sesión ABIERTA donde
+  // registrar (spec fase-07, validación 3 de `completar`).
+  @Matches(/^https?:\/\/.+/, {
+    message: 'SESSION_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  SESSION_INTERNAL_URL!: string;
+
+  // RabbitMQ (ADR-00 §5): la fase 7 publica los 4 eventos de registro.
+  @Matches(/^amqps?:\/\/.+/, {
+    message: 'RABBITMQ_URL debe ser una URL amqp(s)://',
+  })
+  RABBITMQ_URL!: string;
 
   @IsOptional()
   @IsString()

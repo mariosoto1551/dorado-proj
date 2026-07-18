@@ -29,7 +29,7 @@
 | Fase 4 — Billing | COMPLETADA_CON_DESVIACIONES | 2026-07-16 | billing-service completo (suscripción FREE vía evento, entitlements, mi-organizacion) + límites reales en identity (grupos/tutores/usuarios) + plan real en el JWT con fallback FREE. 4 criterios verificados E2E. Ver desviaciones (seed dual, extras en sobre de error, fail-open de entitlements) en su archivo. |
 | Fase 5 — Activity Catalog | COMPLETADA_CON_DESVIACIONES | 2026-07-16 | activity-service completo (CRUD actividades/conductas, límite de plan real, visibilidad por rol, validación condicional de tiempo). Incluye fix transversal de seguridad: el filtro automático de tenant (ALS) estaba inactivo desde Fase 2 — ver su archivo. |
 | Fase 6 — Session/Section | COMPLETADA_CON_DESVIACIONES | 2026-07-16 | session-service completo (config por grupo, máquina de estados Sección/Sesión, scheduler automático con cron+timezone, 5 eventos, endpoints internos para Fase 7). Ambos modos verificados E2E. Ver desviaciones (mapeo DTO/columnas, autocierrePospuestoHasta, bootstrap automático) en su archivo. |
-| Fase 7 — Scoring Engine | PENDIENTE | — | — |
+| Fase 7 — Scoring Engine | COMPLETADA_CON_DESVIACIONES | 2026-07-18 | scoring-service completo (ledger EventoPuntos, 2 colas cuórum consumidoras, evaluación por sesión/final, umbrales, descalificaciones, correcciones, internos para Fase 8) + endpoints de registro en activity-service (completar/no-hizo/conductas/cronómetro, 4 eventos). 6 criterios verificados E2E (43/43 checks). Ver desviaciones (origenId=registroId, ORG_ADMIN en completar, huecos de spec señalados) en su archivo. |
 | Fase 8 — Rewards | PENDIENTE | — | — |
 | Fase 9 — Notification & Audit | PENDIENTE | — | — |
 | Fase 10 — Frontend completo | PENDIENTE | — | — |
