@@ -1,0 +1,38 @@
+// Schema de notification-service (base notification_db) — fuente:
+// docs/phases/fase-09-notification-audit.md Parte B.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Notificacion {
+  id             String @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  destinatarioId String
+  // 'TUTOR' | 'USUARIO'
+  destinatarioTipo String
+  // ej. 'USUARIO_UNIDO', 'ZONA_ALCANZADA' — ver consumidores
+  tipo    String
+  mensaje String
+  leida   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([destinatarioId, leida])
+  @@index([organizacionId])
+}
+
+// Idempotencia del consumidor RabbitMQ (ADR-00 §5): se chequea antes de crear
+// las notificaciones y se inserta en la MISMA transacción que ellas.
+model EventoProcesado {
+  eventId     String   @id
+  consumidor  String
+  procesadoEn DateTime @default(now())
+}

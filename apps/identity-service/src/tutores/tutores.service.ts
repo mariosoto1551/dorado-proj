@@ -4,6 +4,7 @@ import { TenantContext, TutorDto } from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { tutorADto } from '../comun/mapeadores';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { EstadoCuenta } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -11,7 +12,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export class TutoresService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly accesoGrupo: AccesoGrupoService
+    private readonly accesoGrupo: AccesoGrupoService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   async listarPorGrupo(tenant: TenantContext, grupoId: string): Promise<TutorDto[]> {
@@ -59,6 +61,18 @@ export class TutoresService {
         data: { estado: EstadoCuenta.INACTIVO },
       });
       await tx.tutorGrupo.deleteMany({ where: { tutorId } });
+    });
+
+    // Retrofit fase-09: rastro de auditoría. Sin grupoId: la desactivación de
+    // un tutor es a nivel organización (sus asignaciones se borran todas).
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tutor.organizacionId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'TUTOR_DESACTIVADO',
+      entidadTipo: 'Tutor',
+      entidadId: tutor.id,
+      detalle: { nombre: tutor.nombre, estadoAnterior: tutor.estado },
     });
   }
 }

@@ -7,6 +7,7 @@ import { LimitePlanAlcanzadoException } from '../comun/excepciones';
 import { validarCamposLimiteTiempo } from '../comun/limite-tiempo';
 import { actividadADto } from '../comun/mapeadores';
 import { BillingClientService } from '../clientes/billing-client.service';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
 import { EstadoCatalogo } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,7 +24,8 @@ export class ActividadesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billing: BillingClientService,
-    private readonly acceso: AccesoGrupoService
+    private readonly acceso: AccesoGrupoService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   async crear(
@@ -61,6 +63,11 @@ export class ActividadesService {
         repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion ?? null,
         creadaPorTutorId: tenant.principalId,
       },
+    });
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.publicarAuditoria(tenant, 'ACTIVIDAD_CREADA', actividad.id, actividad.grupoId, {
+      despues: actividadADto(actividad),
     });
 
     return actividadADto(actividad);
@@ -148,6 +155,11 @@ export class ActividadesService {
       throw new NotFoundException('Actividad no encontrada');
     }
 
+    await this.publicarAuditoria(tenant, 'ACTIVIDAD_EDITADA', id, actualizada.grupoId, {
+      antes: actividadADto(existente),
+      despues: actividadADto(actualizada),
+    });
+
     return actividadADto(actualizada);
   }
 
@@ -160,7 +172,31 @@ export class ActividadesService {
       data: { estado: EstadoCatalogo.ARCHIVADA },
     });
 
+    await this.publicarAuditoria(tenant, 'ACTIVIDAD_ARCHIVADA', id, existente.grupoId, {
+      antes: actividadADto(existente),
+    });
+
     return actividadADto({ ...existente, estado: EstadoCatalogo.ARCHIVADA });
+  }
+
+  /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */
+  private async publicarAuditoria(
+    tenant: TenantContext,
+    accion: string,
+    actividadId: string,
+    grupoId: string,
+    detalle: Record<string, unknown>
+  ): Promise<void> {
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion,
+      entidadTipo: 'Actividad',
+      entidadId: actividadId,
+      detalle,
+    });
   }
 
   /**

@@ -105,6 +105,7 @@ function crearServicio(opciones: {
     publicar: vi.fn(async (evento: EventoAPublicar<unknown>) => {
       publicados.push(evento);
     }),
+    publicarAccionAdministrativa: vi.fn(),
   } as unknown as EventosPublisherService;
 
   const servicio = new CanjesService(

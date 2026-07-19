@@ -177,12 +177,26 @@ export class CanjesService {
       },
     });
 
-    return canjeADto({
+    const entregado = {
       ...canje,
       estado: EstadoCanje.ENTREGADA,
       entregadaPorTutorId: tenant.principalId,
       entregadaEn: ahora,
+    };
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: canje.organizacionId,
+      grupoId: canje.grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'CANJE_ENTREGADO',
+      entidadTipo: 'CanjeRecompensa',
+      entidadId: canje.id,
+      detalle: { antes: canjeADto(canje), despues: canjeADto(entregado) },
     });
+
+    return canjeADto(entregado);
   }
 
   /**

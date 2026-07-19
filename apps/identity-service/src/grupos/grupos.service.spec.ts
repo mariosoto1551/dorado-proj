@@ -5,6 +5,7 @@ import type { EntitlementsDto, TenantContext } from '@dorado/shared-types';
 import type { BillingClientService } from '../billing/billing-client.service';
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { LimitePlanAlcanzadoException } from '../comun/excepciones';
+import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { GruposService } from './grupos.service';
 
@@ -52,8 +53,12 @@ function crearMocks(opciones: {
   const billing = {
     resolveEntitlements: vi.fn().mockResolvedValue(opciones.entitlements),
   } as unknown as BillingClientService;
+  const eventos = {
+    publicar: vi.fn(),
+    publicarAccionAdministrativa: vi.fn(),
+  } as unknown as EventosPublisherService;
 
-  return { servicio: new GruposService(prisma, accesoGrupo, billing), crearGrupo };
+  return { servicio: new GruposService(prisma, accesoGrupo, billing, eventos), crearGrupo };
 }
 
 describe('GruposService — límite de grupos por plan (spec fase-04)', () => {

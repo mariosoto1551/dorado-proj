@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TenantContext } from '@dorado/shared-types';
 
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
+import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Conducta } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConductasService } from './conductas.service';
@@ -58,9 +59,13 @@ function crearServicio(existente: Conducta | null = null) {
     asegurarAccesoEscritura: vi.fn().mockResolvedValue(undefined),
     asegurarAccesoLectura: vi.fn(),
   } as unknown as AccesoGrupoService;
+  const eventos = {
+    publicar: vi.fn(),
+    publicarAccionAdministrativa: vi.fn(),
+  } as unknown as EventosPublisherService;
 
   return {
-    servicio: new ConductasService(prisma, acceso),
+    servicio: new ConductasService(prisma, acceso, eventos),
     crear,
     actualizar,
     listarFilas,

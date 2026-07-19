@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventoPuntosDto, TenantContext } from '@dorado/shared-types';
 
 import { eventoPuntosADto } from '../comun/mapeadores';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { TipoOrigenPuntos } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CorregirEventoPuntosRequest } from './dto/correcciones.dto';
@@ -19,7 +20,10 @@ import type { CorregirEventoPuntosRequest } from './dto/correcciones.dto';
  */
 @Injectable()
 export class CorreccionesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventos: EventosPublisherService
+  ) {}
 
   async corregir(
     tenant: TenantContext,
@@ -49,6 +53,26 @@ export class CorreccionesService {
         registradoPorTipo: tenant.principalType,
         corregidoDeId: original.id,
         motivoCorreccion: datos.motivo,
+      },
+    });
+
+    // Retrofit fase-09: el rastro de la corrección es el que resuelve
+    // disputas de puntaje (spec) — particularmente importante en auditoría.
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: original.organizacionId,
+      grupoId: original.grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'EVENTO_PUNTOS_CORREGIDO',
+      entidadTipo: 'EventoPuntos',
+      entidadId: original.id,
+      detalle: {
+        motivo: datos.motivo,
+        puntosAjuste: datos.puntosAjuste,
+        correccionId: correccion.id,
+        usuarioId: original.usuarioId,
+        seccionId: original.seccionId,
+        original: eventoPuntosADto(original),
       },
     });
 

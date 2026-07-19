@@ -4,6 +4,7 @@ import { ConductaDto, Rol, TenantContext } from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { conductaADto } from '../comun/mapeadores';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Conducta } from '../generated/prisma/client';
 import { EstadoCatalogo, TipoConducta } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,7 +18,8 @@ import type {
 export class ConductasService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly acceso: AccesoGrupoService
+    private readonly acceso: AccesoGrupoService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   async crear(
@@ -41,6 +43,11 @@ export class ConductasService {
           datos.tipo === TipoConducta.BUENA ? false : datos.permiteAutoreporte ?? false,
         creadaPorTutorId: tenant.principalId,
       },
+    });
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.publicarAuditoria(tenant, 'CONDUCTA_CREADA', conducta.id, conducta.grupoId, {
+      despues: conductaADto(conducta),
     });
 
     return conductaADto(conducta);
@@ -96,6 +103,11 @@ export class ConductasService {
       throw new NotFoundException('Conducta no encontrada');
     }
 
+    await this.publicarAuditoria(tenant, 'CONDUCTA_EDITADA', id, actualizada.grupoId, {
+      antes: conductaADto(existente),
+      despues: conductaADto(actualizada),
+    });
+
     return conductaADto(actualizada);
   }
 
@@ -108,7 +120,31 @@ export class ConductasService {
       data: { estado: EstadoCatalogo.ARCHIVADA },
     });
 
+    await this.publicarAuditoria(tenant, 'CONDUCTA_ARCHIVADA', id, existente.grupoId, {
+      antes: conductaADto(existente),
+    });
+
     return conductaADto({ ...existente, estado: EstadoCatalogo.ARCHIVADA });
+  }
+
+  /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */
+  private async publicarAuditoria(
+    tenant: TenantContext,
+    accion: string,
+    conductaId: string,
+    grupoId: string,
+    detalle: Record<string, unknown>
+  ): Promise<void> {
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion,
+      entidadTipo: 'Conducta',
+      entidadId: conductaId,
+      detalle,
+    });
   }
 
   /** Igual criterio que actividades: 404 si no existe, no es del tenant, o es ARCHIVADA para un USUARIO. */

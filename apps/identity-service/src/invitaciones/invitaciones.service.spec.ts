@@ -95,7 +95,10 @@ function crearServicio(
     emitirSesionUsuario: vi.fn(),
     traducirErrorUnicidad: (error: unknown) => error as Error,
   } as unknown as AuthService;
-  const eventos = { publicar: vi.fn() } as unknown as EventosPublisherService;
+  const eventos = {
+    publicar: vi.fn(),
+    publicarAccionAdministrativa: vi.fn(),
+  } as unknown as EventosPublisherService;
   const billing = {
     resolveEntitlements: vi.fn().mockResolvedValue(entitlements),
   } as unknown as BillingClientService;

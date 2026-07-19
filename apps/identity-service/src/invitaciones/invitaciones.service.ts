@@ -122,6 +122,18 @@ export class InvitacionesService {
       where: { id },
       data: { estado: EstadoInvitacion.REVOCADA },
     });
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: invitacion.organizacionId,
+      grupoId: invitacion.grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'INVITACION_REVOCADA',
+      entidadTipo: 'Invitacion',
+      entidadId: invitacion.id,
+      detalle: { tipoInvitado: invitacion.tipoInvitado, estadoAnterior: invitacion.estado },
+    });
   }
 
   // ---------- Públicos (/auth/invitaciones/...) ----------

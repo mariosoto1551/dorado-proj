@@ -6,6 +6,7 @@ import { BillingClientService } from '../billing/billing-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { LimitePlanAlcanzadoException } from '../comun/excepciones';
 import { grupoADto } from '../comun/mapeadores';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CrearGrupoRequest, EditarGrupoRequest } from './dto/grupos.dto';
 
@@ -16,7 +17,8 @@ export class GruposService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accesoGrupo: AccesoGrupoService,
-    private readonly billing: BillingClientService
+    private readonly billing: BillingClientService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   async listar(tenant: TenantContext): Promise<GrupoDto[]> {
@@ -63,6 +65,18 @@ export class GruposService {
       return nuevoGrupo;
     });
 
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId: grupo.id,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'GRUPO_CREADO',
+      entidadTipo: 'Grupo',
+      entidadId: grupo.id,
+      detalle: { despues: grupoADto(grupo) },
+    });
+
     return grupoADto(grupo);
   }
 
@@ -72,6 +86,8 @@ export class GruposService {
     datos: EditarGrupoRequest
   ): Promise<GrupoDto> {
     await this.accesoGrupo.asegurarAcceso(tenant, grupoId);
+
+    const anterior = await this.prisma.client.grupo.findFirst({ where: { id: grupoId } });
 
     await this.prisma.client.grupo.updateMany({
       where: { id: grupoId },
@@ -86,6 +102,20 @@ export class GruposService {
     if (!grupo) {
       throw new NotFoundException('Grupo no encontrado');
     }
+
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId: grupo.id,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'GRUPO_EDITADO',
+      entidadTipo: 'Grupo',
+      entidadId: grupo.id,
+      detalle: {
+        antes: anterior ? grupoADto(anterior) : null,
+        despues: grupoADto(grupo),
+      },
+    });
 
     return grupoADto(grupo);
   }

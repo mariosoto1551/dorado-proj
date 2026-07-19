@@ -11,6 +11,7 @@ import {
   recompensaDePrueba,
   type BdEnMemoria,
 } from '../comun/testing/bd-en-memoria';
+import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { RecompensasService } from './recompensas.service';
 
 const UMBRAL_DORADO: UmbralZonaDto = {
@@ -55,9 +56,13 @@ function crearServicio(opciones: { bd?: BdEnMemoria; umbral?: UmbralZonaDto | nu
   } as unknown as ScoringClientService;
 
   const identity = { obtenerGrupo: vi.fn(), obtenerUsuario: vi.fn() } as unknown as IdentityClientService;
+  const eventos = {
+    publicar: vi.fn(),
+    publicarAccionAdministrativa: vi.fn(),
+  } as unknown as EventosPublisherService;
 
   return {
-    servicio: new RecompensasService(bd.prisma, scoring, new AccesoGrupoService(identity)),
+    servicio: new RecompensasService(bd.prisma, scoring, new AccesoGrupoService(identity), eventos),
     bd,
   };
 }

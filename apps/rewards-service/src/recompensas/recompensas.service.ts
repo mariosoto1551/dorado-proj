@@ -5,6 +5,7 @@ import { RecompensaDto, Rol, TenantContext } from '@dorado/shared-types';
 import { ScoringClientService } from '../clientes/scoring-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { recompensaADto } from '../comun/mapeadores';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Recompensa } from '../generated/prisma/client';
 import { EstadoCatalogo } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,7 +26,8 @@ export class RecompensasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly scoring: ScoringClientService,
-    private readonly acceso: AccesoGrupoService
+    private readonly acceso: AccesoGrupoService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   async crear(
@@ -51,6 +53,11 @@ export class RecompensasService {
         permiteAzar: datos.permiteAzar ?? false,
         creadaPorTutorId: tenant.principalId,
       },
+    });
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.publicarAuditoria(tenant, 'RECOMPENSA_CREADA', recompensa, {
+      despues: recompensaADto(recompensa),
     });
 
     return recompensaADto(recompensa);
@@ -115,6 +122,11 @@ export class RecompensasService {
       throw new NotFoundException('Recompensa no encontrada');
     }
 
+    await this.publicarAuditoria(tenant, 'RECOMPENSA_EDITADA', actualizada, {
+      antes: recompensaADto(existente),
+      despues: recompensaADto(actualizada),
+    });
+
     return recompensaADto(actualizada);
   }
 
@@ -127,7 +139,30 @@ export class RecompensasService {
       data: { estado: EstadoCatalogo.ARCHIVADA },
     });
 
+    await this.publicarAuditoria(tenant, 'RECOMPENSA_ARCHIVADA', existente, {
+      antes: recompensaADto(existente),
+    });
+
     return recompensaADto({ ...existente, estado: EstadoCatalogo.ARCHIVADA });
+  }
+
+  /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */
+  private async publicarAuditoria(
+    tenant: TenantContext,
+    accion: string,
+    recompensa: Recompensa,
+    detalle: Record<string, unknown>
+  ): Promise<void> {
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId: recompensa.grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion,
+      entidadTipo: 'Recompensa',
+      entidadId: recompensa.id,
+      detalle,
+    });
   }
 
   /**

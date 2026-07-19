@@ -6,6 +6,7 @@ import type { EntitlementsDto, TenantContext } from '@dorado/shared-types';
 import type { BillingClientService } from '../clientes/billing-client.service';
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { LimitePlanAlcanzadoException } from '../comun/excepciones';
+import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActividadesService } from './actividades.service';
@@ -105,9 +106,13 @@ function crearServicio(opciones: OpcionesMock = {}) {
     asegurarAccesoEscritura,
     asegurarAccesoLectura,
   } as unknown as AccesoGrupoService;
+  const eventos = {
+    publicar: vi.fn(),
+    publicarAccionAdministrativa: vi.fn(),
+  } as unknown as EventosPublisherService;
 
   return {
-    servicio: new ActividadesService(prisma, billing, acceso),
+    servicio: new ActividadesService(prisma, billing, acceso, eventos),
     crear,
     actualizar,
     buscarPrimera,

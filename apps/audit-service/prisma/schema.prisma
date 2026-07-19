@@ -1,0 +1,42 @@
+// Schema de audit-service (base audit_db) — fuente:
+// docs/phases/fase-09-notification-audit.md Parte C.
+// RegistroAuditoria es un LEDGER INMUTABLE (ADR-00 §6): solo createdAt, nunca
+// UPDATE/DELETE — y NINGÚN endpoint de escritura: todo llega por eventos.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model RegistroAuditoria {
+  id             String @id @default(uuid())
+  organizacionId String
+  // null si la acción es a nivel Organización (ej. creación de la org)
+  grupoId String?
+  actorId String
+  // 'TUTOR' | 'USUARIO' | 'PLATFORM_ADMIN' | 'SYSTEM'
+  actorTipo   String
+  accion      String
+  entidadTipo String
+  entidadId   String
+  // payload completo del evento tal cual llegó (spec)
+  detalle   Json
+  createdAt DateTime @default(now())
+
+  @@index([organizacionId])
+  @@index([grupoId])
+  @@index([entidadTipo, entidadId])
+}
+
+// Idempotencia del consumidor RabbitMQ (ADR-00 §5): se chequea antes de crear
+// la fila y se inserta en la MISMA transacción que ella.
+model EventoProcesado {
+  eventId     String   @id
+  consumidor  String
+  procesadoEn DateTime @default(now())
+}

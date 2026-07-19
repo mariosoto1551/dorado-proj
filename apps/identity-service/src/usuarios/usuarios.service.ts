@@ -4,6 +4,7 @@ import { PrincipalType, Rol, TenantContext, UsuarioDto } from '@dorado/shared-ty
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { usuarioADto } from '../comun/mapeadores';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Usuario } from '../generated/prisma/client';
 import { EstadoCuenta } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,7 +14,8 @@ import type { EditarUsuarioRequest } from './dto/usuarios.dto';
 export class UsuariosService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly accesoGrupo: AccesoGrupoService
+    private readonly accesoGrupo: AccesoGrupoService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   async listarPorGrupo(tenant: TenantContext, grupoId: string): Promise<UsuarioDto[]> {
@@ -67,6 +69,18 @@ export class UsuariosService {
     await this.prisma.client.usuario.updateMany({
       where: { id: usuario.id },
       data: { estado: EstadoCuenta.INACTIVO },
+    });
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: usuario.organizacionId,
+      grupoId: usuario.grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'USUARIO_DESACTIVADO',
+      entidadTipo: 'Usuario',
+      entidadId: usuario.id,
+      detalle: { nombre: usuario.nombre, estadoAnterior: usuario.estado },
     });
   }
 

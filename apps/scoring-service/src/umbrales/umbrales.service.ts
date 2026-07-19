@@ -5,6 +5,7 @@ import { TenantContext, UmbralZonaDto } from '@dorado/shared-types';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { umbralADto } from '../comun/mapeadores';
 import { validarConjuntoUmbrales, type RangoUmbral } from '../comun/zonas';
+import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { UmbralZona } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CrearUmbralRequest, EditarUmbralRequest } from './dto/umbrales.dto';
@@ -19,7 +20,8 @@ import type { CrearUmbralRequest, EditarUmbralRequest } from './dto/umbrales.dto
 export class UmbralesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly acceso: AccesoGrupoService
+    private readonly acceso: AccesoGrupoService,
+    private readonly eventos: EventosPublisherService
   ) {}
 
   /** POST /scoring/grupos/:grupoId/umbrales */
@@ -37,8 +39,10 @@ export class UmbralesService {
       { orden: datos.orden, puntosMin: datos.puntosMin, puntosMax: datos.puntosMax ?? null },
     ]);
 
+    let umbral: UmbralZona;
+
     try {
-      const umbral = await this.prisma.client.umbralZona.create({
+      umbral = await this.prisma.client.umbralZona.create({
         data: {
           // organizacionId SIEMPRE del JWT validado, nunca del cliente (regla 3).
           organizacionId: tenant.organizacionId,
@@ -50,11 +54,16 @@ export class UmbralesService {
           colorHex: datos.colorHex,
         },
       });
-
-      return umbralADto(umbral);
     } catch (error) {
       throw traducirCarreraDeOrden(error);
     }
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.publicarAuditoria(tenant, 'UMBRAL_CREADO', umbral, {
+      despues: umbralADto(umbral),
+    });
+
+    return umbralADto(umbral);
   }
 
   /** GET /scoring/grupos/:grupoId/umbrales — cualquier rol del grupo. */
@@ -102,12 +111,19 @@ export class UmbralesService {
       throw traducirCarreraDeOrden(error);
     }
 
-    return umbralADto({
+    const actualizado: UmbralZona = {
       ...existente,
       nombreZona: datos.nombreZona ?? existente.nombreZona,
       colorHex: datos.colorHex ?? existente.colorHex,
       ...efectivo,
+    };
+
+    await this.publicarAuditoria(tenant, 'UMBRAL_EDITADO', actualizado, {
+      antes: umbralADto(existente),
+      despues: umbralADto(actualizado),
     });
+
+    return umbralADto(actualizado);
   }
 
   /**
@@ -131,7 +147,30 @@ export class UmbralesService {
 
     await this.prisma.client.umbralZona.deleteMany({ where: { id } });
 
+    await this.publicarAuditoria(tenant, 'UMBRAL_ELIMINADO', existente, {
+      antes: umbralADto(existente),
+    });
+
     return umbralADto(existente);
+  }
+
+  /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */
+  private async publicarAuditoria(
+    tenant: TenantContext,
+    accion: string,
+    umbral: UmbralZona,
+    detalle: Record<string, unknown>
+  ): Promise<void> {
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId: umbral.grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion,
+      entidadTipo: 'UmbralZona',
+      entidadId: umbral.id,
+      detalle,
+    });
   }
 
   private async umbralesDelGrupo(grupoId: string): Promise<UmbralZona[]> {
