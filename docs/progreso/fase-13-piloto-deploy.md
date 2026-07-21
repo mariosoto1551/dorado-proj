@@ -60,6 +60,27 @@ Artefactos de la opción VPS:
 - `.gitignore` endurecido: ignora `.env.*` reales, conserva los `*.example`.
 - Frontends: siguen en **Vercel** (estáticos, gratis).
 
+### "Modo casa" (LAN, gratis) — plan de prueba elegido por José
+
+Por presupuesto ($ muy acotado), José eligió **arrancar corriendo todo en su PC**
+y que la familia acceda desde sus celulares/laptops por el **WiFi de casa**
+(gratis, sin nube ni dominio). Se agregó:
+- **`apps/app-web/src/environments/environment.ts`**: `apiBaseUrl` ahora se
+  DERIVA de `window.location` (host desde el que se abre la app) — el mismo build
+  sirve para localhost y para cualquier IP de la red local, sin reconstruir.
+  Producción sigue usando `environment.prod.ts` (URL fija) vía `fileReplacements`.
+- **`apps/public-site/src/scripts/registro.ts`**: mismo fallback a `window.location`
+  para el registro desde cualquier equipo de la red.
+- **`apps/gateway/src/main.ts`**: CORS acepta orígenes de red privada
+  (192.168/10/172.16-31/localhost) cuando `CORS_ALLOW_LAN=true` — REFLEJA el
+  origen puntual (no `*`), así la cookie de credentials sigue funcionando. Fuera
+  del modo casa, sigue la allowlist estricta (sin cambios en prod).
+- **`scripts/home-up.mjs`**: un comando levanta infra + migraciones + los 9
+  servicios (con `CORS_ALLOW_LAN`) + los 2 frontends en `0.0.0.0`, e imprime la
+  dirección `http://<IP-de-la-PC>:4200` para la familia. Ctrl+C baja todo.
+- Cookie de refresh con `REFRESH_COOKIE_SECURE=false` en LAN (http). Gateway
+  build verificado tras el cambio de CORS.
+
 ## Verificación hecha en esta sesión
 
 - **app-web build de producción**: `nx build app-web --configuration=production`

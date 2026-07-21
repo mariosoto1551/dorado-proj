@@ -8,9 +8,15 @@
  * (orígenes distintos): en el éxito el usuario vuelve a loguearse en app-web.
  */
 
-// Inyectadas en build por Astro (import.meta.env.PUBLIC_*). Defaults de dev.
-const GATEWAY_URL = import.meta.env.PUBLIC_GATEWAY_URL ?? 'http://localhost:3000';
-const APP_WEB_URL = import.meta.env.PUBLIC_APP_WEB_URL ?? 'http://localhost:4200';
+// Inyectadas en build por Astro (import.meta.env.PUBLIC_*). Si no están (dev /
+// "modo casa"), se derivan del host desde el que se abre el sitio, así el
+// registro funciona desde cualquier dispositivo de la red local sin rebuild.
+const GATEWAY_URL =
+  import.meta.env.PUBLIC_GATEWAY_URL ??
+  `${window.location.protocol}//${window.location.hostname}:3000`;
+const APP_WEB_URL =
+  import.meta.env.PUBLIC_APP_WEB_URL ??
+  `${window.location.protocol}//${window.location.hostname}:4200`;
 
 interface ApiErrorResponse {
   statusCode: number;
