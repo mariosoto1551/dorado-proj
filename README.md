@@ -26,25 +26,70 @@ scripts/     utilitarios del repo
 
 ## Desarrollo local
 
+### Requisitos
+
+- Node 24 LTS · pnpm 11 · Docker (para Postgres + RabbitMQ).
+- La primera vez: `pnpm install`.
+
+### Arranque en 3 pasos
+
+La app son **tres piezas** que se levantan en terminales separadas: el backend
+(infra + los 9 servicios NestJS detrás del Gateway), y los dos frontends.
+
 ```bash
-pnpm install
+# 1) Backend completo — infra (Postgres+RabbitMQ) + migraciones + los 9 servicios.
+#    Deja todo arriba y esperando; Ctrl+C baja el stack y la infra.
+pnpm dev:backend
 
-# Infraestructura (Postgres con las 8 bases, RabbitMQ, Adminer en :8081)
-docker compose -f infra/docker-compose.yml up -d
+# 2) App principal (Angular) — en OTRA terminal.
+pnpm dev:app                     # http://localhost:4200
 
-# Servir un proyecto puntual
-pnpm nx serve gateway          # :3000 (los demás servicios: :3001-:3008)
-pnpm nx serve app-web          # :4200
-pnpm nx dev public-site        # :4321
-
-# Tareas del monorepo
-pnpm nx run-many -t build      # build de todo
-pnpm nx run-many -t lint       # lint de todo
-pnpm nx affected -t test       # tests de lo afectado por el cambio
+# 3) Sitio público (Astro) — en OTRA terminal, solo si lo necesitás.
+pnpm dev:site                    # http://localhost:4321
 ```
+
+`pnpm dev:backend` usa `scripts/e2e-up.mjs --serve-only`: levanta la infra con
+docker-compose, corre `prisma migrate deploy` en las 8 bases, arranca gateway +
+8 servicios con `nx run-many` y espera a que todos pasen su healthcheck. El seed
+de planes FREE/PRO (billing) se aplica solo en el bootstrap del servicio.
+
+> **Tip**: si vas a reiniciar el backend seguido, dejá la infra levantada una vez
+> con `pnpm dev:infra` y usá `pnpm dev:backend:noinfra` (no toca docker en cada
+> arranque/parada, más rápido). Para bajar la infra al final: `pnpm dev:infra:down`.
+
+### Puertos
+
+| Pieza | URL |
+|---|---|
+| Gateway (única entrada al backend) | http://localhost:3000/api/* |
+| Servicios internos | :3001–:3008 (no se acceden directo) |
+| `app-web` (Angular) | http://localhost:4200 |
+| `public-site` (Astro) | http://localhost:4321 |
+| Adminer (DB) | http://localhost:8081 |
+| RabbitMQ Management | http://localhost:15672 |
 
 Todo el tráfico de los frontends al backend pasa por el Gateway
 (`localhost:3000/api/*`) — nunca directo a un servicio interno, ni en desarrollo.
+El `public-site` solo puede registrar organizaciones si se sirve en `:4321`, que
+es el origen que el Gateway acepta por CORS.
+
+### Servir una pieza suelta
+
+```bash
+pnpm nx serve gateway          # o cualquier servicio individual
+pnpm nx serve app-web          # :4200
+pnpm nx serve public-site      # :4321  (equivale a `astro dev`)
+```
+
+### Tareas del monorepo
+
+```bash
+pnpm build                     # build de todo (nx run-many -t build)
+pnpm lint                      # lint de todo
+pnpm test                      # tests unitarios de todo
+pnpm e2e                       # suite E2E completa (levanta stack, corre Playwright, baja todo)
+pnpm nx affected -t test       # solo lo afectado por el cambio actual
+```
 
 ## Orden de trabajo
 

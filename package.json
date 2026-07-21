@@ -2,7 +2,18 @@
   "name": "proyecto-dorado",
   "version": "0.0.0",
   "license": "UNLICENSED",
-  "scripts": {},
+  "scripts": {
+    "dev:infra": "docker compose -f infra/docker-compose.yml up -d",
+    "dev:infra:down": "docker compose -f infra/docker-compose.yml down",
+    "dev:backend": "node scripts/e2e-up.mjs --serve-only",
+    "dev:backend:noinfra": "node scripts/e2e-up.mjs --serve-only --no-infra",
+    "dev:app": "nx serve app-web",
+    "dev:site": "nx serve public-site",
+    "build": "nx run-many -t build",
+    "lint": "nx run-many -t lint",
+    "test": "nx run-many -t test",
+    "e2e": "node scripts/e2e-up.mjs"
+  },
   "private": true,
   "engines": {
     "node": ">=24 <25"
