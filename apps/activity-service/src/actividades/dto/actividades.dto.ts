@@ -10,7 +10,12 @@ import {
   Min,
 } from 'class-validator';
 
-import { EstadoCatalogo, TipoLimiteTiempo, TipoPuntaje } from '../../generated/prisma/enums';
+import {
+  ComportamientoAlCierre,
+  EstadoCatalogo,
+  TipoLimiteTiempo,
+  TipoPuntaje,
+} from '../../generated/prisma/enums';
 
 /**
  * "HH:mm" 24 h (spec fase-05: hora local del Grupo; la conversión de zona
@@ -62,6 +67,12 @@ export class CrearActividadRequest {
   @IsInt()
   @Min(1)
   repeticionesMaximasSeccion?: number | null;
+
+  // fase-14-08: solo aplica a OBLIGATORIA; con OPCIONAL se fuerza ASUME_HECHA
+  // en el service (400 si el cliente manda REQUIERE_CONFIRMACION para opcional).
+  @IsOptional()
+  @IsEnum(ComportamientoAlCierre)
+  comportamientoAlCierre?: ComportamientoAlCierre;
 }
 
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
@@ -110,6 +121,10 @@ export class EditarActividadRequest {
   @IsInt()
   @Min(1)
   repeticionesMaximasSeccion?: number | null;
+
+  @IsOptional()
+  @IsEnum(ComportamientoAlCierre)
+  comportamientoAlCierre?: ComportamientoAlCierre;
 }
 
 // GET /activity/grupos/:grupoId/actividades?estado= — solo tutores; para

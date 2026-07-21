@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import {
   CurrentTenant,
@@ -7,6 +7,7 @@ import {
   TenantContextGuard,
 } from '@dorado/shared-auth';
 import {
+  MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
   Rol,
@@ -26,6 +27,16 @@ import {
 @UseGuards(TenantContextGuard, RolesGuard)
 export class RegistroController {
   constructor(private readonly registro: RegistroService) {}
+
+  /** Estado de las actividades de hoy del propio USUARIO (fase-14-08). */
+  @Get('grupos/:grupoId/mi-estado-hoy')
+  @Roles(Rol.USUARIO)
+  async miEstadoHoy(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string
+  ): Promise<MiEstadoHoyDto> {
+    return await this.registro.miEstadoHoy(tenant, grupoId);
+  }
 
   @Post('actividades/:id/iniciar-cronometro')
   @Roles(Rol.USUARIO)

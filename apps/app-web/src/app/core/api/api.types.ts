@@ -6,6 +6,7 @@
  * se actualiza acá también.
  */
 import type {
+  ComportamientoAlCierre,
   EstadoSeccion,
   EvaluarUmbralesEn,
   ModoSesion,
@@ -57,6 +58,7 @@ export interface CrearActividadRequest {
   duracionCronometroMinutos?: number | null;
   repeticionesMaximasSesion?: number;
   repeticionesMaximasSeccion?: number | null;
+  comportamientoAlCierre?: ComportamientoAlCierre;
 }
 
 export type EditarActividadRequest = Partial<CrearActividadRequest>;

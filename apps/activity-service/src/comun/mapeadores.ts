@@ -1,5 +1,6 @@
 import type {
   ActividadDto,
+  ComportamientoAlCierre,
   ConductaDto,
   PrincipalType,
   RegistroActividadDto,
@@ -34,6 +35,7 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     duracionCronometroMinutos: actividad.duracionCronometroMinutos,
     repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
     repeticionesMaximasSeccion: actividad.repeticionesMaximasSeccion,
+    comportamientoAlCierre: actividad.comportamientoAlCierre as ComportamientoAlCierre,
     estado: actividad.estado,
   };
 }

@@ -11,8 +11,10 @@ import { EventosPublisherService } from './eventos-publisher.service';
 
 /**
  * Conexión a RabbitMQ y declaración de la topología (ADR-00 §5): exchange
- * topic único `dorado.events` + su DLX. Activity solo PUBLICA (los 4 eventos
- * de registro de la fase 7 — no consume nada), por eso no declara colas.
+ * topic único `dorado.events` + su DLX. Activity PUBLICA los eventos de
+ * registro (fase-07) y, desde fase-14-08, también CONSUME `SesionCerrada` para
+ * el castigo automático — la cola `activity.q.sesiones` la declara el
+ * `@RabbitSubscribe` del `CierreConsumer`, no este módulo.
  */
 @Global()
 @Module({

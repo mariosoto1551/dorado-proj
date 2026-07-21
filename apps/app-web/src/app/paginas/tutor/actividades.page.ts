@@ -10,6 +10,7 @@ import { FormsModule } from '@angular/forms';
 
 import {
   type ActividadDto,
+  ComportamientoAlCierre,
   TipoLimiteTiempo,
   TipoPuntaje,
 } from '@dorado/shared-types';
@@ -31,6 +32,8 @@ interface FormActividad {
   deadlineHora: string;
   duracionCronometroMinutos: number;
   repeticionesMaximasSesion: number;
+  /** Solo aplica a OBLIGATORIA (fase-14-08); se mapea a comportamientoAlCierre. */
+  requiereConfirmacion: boolean;
 }
 
 const FORM_VACIO: FormActividad = {
@@ -42,6 +45,7 @@ const FORM_VACIO: FormActividad = {
   deadlineHora: '20:00',
   duracionCronometroMinutos: 15,
   repeticionesMaximasSesion: 1,
+  requiereConfirmacion: false,
 };
 
 /** CRUD de Actividades (fase-10). Form con campos condicionales por tipoLimiteTiempo. */
@@ -187,6 +191,26 @@ const FORM_VACIO: FormActividad = {
               </label>
             </div>
 
+            @if (form.tipoPuntaje === TP.OBLIGATORIA) {
+              <label
+                class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in"
+              >
+                <input
+                  [(ngModel)]="form.requiereConfirmacion"
+                  name="requiereConfirmacion"
+                  type="checkbox"
+                  class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200"
+                />
+                <span class="text-xs text-slate-600">
+                  <span class="font-semibold text-slate-700">¿Requiere que el usuario confirme?</span>
+                  <span class="mt-0.5 block text-slate-500">
+                    Si se activa, el usuario debe marcar «Ya lo hice» durante la sesión. Si no lo
+                    confirma, al cerrar la sesión se le descuentan los puntos automáticamente.
+                  </span>
+                </span>
+              </label>
+            }
+
             <label class="block">
               <span class="text-xs font-semibold text-slate-600">Límite de tiempo</span>
               <select
@@ -327,6 +351,8 @@ export class ActividadesPage {
       deadlineHora: a.deadlineHora ?? '20:00',
       duracionCronometroMinutos: a.duracionCronometroMinutos ?? 15,
       repeticionesMaximasSesion: a.repeticionesMaximasSesion,
+      requiereConfirmacion:
+        a.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION,
     };
     this.formAbierto.set(true);
   }
@@ -403,6 +429,12 @@ export class ActividadesPage {
           ? Number(f.duracionCronometroMinutos)
           : null,
       repeticionesMaximasSesion: Number(f.repeticionesMaximasSesion),
+      // Solo una OBLIGATORIA puede requerir confirmación; para OPCIONAL el
+      // backend fuerza ASUME_HECHA igual (fase-14-08).
+      comportamientoAlCierre:
+        f.tipoPuntaje === TipoPuntaje.OBLIGATORIA && f.requiereConfirmacion
+          ? ComportamientoAlCierre.REQUIERE_CONFIRMACION
+          : ComportamientoAlCierre.ASUME_HECHA,
     };
   }
 

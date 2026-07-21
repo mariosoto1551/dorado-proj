@@ -46,6 +46,18 @@ export class IdentityClientService {
     return await this.obtener<UsuarioDto>(`/internal/identity/usuarios/${usuarioId}`);
   }
 
+  /**
+   * Usuarios ACTIVO del grupo (identity ya filtra por estado, fase-02). Lo usa
+   * el consumidor de SesionCerrada para el castigo automático (fase-14-08).
+   */
+  async usuariosDelGrupo(grupoId: string): Promise<UsuarioDto[]> {
+    const usuarios = await this.obtener<UsuarioDto[]>(
+      `/internal/identity/grupos/${grupoId}/usuarios`
+    );
+
+    return usuarios ?? [];
+  }
+
   private async obtener<T>(ruta: string): Promise<T | null> {
     const correlationId = getCorrelationId();
 

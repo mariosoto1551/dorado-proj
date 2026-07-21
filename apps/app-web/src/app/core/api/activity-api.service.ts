@@ -5,6 +5,7 @@ import type { Observable } from 'rxjs';
 import type {
   ActividadDto,
   ConductaDto,
+  MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
 } from '@dorado/shared-types';
@@ -46,6 +47,11 @@ export class ActivityApiService {
 
   archivarActividad(actividadId: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/actividades/${actividadId}`);
+  }
+
+  /** Estado real de las actividades de hoy del propio usuario (fase-14-08). */
+  miEstadoHoy(grupoId: string): Observable<MiEstadoHoyDto> {
+    return this.http.get<MiEstadoHoyDto>(`${this.base}/grupos/${grupoId}/mi-estado-hoy`);
   }
 
   // ---- Conductas ----

@@ -33,6 +33,11 @@ Fase 13 completa y estable.
 ### 7. Punto suelto de `ADR-00` sección 10 (condicional)
 - Si José confirma que todavía necesita el flujo de "propuesta de actividad por Usuario" (mencionado en `memory.md` pero ausente de `arquitectura-base.md`), se diseña y agrega acá como sub-fase, con su propio modelo (`PropuestaActividad`, estados `BORRADOR/APROBADA/RECHAZADA`) y evento `PropuestaActividadCreada`. Si no se confirma, este ítem se descarta definitivamente.
 
+### 8. Confirmación de obligatorias por el usuario + estado de hoy (barrita de repeticiones)
+- **Ya especificado en detalle** (decidido con José, 2026-07-21): ver `docs/phases/fase-14-08-confirmacion-obligatorias.md`.
+- Modelo "B2": el Usuario puede confirmar una obligatoria (`comportamientoAlCierre = REQUIERE_CONFIRMACION`, por actividad); si no la confirma, `activity-service` genera un `no-hizo` automático al cerrar la sesión (primer consumidor de eventos de ese servicio). Confirmar vale 0 puntos (solo evita el descuento). De paso, endpoint `GET /activity/grupos/:grupoId/mi-estado-hoy` que expone el conteo real de repeticiones y cierra la deuda técnica del `Set` local de la home (Fase 10) + habilita la barrita "X de N".
+- Depende de: `SesionCerrada` (Fase 6), `NoHizoRegistrado` (Fase 7), interno de usuarios de identity (Fase 2) — todos existen. No implementar hasta que Fase 13 esté estable.
+
 ## Nota para Claude Code
 
 No empieces ninguno de estos ítems por iniciativa propia ni los mezcles con trabajo de Fases 0–13. Cada uno de estos necesita su propia sesión de planificación detallada (mismo nivel de detalle que las fases anteriores) antes de tocar código — este archivo es un índice de alcance, no una especificación ejecutable todavía.

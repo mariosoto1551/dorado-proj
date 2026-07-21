@@ -37,6 +37,7 @@ const ACTIVIDAD_BASE: Actividad = {
   duracionCronometroMinutos: null,
   repeticionesMaximasSesion: 1,
   repeticionesMaximasSeccion: null,
+  comportamientoAlCierre: 'ASUME_HECHA',
   estado: 'ACTIVA',
   creadaPorTutorId: 'tutor-1',
   createdAt: new Date(),
@@ -244,6 +245,62 @@ describe('ActividadesService — campos condicionales al crear (spec fase-05)', 
         requestDePrueba({ duracionCronometroMinutos: 10 })
       )
     ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('ActividadesService — comportamientoAlCierre (fase-14-08)', () => {
+  it('OPCIONAL por defecto persiste ASUME_HECHA', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(tenantDePrueba(), 'grupo-1', requestDePrueba());
+
+    expect(crear).toHaveBeenCalledWith({
+      data: expect.objectContaining({ comportamientoAlCierre: 'ASUME_HECHA' }),
+    });
+  });
+
+  it('OPCIONAL + REQUIERE_CONFIRMACION es 400', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await expect(
+      servicio.crear(
+        tenantDePrueba(),
+        'grupo-1',
+        requestDePrueba({ tipoPuntaje: 'OPCIONAL', comportamientoAlCierre: 'REQUIERE_CONFIRMACION' })
+      )
+    ).rejects.toThrow(BadRequestException);
+    expect(crear).not.toHaveBeenCalled();
+  });
+
+  it('OBLIGATORIA + REQUIERE_CONFIRMACION persiste el comportamiento', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ tipoPuntaje: 'OBLIGATORIA', comportamientoAlCierre: 'REQUIERE_CONFIRMACION' })
+    );
+
+    expect(crear).toHaveBeenCalledWith({
+      data: expect.objectContaining({ comportamientoAlCierre: 'REQUIERE_CONFIRMACION' }),
+    });
+  });
+
+  it('cambiar de OBLIGATORIA confirmable a OPCIONAL fuerza ASUME_HECHA (sin mandarlo)', async () => {
+    const { servicio, actualizar } = crearServicio({
+      existente: {
+        ...ACTIVIDAD_BASE,
+        tipoPuntaje: 'OBLIGATORIA',
+        comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      } as Actividad,
+    });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', { tipoPuntaje: 'OPCIONAL' });
+
+    expect(actualizar).toHaveBeenCalledWith({
+      where: { id: 'act-1' },
+      data: expect.objectContaining({ comportamientoAlCierre: 'ASUME_HECHA' }),
+    });
   });
 });
 

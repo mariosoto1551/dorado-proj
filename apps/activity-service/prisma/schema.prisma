@@ -19,6 +19,13 @@ enum TipoPuntaje {
   OBLIGATORIA // resta puntos si se marca "no hizo"
 }
 
+// Comportamiento de una OBLIGATORIA al cerrar la Sesión (fase-14-08). Solo
+// relevante con tipoPuntaje = OBLIGATORIA; para OPCIONAL se fuerza ASUME_HECHA.
+enum ComportamientoAlCierre {
+  ASUME_HECHA // comportamiento actual: sin registro positivo, sin castigo automático
+  REQUIERE_CONFIRMACION // el Usuario debe confirmar; si no, no-hizo automático al cerrar la Sesión
+}
+
 enum TipoLimiteTiempo {
   DEADLINE // fecha/hora límite fija dentro de la Sesión
   CRONOMETRO // duración desde que el usuario la inicia
@@ -53,6 +60,9 @@ model Actividad {
   // null = sin override; se calcula en Fase 7 como
   // repeticionesMaximasSesion * cantidad de Sesiones de la Sección
   repeticionesMaximasSeccion Int?
+  // fase-14-08: default garantiza que toda actividad preexistente conserva el
+  // comportamiento actual tras la migración (cambio retro-compatible).
+  comportamientoAlCierre     ComportamientoAlCierre @default(ASUME_HECHA)
   estado                     EstadoCatalogo   @default(ACTIVA)
   creadaPorTutorId           String
   createdAt                  DateTime         @default(now())
@@ -147,4 +157,14 @@ model Conducta {
 
   @@index([organizacionId])
   @@index([grupoId])
+}
+
+// Idempotencia de consumidor (fase-14-08): activity pasa de productor puro a
+// también consumir SesionCerrada para el castigo automático. Misma tabla y
+// patrón que scoring-service (fase-07). Operacional — NO lleva organizacionId
+// ni pasa por el filtro de tenant (el consumidor corre sin JWT).
+model EventoProcesado {
+  eventId     String   @id
+  consumidor  String
+  procesadoEn DateTime @default(now())
 }

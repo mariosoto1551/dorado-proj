@@ -354,6 +354,104 @@ describe('RegistroService — completar', () => {
   });
 });
 
+describe('RegistroService — confirmar obligatoria (fase-14-08)', () => {
+  it('OBLIGATORIA ASUME_HECHA sigue devolviendo 400 (comportamiento intacto)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ tipoPuntaje: 'OBLIGATORIA', comportamientoAlCierre: 'ASUME_HECHA' }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).rejects.toThrow(
+      ObligatoriaNoSeCompletaException
+    );
+  });
+
+  it('OBLIGATORIA REQUIERE_CONFIRMACION: registro COMPLETADA de 0 pts y SIN evento', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+          valorPuntos: 30,
+        }),
+      ],
+    });
+    const { servicio, publicados } = crearServicio({ bd });
+
+    const registro = await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    expect(registro).toMatchObject({
+      usuarioId: 'usuario-1',
+      tipo: 'COMPLETADA',
+      valorPuntosSnapshot: 0,
+      registradoPorTipo: 'USUARIO',
+    });
+    expect(bd.registrosActividad).toHaveLength(1);
+    // 0 pts → no toca el ledger de scoring: no publica ningún evento de dominio.
+    expect(publicados).toHaveLength(0);
+  });
+
+  it('confirmar dos veces la misma obligatoria (reps=1) → 409', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).rejects.toThrow(
+      LimiteRepeticionesAlcanzadoException
+    );
+  });
+});
+
+describe('RegistroService — mi-estado-hoy (fase-14-08)', () => {
+  it('sin Sesión abierta → sesionId null y lista vacía', async () => {
+    const { servicio } = crearServicio({ seccionActual: null });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado).toEqual({ sesionId: null, actividades: [] });
+  });
+
+  it('devuelve vecesHechas real y confirmada por actividad', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'opt', tipoPuntaje: 'OPCIONAL', repeticionesMaximasSesion: 3 }),
+        actividadDePrueba({
+          id: 'obl',
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'opt', {});
+    await servicio.completar(tenantUsuario(), 'opt', {});
+    await servicio.completar(tenantUsuario(), 'obl', {});
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    const opt = estado.actividades.find((a) => a.actividadId === 'opt');
+    const obl = estado.actividades.find((a) => a.actividadId === 'obl');
+
+    expect(estado.sesionId).toBe('sesion-1');
+    expect(opt).toMatchObject({ vecesHechas: 2, repeticionesMaximasSesion: 3, confirmada: false });
+    expect(obl).toMatchObject({
+      vecesHechas: 1,
+      confirmada: true,
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+    });
+  });
+});
+
 describe('RegistroService — iniciar cronómetro', () => {
   it('crea/reemplaza la fila para la sesión abierta y devuelve venceEn', async () => {
     const bd = crearBdRegistroEnMemoria({

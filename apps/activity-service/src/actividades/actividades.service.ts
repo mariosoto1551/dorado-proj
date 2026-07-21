@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { ActividadDto, Rol, TenantContext } from '@dorado/shared-types';
 
@@ -9,7 +14,7 @@ import { actividadADto } from '../comun/mapeadores';
 import { BillingClientService } from '../clientes/billing-client.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
-import { EstadoCatalogo } from '../generated/prisma/enums';
+import { ComportamientoAlCierre, EstadoCatalogo, TipoPuntaje } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CrearActividadRequest,
@@ -61,6 +66,10 @@ export class ActividadesService {
           repeticionesMaximasSesion: datos.repeticionesMaximasSesion,
         }),
         repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion ?? null,
+        comportamientoAlCierre: this.resolverComportamiento(
+          datos.tipoPuntaje,
+          datos.comportamientoAlCierre
+        ),
         creadaPorTutorId: tenant.principalId,
       },
     });
@@ -129,6 +138,16 @@ export class ActividadesService {
 
     const campos = validarCamposLimiteTiempo(tipoEfectivo, deadlineEfectiva, duracionEfectiva);
 
+    // Estado efectivo del comportamiento al cierre (fase-14-08): si el tipo
+    // pasa a OPCIONAL se fuerza ASUME_HECHA (aunque el cliente no lo mande); si
+    // sigue OBLIGATORIA, conserva el existente salvo que se pida uno nuevo.
+    const tipoPuntajeEfectivo = datos.tipoPuntaje ?? (existente.tipoPuntaje as TipoPuntaje);
+    const comportamientoEfectivo = this.resolverComportamiento(
+      tipoPuntajeEfectivo,
+      datos.comportamientoAlCierre,
+      existente.comportamientoAlCierre as ComportamientoAlCierre
+    );
+
     // updateMany (no update): pasa por el filtro automático de tenant.
     await this.prisma.client.actividad.updateMany({
       where: { id },
@@ -146,6 +165,7 @@ export class ActividadesService {
         ...(datos.repeticionesMaximasSeccion !== undefined && {
           repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion,
         }),
+        comportamientoAlCierre: comportamientoEfectivo,
       },
     });
 
@@ -177,6 +197,31 @@ export class ActividadesService {
     });
 
     return actividadADto({ ...existente, estado: EstadoCatalogo.ARCHIVADA });
+  }
+
+  /**
+   * Comportamiento al cierre efectivo (fase-14-08). `REQUIERE_CONFIRMACION`
+   * solo tiene sentido con OBLIGATORIA: para OPCIONAL se fuerza ASUME_HECHA, y
+   * si el cliente lo pide explícitamente para una opcional es un 400. Con
+   * OBLIGATORIA usa lo pedido; si no se pidió, el fallback (default ASUME_HECHA
+   * al crear, o el valor existente al editar).
+   */
+  private resolverComportamiento(
+    tipoPuntaje: TipoPuntaje,
+    pedido: ComportamientoAlCierre | undefined,
+    fallback: ComportamientoAlCierre = ComportamientoAlCierre.ASUME_HECHA
+  ): ComportamientoAlCierre {
+    if (tipoPuntaje === TipoPuntaje.OPCIONAL) {
+      if (pedido === ComportamientoAlCierre.REQUIERE_CONFIRMACION) {
+        throw new BadRequestException(
+          'comportamientoAlCierre=REQUIERE_CONFIRMACION solo aplica a actividades OBLIGATORIA'
+        );
+      }
+
+      return ComportamientoAlCierre.ASUME_HECHA;
+    }
+
+    return pedido ?? fallback;
   }
 
   /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */

@@ -10,6 +10,8 @@ import { ROUTING_KEYS } from '@dorado/shared-events';
 import {
   EstadoSeccion,
   EstadoSesion,
+  MiEstadoActividadHoyDto,
+  MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
   Rol,
@@ -31,6 +33,7 @@ import { registroActividadADto, registroConductaADto } from '../comun/mapeadores
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, Conducta } from '../generated/prisma/client';
 import {
+  ComportamientoAlCierre,
   EstadoCatalogo,
   TipoConducta,
   TipoLimiteTiempo,
@@ -121,8 +124,15 @@ export class RegistroService {
   ): Promise<RegistroActividadDto> {
     const actividad = await this.buscarActividadActiva(actividadId);
 
-    if (actividad.tipoPuntaje === TipoPuntaje.OBLIGATORIA) {
-      // No hacer nada es el estado esperado de "cumplida" (spec, validación 2).
+    // fase-14-08: una OBLIGATORIA con ASUME_HECHA sigue sin completarse — no
+    // hacer nada es su estado esperado de "cumplida" (spec fase-07, validación
+    // 2). Con REQUIERE_CONFIRMACION, en cambio, el Usuario confirma vía este
+    // mismo endpoint: mismo flujo, pero 0 puntos y SIN evento de dominio.
+    const esConfirmacion =
+      actividad.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
+      actividad.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION;
+
+    if (actividad.tipoPuntaje === TipoPuntaje.OBLIGATORIA && !esConfirmacion) {
       throw new ObligatoriaNoSeCompletaException();
     }
 
@@ -165,7 +175,9 @@ export class RegistroService {
           sesionId: sesion.sesionId,
           seccionId: sesion.seccionId,
           tipo: TipoRegistroActividad.COMPLETADA,
-          valorPuntosSnapshot: actividad.valorPuntos,
+          // Confirmar una obligatoria vale 0 puntos: solo evita el castigo al
+          // cierre, no otorga puntos (spec fase-14-08, decisión 2).
+          valorPuntosSnapshot: esConfirmacion ? 0 : actividad.valorPuntos,
           registradoPorId: tenant.principalId,
           registradoPorTipo: tenant.principalType,
         },
@@ -181,24 +193,90 @@ export class RegistroService {
       return fila;
     });
 
-    await this.eventos.publicar({
-      eventType: 'ActividadCompletada',
-      routingKey: ROUTING_KEYS.ACTIVIDAD_COMPLETADA,
-      organizacionId: tenant.organizacionId,
-      grupoId: actividad.grupoId,
-      payload: {
-        registroId: registro.id,
-        usuarioId,
-        actividadId,
-        sesionId: sesion.sesionId,
-        seccionId: sesion.seccionId,
-        valorPuntosSnapshot: registro.valorPuntosSnapshot,
-        registradoPorId: tenant.principalId,
-        registradoPorTipo: tenant.principalType,
-      },
-    });
+    // La confirmación NO publica evento de dominio (0 pts → no toca el ledger
+    // de scoring): vive solo en activity y la lee el consumidor de cierre para
+    // saltear el castigo (spec fase-14-08, Parte B).
+    if (!esConfirmacion) {
+      await this.eventos.publicar({
+        eventType: 'ActividadCompletada',
+        routingKey: ROUTING_KEYS.ACTIVIDAD_COMPLETADA,
+        organizacionId: tenant.organizacionId,
+        grupoId: actividad.grupoId,
+        payload: {
+          registroId: registro.id,
+          usuarioId,
+          actividadId,
+          sesionId: sesion.sesionId,
+          seccionId: sesion.seccionId,
+          valorPuntosSnapshot: registro.valorPuntosSnapshot,
+          registradoPorId: tenant.principalId,
+          registradoPorTipo: tenant.principalType,
+        },
+      });
+    }
 
     return registroActividadADto(registro);
+  }
+
+  /**
+   * GET /activity/grupos/:grupoId/mi-estado-hoy — USUARIO (self). Estado real
+   * (del servidor) de cada actividad ACTIVA del grupo en la Sesión abierta
+   * actual: reemplaza el `Set` optimista de la home y habilita la barrita de
+   * repeticiones (spec fase-14-08, Parte B). Sin Sesión ABIERTA devuelve
+   * `{ sesionId: null, actividades: [] }` — no es un error.
+   */
+  async miEstadoHoy(tenant: TenantContext, grupoId: string): Promise<MiEstadoHoyDto> {
+    const seccion = await this.session.obtenerSeccionActual(grupoId);
+    const sesionAbierta =
+      seccion?.estado === EstadoSeccion.ABIERTA
+        ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
+        : undefined;
+
+    if (!sesionAbierta) {
+      return { sesionId: null, actividades: [] };
+    }
+
+    const usuarioId = tenant.principalId;
+
+    const [actividades, conteos] = await Promise.all([
+      this.prisma.client.actividad.findMany({
+        where: { grupoId, estado: EstadoCatalogo.ACTIVA },
+        orderBy: { createdAt: 'asc' },
+      }),
+      // vecesHechas: el mismo conteo real que valida `completar` (validación 4).
+      this.prisma.client.registroActividad.groupBy({
+        by: ['actividadId'],
+        where: {
+          usuarioId,
+          sesionId: sesionAbierta.id,
+          tipo: TipoRegistroActividad.COMPLETADA,
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const vecesPorActividad = new Map(
+      conteos.map((conteo) => [conteo.actividadId, conteo._count._all])
+    );
+
+    const items: MiEstadoActividadHoyDto[] = actividades.map((actividad) => {
+      const vecesHechas = vecesPorActividad.get(actividad.id) ?? 0;
+      const esConfirmable =
+        actividad.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
+        actividad.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION;
+
+      return {
+        actividadId: actividad.id,
+        tipoPuntaje: actividad.tipoPuntaje as MiEstadoActividadHoyDto['tipoPuntaje'],
+        comportamientoAlCierre:
+          actividad.comportamientoAlCierre as MiEstadoActividadHoyDto['comportamientoAlCierre'],
+        repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
+        vecesHechas,
+        confirmada: esConfirmable && vecesHechas > 0,
+      };
+    });
+
+    return { sesionId: sesionAbierta.id, actividades: items };
   }
 
   /** POST /activity/actividades/:id/no-hizo — solo Tutores, solo OBLIGATORIA. */

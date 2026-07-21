@@ -34,6 +34,29 @@ function crearDelegado<T extends Fila>(filas: T[], defaults: () => Partial<T>) {
       filas.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
     count: async (args: { where?: Where } = {}) =>
       filas.filter((fila) => (args.where ? matchea(fila, args.where) : true)).length,
+    groupBy: async (args: { by: string[]; where?: Where }) => {
+      const filtradas = filas.filter((fila) => (args.where ? matchea(fila, args.where) : true));
+      const grupos = new Map<string, { clave: Record<string, unknown>; total: number }>();
+
+      for (const fila of filtradas) {
+        const claveStr = args.by.map((campo) => String(fila[campo])).join('::');
+        const existente = grupos.get(claveStr);
+
+        if (existente) {
+          existente.total += 1;
+        } else {
+          const clave: Record<string, unknown> = {};
+
+          for (const campo of args.by) {
+            clave[campo] = fila[campo];
+          }
+
+          grupos.set(claveStr, { clave, total: 1 });
+        }
+      }
+
+      return [...grupos.values()].map((grupo) => ({ ...grupo.clave, _count: { _all: grupo.total } }));
+    },
     create: async (args: { data: Partial<T> }) => {
       const fila = { ...defaults(), ...args.data } as T;
 
@@ -171,6 +194,7 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     duracionCronometroMinutos: null,
     repeticionesMaximasSesion: 1,
     repeticionesMaximasSeccion: null,
+    comportamientoAlCierre: 'ASUME_HECHA',
     estado: 'ACTIVA',
     creadaPorTutorId: 'tutor-1',
     createdAt: new Date(),

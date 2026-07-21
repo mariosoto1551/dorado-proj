@@ -58,9 +58,9 @@ export interface NoHizoRegistradoPayload {
   seccionId: string;
   /** negativo */
   valorPuntosSnapshot: number;
-  /** siempre un Tutor */
+  /** un Tutor (marca manual) o 'SYSTEM' (castigo automático al cierre, fase-14-08) */
   registradoPorId: string;
-  registradoPorTipo: 'TUTOR';
+  registradoPorTipo: 'TUTOR' | 'SYSTEM';
 }
 
 export interface ConductaRegistradaPayload {
