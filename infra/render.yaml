@@ -28,7 +28,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     autoDeploy: true
     envVars:
@@ -60,7 +60,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -85,7 +85,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -116,7 +116,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -143,7 +143,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -172,7 +172,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -201,7 +201,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -230,7 +230,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /internal/health
     envVars:
       - key: SERVICE
@@ -255,7 +255,7 @@ services:
     dockerfilePath: ./infra/docker/Dockerfile.service
     dockerContext: .
     plan: starter
-    region: oregon
+    region: virginia
     healthCheckPath: /api/health
     envVars:
       - key: SERVICE
