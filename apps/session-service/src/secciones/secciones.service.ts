@@ -41,17 +41,20 @@ export class SeccionesService {
     private readonly identity: IdentityClientService
   ) {}
 
-  /** POST /session/grupos/:grupoId/secciones/iniciar — solo modo MANUAL. */
+  /**
+   * POST /session/grupos/:grupoId/secciones/iniciar.
+   *
+   * En MANUAL es la forma normal de abrir cada Sección. En AUTOMATICO sirve de
+   * arranque manual del modo auto (bootstrap): crea la PRIMERA Sección sin
+   * esperar al próximo `cronAperturaSeccion` (que en Destino:Dorado es el lunes
+   * 00:00 — hasta una semana de espera si se configura a mitad de semana). En
+   * ambos modos solo procede si no hay una Sección vigente; una vez que existe,
+   * es 409 y en AUTOMATICO el scheduler sigue avanzando sesiones y secciones.
+   * La primera Sección arrancada así puede quedar "parcial" hasta el primer
+   * `cronAperturaSeccion`, que la cierra y realinea el ritmo semanal — esperado.
+   */
   async iniciar(tenant: TenantContext, grupoId: string): Promise<SeccionConSesionesResponse> {
     await this.acceso.asegurarAccesoEscritura(tenant, grupoId);
-
-    const config = await this.configuracion.efectiva(grupoId);
-
-    if (config.modo !== ModoSesion.MANUAL) {
-      throw new ConflictException(
-        'El grupo está en modo AUTOMATICO — las secciones las abre el scheduler'
-      );
-    }
 
     let resultado: Awaited<ReturnType<MaquinaSeccionesService['abrirSeccion']>>;
 

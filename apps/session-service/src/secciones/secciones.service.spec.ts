@@ -87,7 +87,7 @@ function crearServicio(
   return { servicio, publicados };
 }
 
-describe('SeccionesService — iniciar (modo manual, spec fase-06)', () => {
+describe('SeccionesService — iniciar (spec fase-06 + arranque manual del modo auto)', () => {
   it('crea la Sección 1 con su Sesión 1 y publica SeccionAbierta + SesionAbierta', async () => {
     const bd = crearBdEnMemoria();
     const { servicio, publicados } = crearServicio(bd);
@@ -116,13 +116,39 @@ describe('SeccionesService — iniciar (modo manual, spec fase-06)', () => {
     expect(publicados).toHaveLength(0);
   });
 
-  it('409 si el grupo está en modo AUTOMATICO (las abre el scheduler)', async () => {
+  it('en modo AUTOMATICO sin Sección vigente arranca la primera (bootstrap manual, opción A)', async () => {
     const bd = crearBdEnMemoria();
-    const { servicio } = crearServicio(bd, { modo: 'AUTOMATICO' });
+    const { servicio, publicados } = crearServicio(bd, {
+      modo: 'AUTOMATICO',
+      cronAperturaSesion: '0 0 * * 1-6',
+      cronAperturaSeccion: '0 0 * * 1',
+    });
+
+    const respuesta = await servicio.iniciar(tenantDePrueba(), 'grupo-1');
+
+    expect(respuesta.numero).toBe(1);
+    expect(respuesta.estado).toBe('ABIERTA');
+    expect(respuesta.sesiones).toHaveLength(1);
+    expect(publicados.map((evento) => evento.eventType)).toEqual([
+      'SeccionAbierta',
+      'SesionAbierta',
+    ]);
+  });
+
+  it('en modo AUTOMATICO con una Sección ya vigente es 409 (el scheduler sigue desde ahí)', async () => {
+    const bd = crearBdEnMemoria({
+      secciones: [seccionDePrueba({ estado: 'ABIERTA' })],
+    });
+    const { servicio, publicados } = crearServicio(bd, {
+      modo: 'AUTOMATICO',
+      cronAperturaSesion: '0 0 * * 1-6',
+      cronAperturaSeccion: '0 0 * * 1',
+    });
 
     await expect(servicio.iniciar(tenantDePrueba(), 'grupo-1')).rejects.toThrow(
       ConflictException
     );
+    expect(publicados).toHaveLength(0);
   });
 });
 
