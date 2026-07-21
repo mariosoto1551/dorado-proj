@@ -46,14 +46,14 @@ Render/Vercel/CloudAMQP ni correr OAuth desde este entorno). Plataformas
   en verde; `fileReplacements` reemplaza el entorno (el bundle prod NO contiene
   `localhost:3000`, sí el placeholder de gateway prod). `outputDirectory` del
   vercel.json (`dist/apps/app-web/browser`) confirmado con `index.html`.
-- **Imagen Docker** (scoring-service): el build atraviesa install del monorepo +
-  `nx build` (webpack) + install de runtime; se resolvieron sobre la marcha tres
-  cosas reales (documentadas abajo): `nx prune` no corre en contenedor, falta
-  OpenSSL en la imagen slim, y pnpm 11 bloquea los build scripts de Prisma sin
-  `allowBuilds`. **La validación local completa está limitada por la red de este
-  equipo** (~32 KiB/s, timeouts en fetch de npm/attestations) — el build se
-  reintentó varias veces avanzando cada vez más. **Se confirma en CI/Render**
-  (red rápida) antes del deploy real; no es un defecto del Dockerfile.
+- **Imagen Docker** (scoring-service): **construida y CORRIDA de verdad** contra
+  la infra (postgres + rabbitmq): el contenedor migra (`prisma migrate deploy`
+  → "No pending migrations to apply"), arranca Nest, **conecta a RabbitMQ** y
+  registra los consumers (`scoring.q.registros-actividad`, `scoring.q.sesiones`),
+  y responde `/internal/health` → `{"status":"ok"}`. Para llegar ahí se
+  resolvieron seis cosas reales del empaquetado (ver más abajo). El build local
+  fue lento por la red del equipo (~32 KiB/s) pero completó con el cache mount
+  del store de pnpm; en CI/Render (red rápida) es directo.
 
 ## Bloqueantes reales para completar la fase (dependen de José)
 
@@ -72,10 +72,22 @@ Render/Vercel/CloudAMQP ni correr OAuth desde este entorno). Plataformas
   timeouts en los fetch de metadata/attestations de npm). No es un defecto del
   Dockerfile; en CI (red rápida) o en Render buildea sin problema. Ver más abajo
   el resultado del build de validación local.
-- **`nx prune` no funciona dentro del contenedor** (falla en `prune-lockfile`,
-  exit 130) — se evitó: el runtime instala desde el `package.json` que genera
-  webpack (`generatePackageJson`), agregando `pg` (peer de `@prisma/adapter-pg`)
-  y el CLI de Prisma para migrar.
+- **Seis ajustes reales del empaquetado en contenedor** (todos en
+  `Dockerfile.service`, descubiertos corriendo la imagen):
+  1. `nx prune` falla dentro del contenedor (`prune-lockfile`, exit 130) → se
+     evita: el runtime instala desde el `package.json` que genera webpack.
+  2. Falta OpenSSL en la imagen slim (motor de migraciones de Prisma) → `apt-get
+     install openssl ca-certificates`.
+  3. pnpm 11 bloquea los build scripts de Prisma sin `allowBuilds` → se copia el
+     `pnpm-workspace.yaml` raíz a `/app`.
+  4. El `package.json` de webpack **no lista** `tslib` (devDep, requerido en
+     runtime) → `pnpm add tslib`.
+  5. Tampoco lista `@prisma/client` (runtime del cliente generado) ni `pg` (peer
+     de `@prisma/adapter-pg`) → `pnpm add @prisma/client pg` en servicios con base.
+  6. Usuario no-root no puede ubicar el engine de Prisma en `node_modules` →
+     `chown -R node:node /app` antes de `USER node`.
+  Estos ajustes están validados con scoring-service; **conviene revalidar los
+  otros 7 servicios con base** al primer deploy (mismo Dockerfile, mismas deps).
 - **Render y URLs internas**: `fromService … hostport` devuelve `host:port` sin
   esquema, y los clientes internos esperan `http://…`; por eso los `*_INTERNAL_URL`
   quedaron `sync:false` con el valor exacto documentado en el runbook.

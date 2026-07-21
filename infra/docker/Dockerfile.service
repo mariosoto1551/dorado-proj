@@ -81,18 +81,28 @@ ENV npm_config_fetch_timeout=1200000 \
     npm_config_network_concurrency=3 \
     PNPM_HOME=/pnpm
 COPY --from=builder /repo/dist/apps/${SERVICE}/ ./
+# `tslib` lo requiere el bundle en runtime pero webpack no lo lista en el
+# package.json generado (es devDep en la raíz) — se agrega explícito.
 RUN --mount=type=cache,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store && \
-    pnpm install --prod
+    pnpm install --prod && \
+    pnpm add --prod tslib
 
 # Assets de migración (vacío para gateway). Para servicios con base: el CLI de
 # Prisma (migrate) y `pg` (peer de @prisma/adapter-pg, que webpack no lista).
 COPY --from=builder /migrate/ ./migrate/
+# Servicios con base: el CLI de Prisma (migrate), `pg` (peer de @prisma/adapter-pg)
+# y `@prisma/client` (runtime del cliente generado) — ninguno lo lista el
+# package.json de webpack.
 RUN --mount=type=cache,target=/pnpm/store \
-    if [ -f ./migrate/prisma/schema.prisma ]; then pnpm add --prod pg@8 prisma@7 ; fi
+    if [ -f ./migrate/prisma/schema.prisma ]; then pnpm add --prod pg@8 prisma@7 @prisma/client@7 ; fi
 
 COPY infra/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# El engine de migraciones de Prisma se ubica en node_modules en el primer
+# `migrate`; con usuario no-root hay que darle propiedad del árbol.
+RUN chown -R node:node /app
 
 # Usuario no-root (la imagen node ya trae el uid 1000 `node`).
 USER node
