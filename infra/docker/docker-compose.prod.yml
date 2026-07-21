@@ -1,0 +1,207 @@
+# Stack de PRODUCCIÓN para un VPS único (opción más barata para el piloto):
+# los 9 procesos backend + Postgres + RabbitMQ + Caddy (HTTPS automático),
+# todo en una máquina. Los 2 frontends van aparte en Vercel (estáticos).
+#
+# Diferencias con docker-compose.stack.yml (que es para CI/local):
+#   - volúmenes persistentes (Postgres y RabbitMQ) — los datos sobreviven reinicios,
+#   - restart: unless-stopped en todo,
+#   - secretos por archivo .env (NO se comitea; ver .env.prod.example),
+#   - RabbitMQ con credenciales propias (no guest/guest),
+#   - NO se publica ningún puerto salvo Caddy (80/443); el gateway vive detrás.
+#
+# Uso en el VPS:
+#   cp infra/docker/.env.prod.example infra/docker/.env.prod   # completar valores
+#   docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod up -d --build
+name: dorado-prod
+
+x-service-build: &build
+  context: ../..
+  dockerfile: infra/docker/Dockerfile.service
+
+x-common-env: &common-env
+  GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+  JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672
+  LOG_LEVEL: info
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    <<: *restart
+    image: rabbitmq:4.3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  identity-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: identity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3001'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/identity_db
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      REFRESH_COOKIE_SECURE: 'true'
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  billing-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: billing-service } }
+    environment:
+      <<: *common-env
+      PORT: '3002'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/billing_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  activity-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: activity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3003'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/activity_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  session-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: session-service } }
+    environment:
+      <<: *common-env
+      PORT: '3004'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/session_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  scoring-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: scoring-service } }
+    environment:
+      <<: *common-env
+      PORT: '3005'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/scoring_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  rewards-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: rewards-service } }
+    environment:
+      <<: *common-env
+      PORT: '3006'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/rewards_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notification-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: notification-service } }
+    environment:
+      <<: *common-env
+      PORT: '3007'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/notification_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  audit-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: audit-service } }
+    environment:
+      <<: *common-env
+      PORT: '3008'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/audit_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  gateway:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: gateway } }
+    environment:
+      <<: *common-env
+      PORT: '3000'
+      APP_WEB_URL: ${APP_WEB_URL}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL}
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      SESSION_INTERNAL_URL: http://session-service:3004
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      NOTIFICATION_INTERNAL_URL: http://notification-service:3007
+      AUDIT_INTERNAL_URL: http://audit-service:3008
+    depends_on:
+      - identity-service
+      - billing-service
+      - activity-service
+      - session-service
+      - scoring-service
+      - rewards-service
+      - notification-service
+      - audit-service
+
+  # Reverse proxy con HTTPS automático (Let's Encrypt) delante del gateway.
+  # Es lo único expuesto a internet (80/443). Necesita GATEWAY_DOMAIN con DNS
+  # apuntando al VPS.
+  caddy:
+    <<: *restart
+    image: caddy:2
+    ports: ['80:80', '443:443']
+    environment:
+      GATEWAY_DOMAIN: ${GATEWAY_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - gateway
+
+volumes:
+  pgdata:
+  rabbitmqdata:
+  caddydata:
+  caddyconfig:

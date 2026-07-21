@@ -1,0 +1,10 @@
+# Caddy delante del gateway. HTTPS automático (Let's Encrypt) para el dominio
+# del gateway — imprescindible: app-web usa cookie de refresh httpOnly Secure,
+# que solo viaja por HTTPS. El dominio se inyecta por env (GATEWAY_DOMAIN).
+#
+# Requiere que {$GATEWAY_DOMAIN} (ej. api.tudominio.com) tenga un registro DNS
+# A apuntando a la IP pública del VPS antes de levantar Caddy.
+
+{$GATEWAY_DOMAIN} {
+	reverse_proxy gateway:3000
+}

@@ -56,8 +56,11 @@ vitest.config.*.timestamp*
 .nx/migrate-runs
 __screenshots__/
 
-# Variables de entorno locales
+# Variables de entorno locales y secretos de deploy (nunca al repo).
+# Se conservan solo los *.example (plantillas sin valores).
 .env
+.env.*
+!.env*.example
 
 # Cliente Prisma generado (se regenera con `nx run <servicio>:prisma-generate`)
 apps/*/src/generated/

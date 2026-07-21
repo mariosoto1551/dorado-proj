@@ -40,6 +40,26 @@ Render/Vercel/CloudAMQP ni correr OAuth desde este entorno). Plataformas
   el stack completo (`node scripts/e2e-up.mjs`). **Cierra la deuda "E2E en CI"**
   diferida de Fase 12.
 
+### Pivote de plataforma (por costo) → VPS único
+
+Al llegar al alta de cuentas, se le mostró a José el costo real de Render (9
+servicios always-on ≈ US$60/mes, porque son consumidores de eventos y no pueden
+dormir en el free tier). **José eligió la opción VPS** (~US$6–12/mes, todo en una
+máquina). Render/Vercel/CloudAMQP quedan como alternativa gestionada documentada.
+Artefactos de la opción VPS:
+- **`infra/docker/docker-compose.prod.yml`** — stack de producción: 9 servicios +
+  Postgres + RabbitMQ + **Caddy (HTTPS automático)** en un VPS, con volúmenes
+  persistentes, `restart: unless-stopped` y secretos por `.env.prod`. Con esta
+  opción **no hace falta CloudAMQP** (RabbitMQ corre en el compose). Sintaxis
+  validada (`docker compose config`).
+- **`infra/docker/Caddyfile`** — reverse proxy HTTPS delante del gateway.
+- **`infra/docker/.env.prod.example`** — secretos de prod (sin valores).
+- **`infra/docker/.env.stack.example`** — claves de dev para el stack de CI/local.
+- **`docs/runbook-deploy-vps.md`** — paso a paso del VPS (provisión → docker →
+  clonar → env → up → DNS/TLS → Vercel para frontends → alta del tenant → operación).
+- `.gitignore` endurecido: ignora `.env.*` reales, conserva los `*.example`.
+- Frontends: siguen en **Vercel** (estáticos, gratis).
+
 ## Verificación hecha en esta sesión
 
 - **app-web build de producción**: `nx build app-web --configuration=production`
