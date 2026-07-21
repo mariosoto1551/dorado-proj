@@ -11,8 +11,12 @@ máquina** con `infra/docker/docker-compose.prod.yml`. Los 2 frontends van a
 
 ## 0. Lo que necesitás antes
 
-- Un **VPS** Ubuntu 24.04, **mínimo 4 GB RAM** (los 9 servicios Node + Postgres +
-  RabbitMQ). DigitalOcean, Hetzner (el más barato), Vultr, etc.
+- Un **VPS** Ubuntu 24.04. Dos variantes de tamaño (paso 6):
+  - **Variante B — imágenes pre-construidas (recomendada, más barata)**: alcanza
+    **2 GB RAM** (ej. DigitalOcean $12/mes). Las 9 imágenes se construyen en
+    GitHub Actions y el VPS solo las descarga y corre.
+  - **Variante A — buildear en el server**: necesita **4 GB RAM** (ej. DO $24/mes
+    o Hetzner CX22 ~€4.5). Se construye todo en el VPS, sin depender de GHCR.
 - Un **dominio** (o subdominio). Vas a usar 3 nombres:
   - `api.tudominio.com` → el **gateway** (en el VPS).
   - `app.tudominio.com` → **app-web** (Vercel).
@@ -74,11 +78,40 @@ Completá (ver comentarios del archivo):
 
 ## 6. Levantar el stack
 
+Elegí la variante según el tamaño del VPS.
+
+### Variante B — imágenes pre-construidas (VPS de 2 GB, recomendada)
+
+Las imágenes las construye GitHub Actions (`.github/workflows/images.yml`) y
+viven en GHCR. Primero, **una vez**, generá un *Personal Access Token* de GitHub
+con scope **`read:packages`** (Settings → Developer settings → Tokens) y logueate:
+
+```bash
+echo "<TU_PAT>" | docker login ghcr.io -u mariosoto1551 --password-stdin
+```
+> Las imágenes son privadas por defecto (atadas a tu repo). Alternativa: hacer
+> públicos los 9 paquetes en GitHub (Packages → cada uno → Package settings →
+> Change visibility) y saltear el login.
+
+Luego, descargá y levantá (sin buildear):
+```bash
+docker compose \
+  -f infra/docker/docker-compose.prod.yml \
+  -f infra/docker/docker-compose.images.yml \
+  --env-file infra/docker/.env.prod pull
+docker compose \
+  -f infra/docker/docker-compose.prod.yml \
+  -f infra/docker/docker-compose.images.yml \
+  --env-file infra/docker/.env.prod up -d --no-build
+```
+
+### Variante A — buildear en el server (VPS de 4 GB)
+
 ```bash
 docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod up -d --build
 ```
-- Construye las 9 imágenes (la primera vez tarda; el install del monorepo se
-  cachea y se comparte entre servicios).
+
+### En ambas variantes
 - Postgres crea las 8 bases solo (script de init, primer arranque).
 - Cada servicio corre sus migraciones al iniciar (`prisma migrate deploy`).
 - Caddy saca el certificado HTTPS de `api.tudominio.com` automáticamente (el DNS

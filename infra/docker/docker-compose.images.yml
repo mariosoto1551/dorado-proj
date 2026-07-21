@@ -1,0 +1,35 @@
+# Override para correr el stack de producción desde IMÁGENES PRE-CONSTRUIDAS en
+# GHCR (para un VPS chico —2 GB— que no puede buildear). Se combina con el
+# compose de producción; reemplaza el `build:` de cada servicio por su imagen.
+#
+# Uso en el VPS (ver docs/runbook-deploy-vps.md, variante B):
+#   docker login ghcr.io -u <tu-usuario-github>          # con un PAT read:packages
+#   docker compose \
+#     -f infra/docker/docker-compose.prod.yml \
+#     -f infra/docker/docker-compose.images.yml \
+#     --env-file infra/docker/.env.prod pull
+#   docker compose \
+#     -f infra/docker/docker-compose.prod.yml \
+#     -f infra/docker/docker-compose.images.yml \
+#     --env-file infra/docker/.env.prod up -d --no-build
+#
+# Si algún día cambiás de dueño/repo, actualizá el prefijo ghcr.io/<owner>/dorado-.
+services:
+  identity-service:
+    image: ghcr.io/mariosoto1551/dorado-identity-service:latest
+  billing-service:
+    image: ghcr.io/mariosoto1551/dorado-billing-service:latest
+  activity-service:
+    image: ghcr.io/mariosoto1551/dorado-activity-service:latest
+  session-service:
+    image: ghcr.io/mariosoto1551/dorado-session-service:latest
+  scoring-service:
+    image: ghcr.io/mariosoto1551/dorado-scoring-service:latest
+  rewards-service:
+    image: ghcr.io/mariosoto1551/dorado-rewards-service:latest
+  notification-service:
+    image: ghcr.io/mariosoto1551/dorado-notification-service:latest
+  audit-service:
+    image: ghcr.io/mariosoto1551/dorado-audit-service:latest
+  gateway:
+    image: ghcr.io/mariosoto1551/dorado-gateway:latest
