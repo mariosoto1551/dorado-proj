@@ -1,18 +1,404 @@
 ---
-// Placeholder de Fase 1 — el contenido real del sitio público se construye en Fase 11.
-const titulo = 'Proyecto Dorado';
+import Layout from '../layouts/Layout.astro';
+
+// Colores de zona: default de seed (ver CLAUDE.md). Acá es contenido editorial de
+// marketing, no datos de la API — el color real por Grupo lo lee app-web de scoring.
+const zonas = [
+  {
+    nombre: 'Rojo',
+    color: '#ef4444',
+    desc: 'Punto de partida o zona de atención. Nadie empieza perdiendo: es donde arranca el camino.',
+  },
+  {
+    nombre: 'Amarillo',
+    color: '#f59e0b',
+    desc: 'En progreso. Los primeros puntos ya suman y el impulso se nota.',
+  },
+  {
+    nombre: 'Verde',
+    color: '#22c55e',
+    desc: 'Constancia lograda. El hábito está funcionando y las recompensas se habilitan.',
+  },
+  {
+    nombre: 'Dorado',
+    color: '#eab308',
+    desc: 'Excelencia. La meta más alta del período, con las mejores recompensas.',
+  },
+];
+
+const pasos = [
+  {
+    n: '01',
+    titulo: 'Definí actividades y conductas',
+    desc: 'Cargá lo que suma puntos (tareas, hábitos, logros) y lo que resta. Cada una con su valor. Vos ponés las reglas.',
+  },
+  {
+    n: '02',
+    titulo: 'Registrá el día a día',
+    desc: 'Marcá lo cumplido en cada sección. El puntaje se calcula solo, siempre a partir del historial — nunca lo editás a mano.',
+  },
+  {
+    n: '03',
+    titulo: 'Alcanzá zonas y canjeá recompensas',
+    desc: 'Al cerrar el período, cada persona cae en una zona según sus puntos y elige entre las recompensas que habilitó.',
+  },
+];
 ---
 
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{titulo}</title>
-  </head>
-  <body>
-    <main>
-      <h1>{titulo}</h1>
-      <p>Sitio público — en construcción (Fase 11).</p>
-    </main>
-  </body>
-</html>
+<Layout
+  title="Proyecto Dorado"
+  description="Convertí actividades y hábitos en un sistema de puntos por zonas, con recompensas reales. Para familias, aulas y equipos. Creá tu cuenta gratis."
+  path="/"
+>
+  <!-- ================= HERO ================= -->
+  <section class="relative overflow-hidden">
+    <!-- Fondo mesh sutil índigo -->
+    <div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+      <div
+        class="absolute -top-40 left-1/2 h-[36rem] w-[36rem] -translate-x-1/2 rounded-full
+          bg-marca-400/25 blur-3xl dark:bg-marca-600/20"
+      >
+      </div>
+      <div
+        class="absolute -right-32 top-40 h-96 w-96 rounded-full bg-zona-dorado/15 blur-3xl"
+      >
+      </div>
+    </div>
+
+    <div class="mx-auto max-w-6xl px-5 pb-16 pt-16 sm:px-8 sm:pt-24 lg:pb-24">
+      <div class="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+        <!-- Copy -->
+        <div class="reveal">
+          <span
+            class="inline-flex items-center gap-2 rounded-full border border-marca-200
+              bg-marca-50 px-3 py-1 text-xs font-semibold text-marca-700
+              dark:border-marca-800 dark:bg-marca-900/40 dark:text-marca-300"
+          >
+            <span class="h-1.5 w-1.5 rounded-full bg-marca-500"></span>
+            Sistema de puntos gamificado
+          </span>
+
+          <h1
+            class="mt-5 text-balance text-4xl font-extrabold tracking-tight text-slate-900
+              dark:text-white sm:text-5xl lg:text-6xl"
+          >
+            Puntos, zonas y recompensas para lograr
+            <span class="text-marca-600 dark:text-marca-400">constancia</span>.
+          </h1>
+
+          <p
+            class="mt-5 max-w-xl text-pretty text-lg leading-relaxed text-slate-600
+              dark:text-slate-300"
+          >
+            Definí actividades, registrá el día a día y dejá que el puntaje se calcule
+            solo. Cada persona avanza por zonas de color y canjea recompensas reales.
+            Para <strong class="font-semibold text-slate-800 dark:text-slate-100">familias,
+            aulas y equipos</strong>.
+          </p>
+
+          <div class="mt-8 flex flex-wrap items-center gap-3">
+            <a href="/registro" class="btn-primario text-base">
+              Crear cuenta gratis
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </a>
+            <a href="/precios" class="btn-secundario text-base">Ver precios</a>
+          </div>
+
+          <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+            Sin tarjeta. Plan gratuito para siempre.
+          </p>
+        </div>
+
+        <!-- Mock de producto (CSS/SVG, cero dependencias) -->
+        <div class="reveal" style="--reveal-delay:120ms">
+          <div class="relative mx-auto max-w-md">
+            <!-- glow detrás de la tarjeta -->
+            <div
+              class="absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-br
+                from-marca-500/20 via-zona-verde/10 to-zona-dorado/20 blur-2xl"
+              aria-hidden="true"
+            >
+            </div>
+
+            <div
+              class="rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl
+                shadow-slate-900/10 dark:border-slate-800 dark:bg-slate-900
+                dark:shadow-black/40"
+              role="img"
+              aria-label="Vista de ejemplo del panel: una persona en zona Verde avanzando hacia Dorado, con su lista de actividades del día."
+            >
+              <!-- header de la tarjeta -->
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div
+                    class="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br
+                      from-marca-400 to-marca-600 text-base font-bold text-white"
+                    aria-hidden="true"
+                  >
+                    JT
+                  </div>
+                  <div>
+                    <p class="text-sm font-semibold text-slate-900 dark:text-white">Juli</p>
+                    <p class="text-xs text-slate-400">Sección de hoy</p>
+                  </div>
+                </div>
+                <span
+                  class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs
+                    font-bold text-white"
+                  style="background-color:#22c55e"
+                >
+                  <span class="h-1.5 w-1.5 rounded-full bg-white/80"></span>
+                  Zona Verde
+                </span>
+              </div>
+
+              <!-- puntaje + barra hacia Dorado -->
+              <div class="mt-5">
+                <div class="flex items-end justify-between">
+                  <div>
+                    <span class="text-3xl font-extrabold tabular-nums text-slate-900 dark:text-white">340</span>
+                    <span class="ml-1 text-sm font-medium text-slate-400">pts</span>
+                  </div>
+                  <span class="text-xs font-medium text-slate-400">Faltan 60 para Dorado</span>
+                </div>
+                <div class="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div
+                    class="h-full rounded-full bg-gradient-to-r from-zona-verde to-zona-dorado"
+                    style="width:85%"
+                  >
+                  </div>
+                </div>
+              </div>
+
+              <!-- actividades -->
+              <ul class="mt-5 space-y-2">
+                <li class="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800/60">
+                  <span class="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-200">
+                    <span class="grid h-5 w-5 place-items-center rounded-full bg-zona-verde text-white" aria-hidden="true">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                    </span>
+                    Leer 20 minutos
+                  </span>
+                  <span class="text-sm font-semibold text-zona-verde">+15</span>
+                </li>
+                <li class="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800/60">
+                  <span class="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-200">
+                    <span class="grid h-5 w-5 place-items-center rounded-full bg-zona-verde text-white" aria-hidden="true">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                    </span>
+                    Ordenar la habitación
+                  </span>
+                  <span class="text-sm font-semibold text-zona-verde">+10</span>
+                </li>
+                <li class="flex items-center justify-between rounded-xl border border-dashed border-slate-200 px-3 py-2.5 dark:border-slate-700">
+                  <span class="flex items-center gap-2.5 text-sm text-slate-400">
+                    <span class="h-5 w-5 rounded-full border-2 border-slate-300 dark:border-slate-600" aria-hidden="true"></span>
+                    Práctica de piano
+                  </span>
+                  <span class="text-sm font-semibold text-slate-300 dark:text-slate-600">+20</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prueba social / uso genérico -->
+      <div class="reveal mt-16 border-t border-slate-200 pt-8 dark:border-slate-800">
+        <p class="text-center text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Un mismo sistema, muchos contextos
+        </p>
+        <div class="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-sm font-medium text-slate-500 dark:text-slate-400">
+          <span>👨‍👩‍👧 Familias</span>
+          <span>🏫 Aulas y colegios</span>
+          <span>⚽ Equipos y clubes</span>
+          <span>🎯 Grupos y talleres</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ZONAS ================= -->
+  <section class="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
+    <div class="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+      <div class="reveal mx-auto max-w-2xl text-center">
+        <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+          Cuatro zonas, un solo camino
+        </h2>
+        <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+          El puntaje no es un número frío: ubica a cada persona en una zona de color según
+          su constancia en el período. Se avanza sumando, nunca se empieza perdiendo.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {
+          zonas.map((z, i) => (
+            <article
+              class="reveal group relative overflow-hidden rounded-2xl border border-slate-200
+                bg-white p-6 transition-transform duration-300 hover:-translate-y-1
+                dark:border-slate-800 dark:bg-slate-900"
+              style={`--reveal-delay:${i * 90}ms`}
+            >
+              <div
+                class="absolute inset-x-0 top-0 h-1.5"
+                style={`background-color:${z.color}`}
+                aria-hidden="true"
+              />
+              <div
+                class="grid h-12 w-12 place-items-center rounded-xl text-lg font-black text-white shadow-sm"
+                style={`background-color:${z.color}`}
+                aria-hidden="true"
+              >
+                {z.nombre[0]}
+              </div>
+              <h3 class="mt-4 text-lg font-bold text-slate-900 dark:text-white">
+                Zona {z.nombre}
+              </h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                {z.desc}
+              </p>
+            </article>
+          ))
+        }
+      </div>
+
+      <p class="reveal mt-8 text-center text-sm text-slate-400">
+        Los colores y umbrales son configurables por grupo — estos son los valores por defecto.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= FEATURES (BENTO) ================= -->
+  <section class="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+    <div class="reveal mx-auto max-w-2xl text-center">
+      <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+        Todo lo que necesitás para que funcione
+      </h2>
+      <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+        Pensado para que el sistema sea justo, transparente y fácil de sostener en el tiempo.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 md:grid-cols-6 md:grid-rows-2">
+      <!-- Bloque grande: puntaje derivado -->
+      <article
+        class="reveal group relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-8
+          dark:border-slate-800 dark:bg-slate-900 md:col-span-4 md:row-span-2"
+      >
+        <div class="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-marca-500/10 blur-2xl transition-transform duration-500 group-hover:scale-125" aria-hidden="true"></div>
+        <span class="text-2xl" aria-hidden="true">🧮</span>
+        <h3 class="mt-4 text-2xl font-bold text-slate-900 dark:text-white">
+          El puntaje nunca se toca a mano
+        </h3>
+        <p class="mt-3 max-w-lg text-slate-600 dark:text-slate-300">
+          Cada punto viene de un registro real: una actividad cumplida, una conducta,
+          una corrección. El total se calcula sumando ese historial, así que siempre
+          es auditable y nadie puede “editar” su puntaje. Transparencia por diseño.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-2">
+          <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Historial inmutable</span>
+          <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Correcciones trazables</span>
+          <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Auditoría completa</span>
+        </div>
+      </article>
+
+      <!-- Roles -->
+      <article class="reveal rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 md:col-span-2">
+        <span class="text-2xl" aria-hidden="true">👥</span>
+        <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">Tutores y participantes</h3>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          Quien gestiona ve todo el panel; cada participante ve su propio progreso, simple y motivador.
+        </p>
+      </article>
+
+      <!-- Recompensas -->
+      <article class="reveal rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 md:col-span-2">
+        <span class="text-2xl" aria-hidden="true">🎁</span>
+        <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">Recompensas por zona</h3>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          Definí premios por zona alcanzada. Cada persona canjea una vez por período — sorteo o elección.
+        </p>
+      </article>
+
+      <!-- Secciones / períodos -->
+      <article class="reveal rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 md:col-span-3">
+        <span class="text-2xl" aria-hidden="true">⏱️</span>
+        <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">Secciones y cierres automáticos</h3>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          Organizá el tiempo en secciones (un día, una semana). Se cierran solas y el resultado queda firme.
+        </p>
+      </article>
+
+      <!-- Notificaciones -->
+      <article class="reveal rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900 md:col-span-3">
+        <span class="text-2xl" aria-hidden="true">🔔</span>
+        <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">Al tanto de todo</h3>
+        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          Notificaciones in-app cuando se alcanza una zona, se cierra una sección o hay una recompensa nueva.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ================= CÓMO FUNCIONA ================= -->
+  <section class="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
+    <div class="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+      <div class="reveal mx-auto max-w-2xl text-center">
+        <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+          Cómo funciona
+        </h2>
+        <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+          De la idea a la primera recompensa en tres pasos.
+        </p>
+      </div>
+
+      <ol class="mt-14 grid gap-8 md:grid-cols-3">
+        {
+          pasos.map((p, i) => (
+            <li class="reveal relative" style={`--reveal-delay:${i * 120}ms`}>
+              <div class="flex items-center gap-4">
+                <span class="text-5xl font-black text-marca-200 dark:text-marca-900">{p.n}</span>
+                {i < pasos.length - 1 && (
+                  <span class="hidden h-px flex-1 bg-gradient-to-r from-marca-300 to-transparent dark:from-marca-700 md:block" aria-hidden="true" />
+                )}
+              </div>
+              <h3 class="mt-4 text-lg font-bold text-slate-900 dark:text-white">{p.titulo}</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">{p.desc}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <!-- ================= CTA FINAL ================= -->
+  <section class="mx-auto max-w-6xl px-5 py-20 sm:px-8">
+    <div
+      class="reveal relative overflow-hidden rounded-3xl bg-gradient-to-br from-marca-600
+        to-marca-800 px-6 py-16 text-center shadow-2xl shadow-marca-900/30 sm:px-16"
+    >
+      <div class="pointer-events-none absolute inset-0 opacity-30" aria-hidden="true">
+        <div class="absolute -left-10 top-0 h-40 w-40 rounded-full bg-zona-dorado/40 blur-3xl"></div>
+        <div class="absolute -right-10 bottom-0 h-40 w-40 rounded-full bg-zona-verde/30 blur-3xl"></div>
+      </div>
+      <h2 class="relative text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+        Empezá tu sistema de puntos hoy
+      </h2>
+      <p class="relative mx-auto mt-4 max-w-xl text-lg text-marca-100">
+        Creá tu organización en un minuto. Es gratis y no necesitás tarjeta.
+      </p>
+      <div class="relative mt-8 flex justify-center">
+        <a
+          href="/registro"
+          class="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-base
+            font-semibold text-marca-700 shadow-lg transition-all duration-200
+            hover:-translate-y-0.5 hover:shadow-xl"
+        >
+          Crear cuenta gratis
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+</Layout>

@@ -1,0 +1,96 @@
+/*
+ * Entrypoint de estilos de public-site — Tailwind CSS 4 (config CSS-first, sin
+ * tailwind.config.js), mismo sistema que app-web. Los tokens compartidos del
+ * proyecto (marca índigo, colores de zona, animaciones, prefers-reduced-motion)
+ * viven en libs/shared-ui/src/theme.css y se importan acá, nunca se redefinen.
+ *
+ * Dark mode: por preferencia del sistema operativo (prefers-color-scheme) — 100%
+ * estático, sin JS ni almacenamiento. Las utilidades `dark:` de Tailwind v4 ya
+ * responden a esa media query por defecto.
+ */
+@import 'tailwindcss';
+@import '../../../../libs/shared-ui/src/theme.css';
+
+/* Escanear el markup de Astro (el auto-detect de Tailwind ignora .astro en
+ * algunos setups de monorepo — lo declaramos explícito para estar seguros). */
+@source '../**/*.{astro,html,ts}';
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-white text-slate-800 antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      @apply bg-slate-950 text-slate-200;
+    }
+  }
+
+  /* Foco visible y accesible en toda la superficie interactiva. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-marca-500 ring-offset-2 ring-offset-white;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :focus-visible {
+      @apply ring-offset-slate-950;
+    }
+  }
+}
+
+@layer components {
+  /* CTA primario reutilizable — alto contraste (mejor CTR, ver skill). */
+  .btn-primario {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-marca-600
+      px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-marca-600/25
+      transition-all duration-200 hover:-translate-y-0.5 hover:bg-marca-700
+      hover:shadow-xl hover:shadow-marca-600/30 active:translate-y-0;
+  }
+
+  .btn-secundario {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border
+      border-slate-300 bg-white/60 px-5 py-3 text-sm font-semibold text-slate-700
+      backdrop-blur transition-all duration-200 hover:border-slate-400
+      hover:bg-white dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200
+      dark:hover:border-slate-600 dark:hover:bg-slate-900;
+  }
+
+  /* Reveal on-scroll: el estado inicial oculto SOLO aplica cuando hay JS
+   * (html.js, seteado por un script inline en <head>). Sin JavaScript el
+   * contenido queda 100% visible — progressive enhancement, clave para SEO y
+   * accesibilidad. El script activa .is-visible vía IntersectionObserver. */
+  html.js .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+    will-change: opacity, transform;
+  }
+
+  html.js .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html.js .reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+}

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="logo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1000" cy="120" r="320" fill="#4f46e5" opacity="0.18"/>
+  <circle cx="180" cy="560" r="260" fill="#6366f1" opacity="0.14"/>
+  <g transform="translate(90,150)">
+    <rect width="64" height="64" rx="16" fill="url(#logo)"/>
+    <path d="M32 14l12 18-12 18-12-18z" fill="#eab308"/>
+    <text x="84" y="44" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="700" fill="#ffffff">Proyecto Dorado</text>
+  </g>
+  <text x="90" y="330" font-family="Segoe UI, Arial, sans-serif" font-size="68" font-weight="800" fill="#ffffff">Puntos, zonas y recompensas</text>
+  <text x="90" y="410" font-family="Segoe UI, Arial, sans-serif" font-size="68" font-weight="800" fill="#ffffff">para lograr constancia.</text>
+  <text x="90" y="480" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="400" fill="#c7d2fe">Para familias, aulas y equipos.</text>
+  <g transform="translate(90,530)">
+    <rect width="60" height="20" rx="10" fill="#ef4444"/>
+    <rect x="72" width="60" height="20" rx="10" fill="#f59e0b"/>
+    <rect x="144" width="60" height="20" rx="10" fill="#22c55e"/>
+    <rect x="216" width="60" height="20" rx="10" fill="#eab308"/>
+  </g>
+</svg>

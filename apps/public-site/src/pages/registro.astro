@@ -1,0 +1,158 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="Crear cuenta"
+  description="Creá tu organización en Proyecto Dorado en un minuto. Es gratis, no necesitás tarjeta y empezás con tu sistema de puntos al instante."
+  path="/registro"
+>
+  <section class="relative overflow-hidden">
+    <div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+      <div class="absolute -top-32 left-1/2 h-96 w-[32rem] -translate-x-1/2 rounded-full bg-marca-400/20 blur-3xl dark:bg-marca-600/15"></div>
+    </div>
+
+    <div class="mx-auto grid max-w-6xl gap-12 px-5 py-16 sm:px-8 sm:py-20 lg:grid-cols-2 lg:gap-16">
+      <!-- Columna de contexto -->
+      <div class="reveal flex flex-col justify-center">
+        <h1 class="text-balance text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+          Creá tu organización
+        </h1>
+        <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+          En un minuto tenés tu propio sistema de puntos listo para configurar.
+          Empezás en el plan <strong class="font-semibold text-slate-800 dark:text-slate-100">Free</strong>,
+          sin tarjeta.
+        </p>
+
+        <ul class="mt-8 space-y-4">
+          {
+            [
+              'Tu cuenta queda como administrador (tutor) de la organización.',
+              'Creás grupos, actividades y recompensas a tu medida.',
+              'Invitás a otros tutores y participantes cuando quieras.',
+            ].map((t) => (
+              <li class="flex items-start gap-3 text-slate-700 dark:text-slate-200">
+                <span class="mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full bg-marca-100 text-marca-600 dark:bg-marca-900/60 dark:text-marca-300" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                </span>
+                <span class="text-sm leading-relaxed">{t}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <!-- Columna del formulario -->
+      <div class="reveal" style="--reveal-delay:100ms">
+        <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+          <!-- Vista formulario -->
+          <div id="vista-form">
+            <!-- Banner de error inline (oculto por defecto) -->
+            <div
+              id="registro-error"
+              class="mb-5 hidden items-start gap-3 rounded-xl border border-zona-rojo/30 bg-zona-rojo/10 p-3.5 text-sm text-red-700 dark:text-red-300"
+              role="alert"
+            >
+              <svg class="mt-0.5 flex-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span id="registro-error-msg"></span>
+            </div>
+
+            <form id="form-registro" novalidate>
+              <div class="space-y-5">
+                <div>
+                  <label for="nombre" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    Nombre de la organización
+                  </label>
+                  <input
+                    type="text"
+                    id="nombre"
+                    name="nombre"
+                    required
+                    maxlength="120"
+                    autocomplete="organization"
+                    placeholder="Ej: Familia Pérez, 5.º B, Club Norte"
+                    class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label for="emailContacto" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    Email de contacto
+                  </label>
+                  <input
+                    type="email"
+                    id="emailContacto"
+                    name="emailContacto"
+                    required
+                    autocomplete="email"
+                    placeholder="tu@email.com"
+                    class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+                  />
+                  <p class="mt-1.5 text-xs text-slate-400">Lo usás para iniciar sesión como administrador.</p>
+                </div>
+
+                <div>
+                  <label for="password" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    Contraseña
+                  </label>
+                  <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    required
+                    minlength="8"
+                    autocomplete="new-password"
+                    placeholder="Al menos 8 caracteres"
+                    class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+                  />
+                </div>
+
+                <button id="btn-registro" type="submit" class="btn-primario w-full text-base">
+                  <span id="btn-registro-texto">Crear cuenta gratis</span>
+                  <span id="btn-registro-spinner" class="hidden items-center gap-2">
+                    <svg class="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/>
+                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                    Creando…
+                  </span>
+                </button>
+              </div>
+            </form>
+
+            <p class="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">
+              ¿Ya tenés cuenta?
+              <a id="link-login" href="http://localhost:4200/login" class="font-semibold text-marca-600 hover:text-marca-700 dark:text-marca-400">
+                Iniciar sesión
+              </a>
+            </p>
+          </div>
+
+          <!-- Vista éxito (oculta por defecto; la muestra el island) -->
+          <div id="vista-exito" class="hidden text-center">
+            <div class="mx-auto grid h-16 w-16 place-items-center rounded-full bg-zona-verde/15 text-zona-verde">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            </div>
+            <h2 class="mt-5 text-2xl font-bold text-slate-900 dark:text-white">¡Cuenta creada!</h2>
+            <p class="mx-auto mt-3 max-w-sm text-slate-600 dark:text-slate-300">
+              Tu organización ya está lista. Iniciá sesión con el email y la contraseña
+              que acabás de crear para empezar a configurarla.
+            </p>
+            <a id="link-login-exito" href="http://localhost:4200/login" class="btn-primario mt-6 w-full text-base">
+              Iniciar sesión
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </a>
+          </div>
+        </div>
+
+        <p class="mt-4 text-center text-xs text-slate-400">
+          Al crear tu cuenta aceptás usar la plataforma de forma responsable.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    import '../scripts/registro.ts';
+  </script>
+</Layout>

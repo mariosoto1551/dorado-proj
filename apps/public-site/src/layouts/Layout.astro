@@ -1,0 +1,87 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  /** Ruta relativa para el canonical/OG; default: la página actual. */
+  path?: string;
+}
+
+const { title, description, path } = Astro.props;
+
+const canonical = new URL(path ?? Astro.url.pathname, Astro.site).href;
+const ogImage = new URL('/og.svg', Astro.site).href;
+const fullTitle = title === 'Proyecto Dorado' ? title : `${title} · Proyecto Dorado`;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Marca html.js lo antes posible: el estado oculto de los reveals solo
+         aplica con JS (progressive enhancement). Sin esto, un flash de contenido
+         oculto o —peor— contenido invisible si el JS falla. -->
+    <script is:inline>
+      document.documentElement.classList.add('js');
+    </script>
+
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="theme-color" content="#4f46e5" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Proyecto Dorado" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content="es_AR" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+  </head>
+  <body class="flex min-h-screen flex-col">
+    <Nav />
+    <main class="flex-1">
+      <slot />
+    </main>
+    <Footer />
+
+    <script>
+      // Reveal on-scroll global. Respeta prefers-reduced-motion: si el usuario
+      // pidió menos movimiento, revelamos todo de una y no observamos nada.
+      const els = document.querySelectorAll<HTMLElement>('.reveal');
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (reduce || !('IntersectionObserver' in window)) {
+        els.forEach((el) => el.classList.add('is-visible'));
+      } else {
+        const io = new IntersectionObserver(
+          (entries, obs) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                obs.unobserve(entry.target);
+              }
+            }
+          },
+          { rootMargin: '0px 0px -10% 0px', threshold: 0.1 },
+        );
+
+        els.forEach((el) => io.observe(el));
+      }
+    </script>
+  </body>
+</html>
