@@ -1,0 +1,27 @@
+{
+  "name": "e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/e2e/src",
+  "tags": ["type:e2e"],
+  "implicitDependencies": [
+    "gateway",
+    "identity-service",
+    "billing-service",
+    "activity-service",
+    "session-service",
+    "scoring-service",
+    "rewards-service",
+    "notification-service",
+    "audit-service"
+  ],
+  "targets": {
+    "e2e": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx playwright test",
+        "cwd": "apps/e2e"
+      }
+    }
+  }
+}
