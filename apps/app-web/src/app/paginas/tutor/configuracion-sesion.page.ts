@@ -31,6 +31,17 @@ const DIAS: DiaSemana[] = [
   { valor: 0, etiqueta: 'Dom' },
 ];
 
+/** Nombres completos para el resumen en lenguaje natural. */
+const NOMBRE_DIA: Record<number, string> = {
+  0: 'domingo',
+  1: 'lunes',
+  2: 'martes',
+  3: 'miércoles',
+  4: 'jueves',
+  5: 'viernes',
+  6: 'sábado',
+};
+
 /** Construye "m h * * dows" a partir de una hora HH:mm y días elegidos. */
 function armarCron(hora: string, dias: number[]): string {
   const [h, m] = hora.split(':');
@@ -119,6 +130,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
                     </button>
                   }
                 </div>
+                <p class="mt-1.5 text-xs text-slate-400">Los días en que se abre una sesión nueva.</p>
               </div>
               <label class="mt-3 block">
                 <span class="text-xs font-semibold text-slate-600">Hora</span>
@@ -148,6 +160,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
                     </button>
                   }
                 </div>
+                <p class="mt-1.5 text-xs text-slate-400">El día en que el ciclo se cierra y arranca el siguiente.</p>
               </div>
               <label class="mt-3 block">
                 <span class="text-xs font-semibold text-slate-600">Hora</span>
@@ -172,6 +185,10 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
                 min="1"
                 class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
               />
+              <span class="mt-1 block text-xs text-slate-400">
+                Cuántas sesiones dura un ciclo antes de pasar a evaluación (el "domingo" de zonas y
+                recompensas). En automático suele coincidir con la cantidad de días de apertura.
+              </span>
             </label>
             <label class="mt-3 block">
               <span class="text-xs font-semibold text-slate-600">Evaluar zonas</span>
@@ -183,7 +200,17 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
                 <option [ngValue]="EU.CADA_SESION">En cada sesión</option>
                 <option [ngValue]="EU.SOLO_AL_CIERRE_SECCION">Solo al cerrar la sección</option>
               </select>
+              <span class="mt-1 block text-xs text-slate-400">
+                «En cada sesión» da feedback continuo; «solo al cerrar» muestra el resultado recién
+                al final del ciclo.
+              </span>
             </label>
+          </div>
+
+          <!-- Resumen en lenguaje natural (se actualiza en vivo) -->
+          <div class="rounded-2xl border border-marca-200 bg-marca-50 p-4">
+            <p class="text-xs font-bold text-marca-700 uppercase">En resumen</p>
+            <p class="mt-1.5 text-sm leading-relaxed text-slate-700">{{ resumen() }}</p>
           </div>
 
           <button
@@ -242,6 +269,71 @@ export class ConfiguracionSesionPage {
 
   protected alternarDiaCierre(dia: number): void {
     this.diasCierre.update((d) => (d.includes(dia) ? d.filter((x) => x !== dia) : [...d, dia]));
+  }
+
+  /**
+   * Resumen en lenguaje natural de la configuración, para que el tutor entienda
+   * cómo se combinan los tres controles (ritmo de sesión, conteo y cierre) sin
+   * tener que razonar la máquina de estados. Se recalcula en cada cambio del
+   * form (los eventos de ngModel/los signals de días disparan la detección).
+   */
+  protected resumen(): string {
+    const n = Number(this.sesionesPorSeccion) || 1;
+    const plural = n === 1 ? 'sesión' : 'sesiones';
+    const evalTxt =
+      this.evaluarUmbralesEn === EvaluarUmbralesEn.CADA_SESION
+        ? 'Las zonas se recalculan en cada sesión.'
+        : 'Las zonas se recalculan solo al cerrar el ciclo.';
+
+    const completar = n === 1 ? 'al completarla' : 'al completarlas';
+
+    if (this.modo === ModoSesion.MANUAL) {
+      return `Vos abrís y cerrás cada ciclo a mano. Un ciclo son ${n} ${plural}; ${completar}, el ciclo pasa a evaluación. ${evalTxt}`;
+    }
+
+    return (
+      `Se abre una sesión ${this.nombreDias(this.diasSesion())} a las ${this.horaSesion}. ` +
+      `Un ciclo son ${n} ${plural}: al completarse la ${n}.ª, pasa a evaluación. ` +
+      `El ciclo se cierra y reinicia ${this.nombreDias(this.diasCierre())} a las ${this.horaCierre}. ${evalTxt}`
+    );
+  }
+
+  /** "de lunes a sábado" / "todos los días" / "lunes, miércoles y viernes". */
+  private nombreDias(dias: number[]): string {
+    if (dias.length === 0) {
+      return '(ningún día elegido)';
+    }
+
+    if (dias.length === 7) {
+      return 'todos los días';
+    }
+
+    const ordenados = [...dias].sort((a, b) => this.ordenSemana(a) - this.ordenSemana(b));
+    const contiguo = ordenados.every(
+      (d, i) => i === 0 || this.ordenSemana(d) === this.ordenSemana(ordenados[i - 1]) + 1
+    );
+
+    if (contiguo && ordenados.length >= 3) {
+      return `de ${NOMBRE_DIA[ordenados[0]]} a ${NOMBRE_DIA[ordenados[ordenados.length - 1]]}`;
+    }
+
+    const nombres = ordenados.map((d) => this.plural(NOMBRE_DIA[d]));
+
+    if (nombres.length === 1) {
+      return `los ${nombres[0]}`;
+    }
+
+    return `los ${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+  }
+
+  /** Pluraliza un día ("domingo" → "domingos"); los que ya terminan en "s" no cambian. */
+  private plural(nombre: string): string {
+    return nombre.endsWith('s') ? nombre : `${nombre}s`;
+  }
+
+  /** Lunes=1 … Sábado=6, Domingo=7 (para ordenar con la semana arrancando en lunes). */
+  private ordenSemana(dia: number): number {
+    return dia === 0 ? 7 : dia;
   }
 
   protected guardar(evento: Event): void {
