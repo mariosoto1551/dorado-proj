@@ -1,0 +1,372 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
+
+import type { UmbralZonaDto } from '@dorado/shared-types';
+import { ConfirmDialogComponent, ZonaBadgeComponent } from '@dorado/shared-ui';
+
+import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { IconoComponent } from '../../componentes/icono.component';
+import { ToastService } from '../../componentes/toast.service';
+import type { CrearUmbralRequest } from '../../core/api/api.types';
+import { mensajeDeError } from '../../core/api/errores';
+import { ScoringApiService } from '../../core/api/scoring-api.service';
+
+interface FormUmbral {
+  nombreZona: string;
+  orden: number;
+  puntosMin: number;
+  sinTope: boolean;
+  puntosMax: number;
+  colorHex: string;
+}
+
+const FORM_VACIO: FormUmbral = {
+  nombreZona: '',
+  orden: 1,
+  puntosMin: 0,
+  sinTope: false,
+  puntosMax: 100,
+  colorHex: '#22C55E',
+};
+
+/** CRUD de Umbrales de zona (fase-10) con validación de contigüidad para feedback inmediato. */
+@Component({
+  selector: 'app-umbrales',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    FormsModule,
+    EncabezadoPaginaComponent,
+    IconoComponent,
+    ConfirmDialogComponent,
+    ZonaBadgeComponent,
+  ],
+  template: `
+    <section class="mx-auto max-w-3xl px-4 py-6">
+      <app-encabezado-pagina titulo="Zonas" subtitulo="Los rangos de puntos y su color.">
+        <button
+          type="button"
+          (click)="abrirNueva()"
+          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+        >
+          <span class="h-4 w-4"><app-icono nombre="plus" /></span>
+          Nueva
+        </button>
+      </app-encabezado-pagina>
+
+      @if (avisoContinuidad(); as aviso) {
+        <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+          ⚠ {{ aviso }}
+        </p>
+      }
+
+      @if (cargando()) {
+        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+      } @else if (umbrales().length === 0) {
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+          Todavía no hay zonas definidas.
+        </div>
+      } @else {
+        <ul class="mt-5 space-y-2">
+          @for (u of umbralesOrdenados(); track u.id) {
+            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <span class="h-8 w-8 shrink-0 rounded-lg" [style.background-color]="u.colorHex"></span>
+              <div class="min-w-0 flex-1">
+                <ui-zona-badge [zona]="u" tamano="sm" />
+                <p class="mt-1 text-xs text-slate-500">
+                  {{ u.puntosMin }} – {{ u.puntosMax === null ? '∞' : u.puntosMax }} pts · orden {{ u.orden }}
+                </p>
+              </div>
+              <div class="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  (click)="abrirEditar(u)"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-marca-600"
+                  aria-label="Editar"
+                >
+                  <span class="h-4 w-4"><app-icono nombre="pencil" /></span>
+                </button>
+                <button
+                  type="button"
+                  (click)="aEliminar.set(u)"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  aria-label="Eliminar"
+                >
+                  <span class="h-4 w-4"><app-icono nombre="trash" /></span>
+                </button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    @if (formAbierto()) {
+      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+        <button
+          type="button"
+          aria-label="Cerrar"
+          (click)="cerrarForm()"
+          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
+        ></button>
+        <form
+          (submit)="guardar($event)"
+          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up sm:rounded-2xl"
+        >
+          <h2 class="text-lg font-bold text-slate-900">
+            {{ editando() ? 'Editar zona' : 'Nueva zona' }}
+          </h2>
+
+          <div class="mt-4 space-y-3">
+            <div class="flex items-center gap-3">
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-600">Color</span>
+                <input
+                  [(ngModel)]="form.colorHex"
+                  name="colorHex"
+                  type="color"
+                  class="mt-1 h-10 w-14 cursor-pointer rounded-lg border border-slate-300"
+                />
+              </label>
+              <label class="block flex-1">
+                <span class="text-xs font-semibold text-slate-600">Nombre de la zona</span>
+                <input
+                  [(ngModel)]="form.nombreZona"
+                  name="nombreZona"
+                  required
+                  maxlength="50"
+                  placeholder="Verde, Dorado…"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <div class="grid grid-cols-3 gap-3">
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-600">Orden</span>
+                <input
+                  [(ngModel)]="form.orden"
+                  name="orden"
+                  type="number"
+                  min="1"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-600">Desde</span>
+                <input
+                  [(ngModel)]="form.puntosMin"
+                  name="puntosMin"
+                  type="number"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-600">Hasta</span>
+                <input
+                  [(ngModel)]="form.puntosMax"
+                  name="puntosMax"
+                  type="number"
+                  [disabled]="form.sinTope"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-40 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <label class="flex items-center gap-2">
+              <input
+                [(ngModel)]="form.sinTope"
+                name="sinTope"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500"
+              />
+              <span class="text-sm text-slate-700">Sin tope (zona más alta)</span>
+            </label>
+
+            <div class="rounded-lg bg-slate-50 p-3">
+              <span class="text-xs text-slate-400">Vista previa:</span>
+              <div class="mt-1.5">
+                <ui-zona-badge [zona]="{ nombreZona: form.nombreZona || 'Zona', colorHex: form.colorHex }" />
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              (click)="cerrarForm()"
+              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              [disabled]="guardando()"
+              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+            >
+              {{ guardando() ? 'Guardando…' : 'Guardar' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    }
+
+    <ui-confirm-dialog
+      [abierto]="aEliminar() !== null"
+      titulo="Eliminar zona"
+      [mensaje]="'¿Eliminar la zona «' + (aEliminar()?.nombreZona ?? '') + '»?'"
+      textoConfirmar="Eliminar"
+      (confirmar)="confirmarEliminar()"
+      (cancelar)="aEliminar.set(null)"
+    />
+  `,
+})
+export class UmbralesPage {
+  readonly grupoId = input.required<string>();
+
+  private readonly api = inject(ScoringApiService);
+
+  private readonly toasts = inject(ToastService);
+
+  protected readonly cargando = signal(true);
+
+  protected readonly umbrales = signal<UmbralZonaDto[]>([]);
+
+  protected readonly formAbierto = signal(false);
+
+  protected readonly guardando = signal(false);
+
+  protected readonly editando = signal<UmbralZonaDto | null>(null);
+
+  protected readonly aEliminar = signal<UmbralZonaDto | null>(null);
+
+  protected form: FormUmbral = { ...FORM_VACIO };
+
+  protected readonly umbralesOrdenados = computed(() =>
+    [...this.umbrales()].sort((a, b) => a.orden - b.orden)
+  );
+
+  /** Espejo liviano de la validación del backend: detecta huecos/solapes por orden. */
+  protected readonly avisoContinuidad = computed<string | null>(() => {
+    const orden = this.umbralesOrdenados();
+
+    for (let i = 1; i < orden.length; i++) {
+      const previo = orden[i - 1];
+      const actual = orden[i];
+
+      if (previo.puntosMax === null) {
+        return `La zona «${previo.nombreZona}» no tiene tope pero hay una zona superior.`;
+      }
+
+      if (actual.puntosMin !== previo.puntosMax + 1) {
+        return `Hueco o solape entre «${previo.nombreZona}» y «${actual.nombreZona}» (${previo.puntosMax} → ${actual.puntosMin}).`;
+      }
+    }
+
+    return null;
+  });
+
+  constructor() {
+    effect(() => {
+      const g = this.grupoId();
+      this.cargar(g);
+    });
+  }
+
+  protected abrirNueva(): void {
+    this.editando.set(null);
+    const siguienteOrden = this.umbrales().length + 1;
+    this.form = { ...FORM_VACIO, orden: siguienteOrden };
+    this.formAbierto.set(true);
+  }
+
+  protected abrirEditar(u: UmbralZonaDto): void {
+    this.editando.set(u);
+    this.form = {
+      nombreZona: u.nombreZona,
+      orden: u.orden,
+      puntosMin: u.puntosMin,
+      sinTope: u.puntosMax === null,
+      puntosMax: u.puntosMax ?? 100,
+      colorHex: u.colorHex,
+    };
+    this.formAbierto.set(true);
+  }
+
+  protected cerrarForm(): void {
+    this.formAbierto.set(false);
+  }
+
+  protected guardar(evento: Event): void {
+    evento.preventDefault();
+
+    if (this.form.nombreZona.trim().length === 0) {
+      return;
+    }
+
+    this.guardando.set(true);
+    const datos: CrearUmbralRequest = {
+      nombreZona: this.form.nombreZona.trim(),
+      orden: Number(this.form.orden),
+      puntosMin: Number(this.form.puntosMin),
+      puntosMax: this.form.sinTope ? null : Number(this.form.puntosMax),
+      colorHex: this.form.colorHex.toUpperCase(),
+    };
+    const actual = this.editando();
+
+    const peticion = actual
+      ? this.api.editarUmbral(actual.id, datos)
+      : this.api.crearUmbral(this.grupoId(), datos);
+
+    peticion.subscribe({
+      next: () => {
+        this.toasts.exito(actual ? 'Zona actualizada.' : 'Zona creada.');
+        this.guardando.set(false);
+        this.formAbierto.set(false);
+        this.cargar(this.grupoId());
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.guardando.set(false);
+      },
+    });
+  }
+
+  protected confirmarEliminar(): void {
+    const u = this.aEliminar();
+
+    if (!u) {
+      return;
+    }
+
+    this.api.eliminarUmbral(u.id).subscribe({
+      next: () => {
+        this.toasts.exito('Zona eliminada.');
+        this.aEliminar.set(null);
+        this.cargar(this.grupoId());
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.aEliminar.set(null);
+      },
+    });
+  }
+
+  private cargar(grupoId: string): void {
+    this.cargando.set(true);
+    this.api.listarUmbrales(grupoId).subscribe({
+      next: (u) => {
+        this.umbrales.set(u);
+        this.cargando.set(false);
+      },
+      error: () => this.cargando.set(false),
+    });
+  }
+}

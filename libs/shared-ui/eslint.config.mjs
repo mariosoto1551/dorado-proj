@@ -32,7 +32,7 @@ export default [
                 "error",
                 {
                     type: "attribute",
-                    prefix: "lib",
+                    prefix: ["lib", "ui"],
                     style: "camelCase"
                 }
             ],
@@ -40,7 +40,7 @@ export default [
                 "error",
                 {
                     type: "element",
-                    prefix: "lib",
+                    prefix: ["lib", "ui"],
                     style: "kebab-case"
                 }
             ]

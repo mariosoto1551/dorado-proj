@@ -1,0 +1,448 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
+import { forkJoin, type Observable } from 'rxjs';
+
+import {
+  type ActividadDto,
+  type ConductaDto,
+  EstadoSesion,
+  type UsuarioDto,
+} from '@dorado/shared-types';
+import { ConfirmDialogComponent, EstadoSeccionBadgeComponent } from '@dorado/shared-ui';
+
+import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { ToastService } from '../../componentes/toast.service';
+import { ActivityApiService } from '../../core/api/activity-api.service';
+import type { SeccionConSesionesResponse } from '../../core/api/api.types';
+import { mensajeDeError } from '../../core/api/errores';
+import { IdentityApiService } from '../../core/api/identity-api.service';
+import { SessionApiService } from '../../core/api/session-api.service';
+
+type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | null;
+
+/** Panel operativo del día a día (fase-10): acciones rápidas del tutor sobre la Sección actual. */
+@Component({
+  selector: 'app-panel-operativo',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    FormsModule,
+    EncabezadoPaginaComponent,
+    EstadoSeccionBadgeComponent,
+    ConfirmDialogComponent,
+  ],
+  template: `
+    <section class="mx-auto max-w-3xl px-4 py-6">
+      <app-encabezado-pagina titulo="Semana actual" subtitulo="Registrá lo del día y controlá la sección.">
+        @if (seccion(); as s) {
+          <ui-estado-seccion-badge [estado]="s.estado" />
+        }
+      </app-encabezado-pagina>
+
+      @if (cargando()) {
+        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+      } @else if (!seccion()) {
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+          <p class="text-sm text-slate-500">No hay una Sección activa.</p>
+          <button
+            type="button"
+            (click)="iniciarSeccion()"
+            [disabled]="procesando()"
+            class="mt-4 rounded-lg bg-marca-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+          >
+            Iniciar primera sección
+          </button>
+        </div>
+      } @else {
+        <!-- Sesiones -->
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-bold text-slate-900">Sección #{{ seccion()!.numero }}</h2>
+            <span class="text-xs text-slate-400">{{ seccion()!.sesiones.length }} sesiones</span>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            @for (s of seccion()!.sesiones; track s.id) {
+              <span
+                class="rounded-lg px-2.5 py-1 text-xs font-semibold"
+                [class]="s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+              >
+                Sesión {{ s.numero }} · {{ s.estado === 'ABIERTA' ? 'abierta' : 'cerrada' }}
+              </span>
+            }
+          </div>
+        </div>
+
+        <!-- Acciones rápidas: solo con sección ABIERTA y sesión abierta -->
+        @if (seccion()!.estado === 'ABIERTA') {
+          @if (sesionAbierta()) {
+            <div class="mt-4 grid gap-3 sm:grid-cols-2">
+              <!-- No hizo -->
+              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-900">Registrar «no hizo»</h3>
+                <select
+                  [(ngModel)]="usuarioNoHizo"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Usuario…</option>
+                  @for (u of usuarios(); track u.id) {
+                    <option [value]="u.id">{{ u.nombre }}</option>
+                  }
+                </select>
+                <select
+                  [(ngModel)]="actividadNoHizo"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Actividad…</option>
+                  @for (a of actividades(); track a.id) {
+                    <option [value]="a.id">{{ a.nombre }}</option>
+                  }
+                </select>
+                <button
+                  type="button"
+                  (click)="registrarNoHizo()"
+                  [disabled]="procesando() || !usuarioNoHizo || !actividadNoHizo"
+                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40"
+                >
+                  Registrar
+                </button>
+              </div>
+
+              <!-- Conducta -->
+              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-900">Registrar conducta</h3>
+                <select
+                  [(ngModel)]="usuarioConducta"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Usuario…</option>
+                  @for (u of usuarios(); track u.id) {
+                    <option [value]="u.id">{{ u.nombre }}</option>
+                  }
+                </select>
+                <select
+                  [(ngModel)]="conductaSel"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Conducta…</option>
+                  @for (c of conductas(); track c.id) {
+                    <option [value]="c.id">
+                      {{ c.nombre }} ({{ c.tipo === 'BUENA' ? '+' : '−' }}{{ c.valorPuntos }})
+                    </option>
+                  }
+                </select>
+                <button
+                  type="button"
+                  (click)="registrarConducta()"
+                  [disabled]="procesando() || !usuarioConducta || !conductaSel"
+                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40"
+                >
+                  Registrar
+                </button>
+              </div>
+            </div>
+          } @else {
+            <p class="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500">
+              No hay una sesión abierta. Abrí la siguiente para registrar.
+            </p>
+          }
+        }
+
+        <!-- Controles de la sección -->
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 class="text-sm font-bold text-slate-900">Controles</h3>
+          <div class="mt-3 flex flex-wrap gap-2">
+            @if (seccion()!.estado === 'ABIERTA') {
+              @if (sesionAbierta()) {
+                <button
+                  type="button"
+                  (click)="confirmar.set('cierre-sesion')"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cerrar sesión abierta
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  (click)="abrirSiguienteSesion()"
+                  [disabled]="procesando()"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Abrir siguiente sesión
+                </button>
+              }
+              <button
+                type="button"
+                (click)="confirmar.set('evaluacion')"
+                class="rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-amber-600"
+              >
+                Forzar evaluación
+              </button>
+            }
+            @if (seccion()!.estado === 'EVALUACION') {
+              <button
+                type="button"
+                (click)="irAEvaluacion()"
+                class="rounded-lg bg-marca-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+              >
+                Ver panel de evaluación
+              </button>
+              <button
+                type="button"
+                (click)="confirmar.set('cerrar-seccion')"
+                class="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+              >
+                Cerrar sección
+              </button>
+            }
+          </div>
+        </div>
+      }
+    </section>
+
+    <ui-confirm-dialog
+      [abierto]="confirmar() !== null"
+      [titulo]="tituloConfirm()"
+      [mensaje]="mensajeConfirm()"
+      [textoConfirmar]="textoConfirm()"
+      [tono]="confirmar() === 'cerrar-seccion' ? 'peligro' : 'primario'"
+      (confirmar)="ejecutarConfirmado()"
+      (cancelar)="confirmar.set(null)"
+    />
+  `,
+})
+export class PanelOperativoPage {
+  readonly grupoId = input.required<string>();
+
+  private readonly session = inject(SessionApiService);
+
+  private readonly activity = inject(ActivityApiService);
+
+  private readonly identity = inject(IdentityApiService);
+
+  private readonly toasts = inject(ToastService);
+
+  private readonly router = inject(Router);
+
+  protected readonly cargando = signal(true);
+
+  protected readonly procesando = signal(false);
+
+  protected readonly seccion = signal<SeccionConSesionesResponse | null>(null);
+
+  protected readonly usuarios = signal<UsuarioDto[]>([]);
+
+  protected readonly actividades = signal<ActividadDto[]>([]);
+
+  protected readonly conductas = signal<ConductaDto[]>([]);
+
+  protected readonly confirmar = signal<AccionConfirmable>(null);
+
+  protected usuarioNoHizo = '';
+
+  protected actividadNoHizo = '';
+
+  protected usuarioConducta = '';
+
+  protected conductaSel = '';
+
+  protected readonly sesionAbierta = computed(() =>
+    this.seccion()?.sesiones.find((s) => s.estado === EstadoSesion.ABIERTA) ?? null
+  );
+
+  protected readonly tituloConfirm = computed(() => {
+    switch (this.confirmar()) {
+      case 'cierre-sesion':
+        return 'Cerrar sesión';
+      case 'evaluacion':
+        return 'Forzar evaluación';
+      case 'cerrar-seccion':
+        return 'Cerrar sección';
+      default:
+        return '';
+    }
+  });
+
+  protected readonly mensajeConfirm = computed(() => {
+    switch (this.confirmar()) {
+      case 'cierre-sesion':
+        return 'Se cerrará la sesión abierta. ¿Continuar?';
+      case 'evaluacion':
+        return 'La sección pasará a evaluación y no se podrán registrar más actividades. ¿Continuar?';
+      case 'cerrar-seccion':
+        return 'La sección quedará cerrada definitivamente. ¿Continuar?';
+      default:
+        return '';
+    }
+  });
+
+  protected readonly textoConfirm = computed(() => {
+    switch (this.confirmar()) {
+      case 'cierre-sesion':
+        return 'Cerrar sesión';
+      case 'evaluacion':
+        return 'Forzar evaluación';
+      case 'cerrar-seccion':
+        return 'Cerrar sección';
+      default:
+        return 'Confirmar';
+    }
+  });
+
+  constructor() {
+    effect(() => {
+      const g = this.grupoId();
+      this.cargar(g);
+    });
+  }
+
+  protected iniciarSeccion(): void {
+    this.procesando.set(true);
+    this.session.iniciarSeccion(this.grupoId()).subscribe({
+      next: (s) => {
+        this.seccion.set(s);
+        this.procesando.set(false);
+        this.toasts.exito('Sección iniciada.');
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  protected abrirSiguienteSesion(): void {
+    const s = this.seccion();
+
+    if (!s) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.session.abrirSiguienteSesion(s.id).subscribe({
+      next: () => {
+        this.toasts.exito('Sesión abierta.');
+        this.recargar();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  protected registrarNoHizo(): void {
+    this.procesando.set(true);
+    this.activity.registrarNoHizo(this.actividadNoHizo, this.usuarioNoHizo).subscribe({
+      next: () => {
+        this.toasts.exito('«No hizo» registrado.');
+        this.usuarioNoHizo = '';
+        this.actividadNoHizo = '';
+        this.procesando.set(false);
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  protected registrarConducta(): void {
+    this.procesando.set(true);
+    this.activity.registrarConducta(this.conductaSel, this.usuarioConducta).subscribe({
+      next: () => {
+        this.toasts.exito('Conducta registrada.');
+        this.usuarioConducta = '';
+        this.conductaSel = '';
+        this.procesando.set(false);
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  protected ejecutarConfirmado(): void {
+    const accion = this.confirmar();
+    const s = this.seccion();
+    this.confirmar.set(null);
+
+    if (!s) {
+      return;
+    }
+
+    if (accion === 'cierre-sesion') {
+      const abierta = this.sesionAbierta();
+
+      if (!abierta) {
+        return;
+      }
+
+      this.ejecutar(this.session.forzarCierreSesion(s.id, abierta.id), 'Sesión cerrada.');
+    } else if (accion === 'evaluacion') {
+      this.ejecutar(this.session.forzarEvaluacion(s.id), 'Sección en evaluación.');
+    } else if (accion === 'cerrar-seccion') {
+      this.ejecutar(this.session.cerrarSeccion(s.id), 'Sección cerrada.');
+    }
+  }
+
+  protected irAEvaluacion(): void {
+    const s = this.seccion();
+
+    if (s) {
+      void this.router.navigate(['/grupos', this.grupoId(), 'secciones', s.id, 'evaluacion']);
+    }
+  }
+
+  private ejecutar(peticion: Observable<unknown>, ok: string): void {
+    this.procesando.set(true);
+    peticion.subscribe({
+      next: () => {
+        this.toasts.exito(ok);
+        this.recargar();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  /** Recarga la Sección completa (con sus sesiones) tras una mutación. */
+  private recargar(): void {
+    this.session.seccionActual(this.grupoId()).subscribe({
+      next: (seccion) => {
+        this.seccion.set(seccion);
+        this.procesando.set(false);
+      },
+      error: () => this.procesando.set(false),
+    });
+  }
+
+  private cargar(grupoId: string): void {
+    this.cargando.set(true);
+    forkJoin({
+      seccion: this.session.seccionActual(grupoId),
+      usuarios: this.identity.listarUsuarios(grupoId),
+      actividades: this.activity.listarActividades(grupoId, 'ACTIVA'),
+      conductas: this.activity.listarConductas(grupoId, 'ACTIVA'),
+    }).subscribe({
+      next: ({ seccion, usuarios, actividades, conductas }) => {
+        this.seccion.set(seccion);
+        this.usuarios.set(usuarios);
+        this.actividades.set(actividades);
+        this.conductas.set(conductas);
+        this.cargando.set(false);
+      },
+      error: () => this.cargando.set(false),
+    });
+  }
+}

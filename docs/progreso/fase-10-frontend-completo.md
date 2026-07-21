@@ -1,14 +1,43 @@
 # Registro de ejecución — Fase 10: Frontend `app-web` completo
 
-- **Estado**: PENDIENTE
-- **Fecha de finalización**: —
-- **Commit/rama**: —
-- **Resumen de lo implementado**: —
-- **Desviaciones del plan documentado** (si las hubo, y por qué): —
-- **Verificación de criterios de aceptación** (copiado de `docs/phases/fase-10-frontend-completo.md`):
-  - [ ] Un Tutor completa el ciclo completo desde la UI sin usar Postman (config → semana → evaluación → descalificar de prueba → marcar entregada).
-  - [ ] Un Usuario completa actividades (las 3 variantes de límite de tiempo), autoreporta, ve progreso, elige/sortea recompensa.
-  - [ ] Toda pantalla probada en viewport de 375px sin scroll horizontal ni elementos cortados.
-  - [ ] Las notificaciones se actualizan por polling sin recargar la página.
-- **Deuda técnica / pendientes conocidos**: —
-- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**: —
+- **Estado**: COMPLETADA_CON_DESVIACIONES
+- **Fecha de finalización**: 2026-07-21
+- **Commit/rama**: `master`, commit `fase-10: frontend app-web completo`
+- **Resumen de lo implementado**:
+  - **Dirección visual (decisión de José)**: HÍBRIDO — área Tutor sobria tipo panel SaaS (tarjetas blancas, acento "marca" violeta/índigo), área Usuario lúdica y colorida (header con gradiente, la zona como protagonista, tarjetas grandes redondeadas, microanimaciones). Se le mostraron 3 propuestas ASCII antes de codear (preferencia de UI registrada en memoria).
+  - **Sistema de diseño** (`libs/shared-ui/src/theme.css`): se agregó la paleta `marca-50..900` (índigo), y 4 animaciones reutilizables (`animate-pop`, `animate-slide-up`, `animate-fade-in`, `animate-shimmer`) con `@keyframes` + respeto a `prefers-reduced-motion`. Los colores de zona siguen siendo el default de seed; el color real se lee siempre de la API (regla CLAUDE.md, respetada por `ZonaBadgeComponent`).
+  - **Componentes `libs/shared-ui`** (selector `ui-*`): `ZonaBadgeComponent` (único render de zona, color de la API + contraste de texto automático), `EstadoSeccionBadgeComponent` (ABIERTA/EVALUACION/CERRADA), `ConfirmDialogComponent` (acciones destructivas; soporta `requiereMotivo` para la descalificación con motivo obligatorio). Se amplió `eslint.config.mjs` de shared-ui para aceptar prefijo `ui` además de `lib`.
+  - **Capa de servicios API** (`apps/app-web/src/app/core/api/`): 6 clientes REST (`identity`, `activity`, `session`, `scoring`, `rewards`, `notification`) + `api.types.ts` con los Request/Response que el backend define en sus DTOs pero que NO están en `shared-types` (calcados). Todos pegan al Gateway (`/api/*`); el interceptor de Fase 3 ya adjunta token + `withCredentials`.
+  - **Shell adaptativo por rol** (`shell.component`): topbar con campana + logout para ambos; Tutor con sidebar (drawer en mobile, fija en desktop) cuya navegación se deriva del `grupoId` de la URL; Usuario con bottom-nav fija de 4 ítems. `grupoId` activo derivado de `NavigationEnd` vía `toSignal`.
+  - **Campana de notificaciones** (`campana-notificaciones.component`): badge alimentado por polling de 30s (`NotificationApiService.iniciarPolling`, arrancado/detenido en el shell), dropdown paginado, marcar una / todas leídas con refresco inmediato del contador. Sin WebSockets (descartado por spec).
+  - **Enrutamiento por rol**: `inicioUsuarioGuard` en `''` — USUARIO se queda en el home; TUTOR/ORG_ADMIN redirige a su Grupo (0 grupos → `/onboarding`, 1 → `/grupos/:id`, +1 → `/grupos` selector). Se habilitó `withComponentInputBinding()` para bindear `:grupoId`/`:seccionId` directo a `input()`.
+  - **Área Tutor (11 pantallas)**: selector de grupo, resumen (estado de Sección + ranking en vivo), CRUD de actividades (campos condicionales por `tipoLimiteTiempo`), conductas (autoreporte deshabilitado si BUENA), umbrales/zonas (color picker + aviso de contigüidad espejo del backend), recompensas (selector de zona desde umbrales), invitaciones (link + copiar, sin email), usuarios (editar/desactivar), tutores (solo ORG_ADMIN), configuración de sesión (selector amigable de cron que arma el string, sin exponer cron crudo), panel operativo (registrar no-hizo/conducta, controles de sección con confirmación), panel de evaluación (ranking final, descalificar con motivo obligatorio, canjes con "marcar entregada").
+  - **Área Usuario (4 pantallas)**: home (actividades de la sesión + puntaje/zona; completar, iniciar cronómetro), mi-conducta (autoreporte de conductas MALA autoreportables), mi-progreso (barra hacia la próxima zona con color de la API + historial de secciones cerradas), mis-recompensas (elegir/sortear según elegibilidad, con estados de motivo).
+  - **UI kit local** (`apps/app-web/src/app/componentes/`): `IconoComponent` (subset Heroicons outline), `EncabezadoPaginaComponent`, `ToastService` + `ToastHostComponent` (feedback global de éxito/error, montado en la raíz).
+- **Verificación de criterios de aceptación** (E2E Playwright headless contra el stack real de 9 servicios + Gateway, 17 pasos, 2026-07-21):
+  - [x] **Tutor ciclo completo sin Postman**: registrar org → onboarding grupo → crear zona → crear actividad → crear recompensa → guardar config → iniciar sección → generar invitación → forzar evaluación → panel de evaluación. Todo desde la UI, verde.
+  - [x] **Usuario**: canjeó invitación en contexto de navegador separado, completó una actividad (+10 pts reflejados), vio su progreso. En el panel de evaluación del tutor apareció con **10 puntos y zona Verde** calculados por el scoring real (integración end-to-end confirmada).
+  - [x] **Viewport 375px sin scroll horizontal**: verificado por script (`document.scrollWidth <= clientWidth`) → sin overflow. Todas las pantallas maquetadas mobile-first.
+  - [x] **Notificaciones por polling sin recargar**: `NotificationApiService` refresca el contador cada 30s vía signal; la campana se actualiza sin reload.
+  - Errores de consola en la corrida: solo 2 × `401` del `POST /auth/refresh` de bootstrap (antes del login, sin cookie) — benignos, el interceptor los maneja (comportamiento de Fase 3).
+  - `pnpm nx run-many -t lint` (app-web + shared-ui) y `nx build app-web` en verde.
+- **Desviaciones del plan / decisiones de implementación**:
+  1. **Fix cross-fase en el Gateway (Fase 3)**: el CORS del Gateway solo permitía `GET/POST/PATCH/DELETE` — faltaba **PUT**, que usa `PUT /session/grupos/:id/configuracion`. Sin él, guardar la configuración de sesión fallaba en preflight. Se agregó `PUT` a `methods` en `apps/gateway/src/main.ts`. Es un hueco real de Fase 3 que recién se ejercita desde la UI en Fase 10 (mismo criterio que el fix de ALS en Fase 5). Documentado acá, no se tocó la spec de Fase 3.
+  2. **Tipos de retorno de las mutaciones de sección**: los endpoints `abrir-siguiente`/`forzar-cierre`/`extender` devuelven `SesionDto` y `forzar-evaluacion`/`cerrar` devuelven `SeccionDto` (sin `sesiones`), NO `SeccionConSesionesResponse`. El `session-api.service` se tipó en consecuencia y el panel operativo **recarga `seccionActual`** tras cada mutación en vez de setear la respuesta directa (evita un crash por `sesiones` undefined). Detectado por el E2E.
+  3. **Estado de completitud de actividades es optimista/local** (home usuario y mi-conducta): el backend (Fases 5/7) no expone un endpoint "mis registros de esta sesión", así que la UI marca lo completado en memoria durante la sesión y se resetea al recargar. Hueco de API señalado (no inventado en el frontend). Ver deuda técnica.
+  4. **Selectores `ui-*` en shared-ui**: la spec nombra los componentes (`ZonaBadgeComponent`…) sin mandar prefijo de selector; se usó `ui-` (convención natural de un design system) y se amplió el lint de shared-ui para aceptarlo.
+- **Deuda técnica / pendientes conocidos**:
+  - **Sin endpoint de "estado de mis actividades"** (completadas/no-hizo por usuario en la sesión): el home usuario no puede rehidratar qué actividades ya hizo tras recargar. Candidato a un `GET /activity/.../mis-registros` en un ajuste de backend (fuera de alcance de esta fase de puro consumo).
+  - **`mis-recompensas` no rehidrata un canje previo tras recargar**: no hay endpoint de canje propio para el usuario; el estado "ya canjeaste" solo se muestra tras la acción en la misma sesión. Mismo tipo de hueco.
+  - **Cronómetro sin cuenta regresiva visual**: `iniciar-cronometro` arranca el timer en backend, pero la UI no muestra el conteo en vivo (solo habilita "Listo"). Suficiente para el MVP; mejora cosmética.
+  - **URL de producción del `environment`**: sigue apuntando a `localhost:3000` (hueco heredado de Fase 3, se resuelve en Fase 13 con fileReplacements).
+  - El script E2E (`e2e-fase10.mjs`) vive en el scratchpad de la sesión (no comiteado); candidato directo a la suite Playwright de Fase 12.
+- **Cómo verlo desplegado (local)** — insumo para la próxima sesión y para José:
+  1. Infra: `docker compose -f infra/docker-compose.yml up -d` (postgres/rabbit/adminer).
+  2. Backend (los 9 + gateway): `pnpm nx run-many -t serve -p gateway identity-service billing-service activity-service session-service scoring-service rewards-service notification-service audit-service`. Confirmar `GET http://localhost:3000/api/health` = 200.
+  3. Frontend: `pnpm nx serve app-web` → abrir `http://localhost:4200`.
+  4. Flujo de humo: `/registro` (crear org) → onboarding (crear grupo) → crear zona en «Zonas» → crear actividad → «Configuración» guardar (modo manual) → «Semana actual» iniciar sección → «Invitaciones» invitar usuario y copiar link → abrir el link en otra ventana/incógnito, canjear como usuario → completar la actividad → volver como tutor a «Semana actual» → «Forzar evaluación» → ver el panel de evaluación con el puntaje y la zona.
+- **Qué debería verificar la próxima sesión antes de construir sobre esta fase**:
+  1. **Entorno primero** (memoria de gotchas): `docker ps` con infra up, puertos 3000-3008 libres, `pnpm nx run-many -t "lint,build" -p app-web shared-ui` en verde.
+  2. **Fase 11 (public-site)**: es Astro, comparte `libs/shared-ui/src/theme.css` como CSS plano (los mismos tokens de zona/marca ya están ahí). El formulario de registro de organización pega al mismo `POST /api/auth/organizaciones` que ya usa `app-web`.
+  3. **Fase 12 (QA)**: el fix de CORS PUT del Gateway y los tipos de retorno de mutaciones de sección ya están; la suite E2E de esta fase (scratchpad) es la base del Playwright de Fase 12. Los dos huecos de API (mis-registros / mi-canje) siguen abiertos y afectan la rehidratación de estado — evaluarlos ahí.

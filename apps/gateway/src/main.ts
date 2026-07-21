@@ -28,7 +28,7 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: [process.env.APP_WEB_URL as string, process.env.PUBLIC_SITE_URL as string],
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 

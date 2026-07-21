@@ -5,7 +5,7 @@ import {
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { appRoutes } from './app.routes';
@@ -16,7 +16,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideHttpClient(withInterceptors([authInterceptor])),
-    provideRouter(appRoutes),
+    provideRouter(appRoutes, withComponentInputBinding()),
     // Refresh silencioso al bootear (spec fase-03): el access token vive solo
     // en memoria y se pierde al recargar — la cookie httpOnly dorado_refresh
     // rehidrata la sesión ANTES de que el router evalúe los guards. Si el

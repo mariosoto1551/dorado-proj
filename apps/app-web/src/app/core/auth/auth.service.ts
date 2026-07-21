@@ -63,6 +63,19 @@ export class AuthService {
     () => this.rol() === Rol.ORG_ADMIN || this.rol() === Rol.TUTOR
   );
 
+  readonly esOrgAdmin = computed(() => this.rol() === Rol.ORG_ADMIN);
+
+  /** Id del principal autenticado (sub del JWT): tutorId o usuarioId. */
+  readonly principalId = computed<string | null>(() => this.payload()?.sub ?? null);
+
+  /** Grupos del JWT (para USUARIO: su único grupo; para TUTOR: los asignados). */
+  readonly grupoIds = computed<string[]>(() => this.payload()?.grupoIds ?? []);
+
+  /** Grupo del USUARIO autenticado (su único grupo). Null para tutores. */
+  readonly grupoUsuario = computed<string | null>(() =>
+    !this.esTutor() ? (this.grupoIds()[0] ?? null) : null
+  );
+
   login(datos: LoginDatos): Observable<SesionRespuesta> {
     return this.http
       .post<SesionRespuesta>(`${environment.apiBaseUrl}/auth/login`, datos, {
