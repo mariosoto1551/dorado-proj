@@ -1,0 +1,166 @@
+# Stack COMPLETO containerizado (los 9 procesos backend + infra), construido
+# desde infra/docker/Dockerfile.service. Dos usos:
+#
+#   1. CI: levanta el sistema entero para correr la suite E2E de Fase 12
+#      (cierra la deuda "E2E en CI" que quedó de esa fase).
+#   2. Local: probar el sistema como se despliega (imágenes, no `nx serve`).
+#
+# Uso:
+#   cp infra/docker/.env.stack.example infra/docker/.env.stack   # dev keys
+#   docker compose -f infra/docker/docker-compose.stack.yml --env-file infra/docker/.env.stack up --build
+#
+# El networking usa el DNS interno de compose (nombre de servicio = host); las
+# *_INTERNAL_URL apuntan a esos nombres. Solo el gateway publica puerto al host.
+name: dorado-stack
+
+x-service-build: &build
+  context: ../..
+  dockerfile: infra/docker/Dockerfile.service
+
+x-common-env: &common-env
+  GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+  JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+  LOG_LEVEL: info
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: dorado
+      POSTGRES_PASSWORD: dorado_dev
+    volumes:
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U dorado']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.3-management
+    ports: ['15672:15672']
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  identity-service:
+    build: { <<: *build, args: { SERVICE: identity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3001'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/identity_db
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      REFRESH_COOKIE_SECURE: 'false'
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  billing-service:
+    build: { <<: *build, args: { SERVICE: billing-service } }
+    environment:
+      <<: *common-env
+      PORT: '3002'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/billing_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  activity-service:
+    build: { <<: *build, args: { SERVICE: activity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3003'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/activity_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  session-service:
+    build: { <<: *build, args: { SERVICE: session-service } }
+    environment:
+      <<: *common-env
+      PORT: '3004'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/session_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  scoring-service:
+    build: { <<: *build, args: { SERVICE: scoring-service } }
+    environment:
+      <<: *common-env
+      PORT: '3005'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/scoring_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  rewards-service:
+    build: { <<: *build, args: { SERVICE: rewards-service } }
+    environment:
+      <<: *common-env
+      PORT: '3006'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/rewards_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notification-service:
+    build: { <<: *build, args: { SERVICE: notification-service } }
+    environment:
+      <<: *common-env
+      PORT: '3007'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/notification_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  audit-service:
+    build: { <<: *build, args: { SERVICE: audit-service } }
+    environment:
+      <<: *common-env
+      PORT: '3008'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/audit_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  gateway:
+    build: { <<: *build, args: { SERVICE: gateway } }
+    ports: ['3000:3000']
+    environment:
+      <<: *common-env
+      PORT: '3000'
+      APP_WEB_URL: ${APP_WEB_URL:-http://localhost:4200}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-http://localhost:4321}
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      SESSION_INTERNAL_URL: http://session-service:3004
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      NOTIFICATION_INTERNAL_URL: http://notification-service:3007
+      AUDIT_INTERNAL_URL: http://audit-service:3008
+    depends_on:
+      - identity-service
+      - billing-service
+      - activity-service
+      - session-service
+      - scoring-service
+      - rewards-service
+      - notification-service
+      - audit-service

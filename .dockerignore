@@ -1,0 +1,29 @@
+# Contexto de build = raíz del repo. Se excluye todo lo que no hace falta para
+# `pnpm install` + `nx build` (acelera el build y, sobre todo, evita filtrar
+# secretos: los .env locales NUNCA entran a la imagen).
+node_modules
+**/node_modules
+dist
+.nx
+.angular
+.astro
+tmp
+test-results
+playwright-report
+blob-report
+coverage
+**/generated/prisma
+
+# Secretos y estado local — jamás en la imagen (las env de prod se cargan en la
+# plataforma de hosting, no se hornean).
+**/.env
+**/.env.*
+!**/.env.example
+
+# VCS / editor / docs que no afectan el build
+.git
+.github
+.vscode
+.idea
+docs
+*.md

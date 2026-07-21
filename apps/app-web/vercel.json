@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "Proyecto Vercel de app-web (Angular SPA). En el panel: Root Directory = raíz del repo. El apiBaseUrl de prod NO viene de env de Vercel: se fija en apps/app-web/src/environments/environment.prod.ts (fileReplacements del build de producción) — ver docs/runbook-deploy.md. El rewrite manda todo a index.html (routing del lado del cliente).",
+  "buildCommand": "pnpm nx build app-web --configuration=production",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "dist/apps/app-web/browser",
+  "framework": null,
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

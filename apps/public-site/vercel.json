@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "Proyecto Vercel de public-site (Astro SSG). En el panel de Vercel: Root Directory = raíz del repo (no apps/public-site — el build corre por Nx desde la raíz). Las env PUBLIC_GATEWAY_URL / PUBLIC_APP_WEB_URL / SITE_URL se cargan como Environment Variables del proyecto (build time). Ver docs/runbook-deploy.md.",
+  "buildCommand": "pnpm nx build public-site",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "apps/public-site/dist",
+  "framework": "astro"
+}

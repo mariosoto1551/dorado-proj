@@ -1,0 +1,100 @@
+# Dockerfile parametrizado para los 9 procesos backend (gateway + 8 servicios).
+# Un solo archivo: el servicio a construir se pasa por build-arg SERVICE.
+#
+#   docker build -f infra/docker/Dockerfile.service \
+#     --build-arg SERVICE=scoring-service -t dorado/scoring-service .
+#
+# Patrón Nx recomendado para Node: `nx build` (webpack con generatePackageJson)
+# + `nx prune` (deja dist/apps/<svc> con su package.json + lockfile podados) y
+# en runtime se instala solo lo de producción. Las migraciones Prisma viajan en
+# la imagen para poder correr `migrate deploy` en el arranque de los servicios
+# con base propia (ver entrypoint.sh).
+#
+# Contexto de build = raíz del repo (ver .dockerignore).
+
+# ───────────────────────── build ─────────────────────────
+FROM node:24-bookworm-slim AS builder
+
+# Timeouts/retries generosos: el árbol del monorepo son ~1700 paquetes; en
+# redes lentas un fetch corto aborta el install (visto en el primer build).
+ENV npm_config_fetch_timeout=1200000 \
+    npm_config_fetch_retries=8 \
+    npm_config_fetch_retry_maxtimeout=1200000 \
+    npm_config_fetch_retry_mintimeout=10000 \
+    npm_config_network_concurrency=3 \
+    PNPM_HOME=/pnpm
+RUN corepack enable && corepack prepare pnpm@11 --activate
+WORKDIR /repo
+
+# Capa de install cacheable: primero SOLO los manifiestos (el workspace no tiene
+# glob `packages:`, así que install depende solo del package.json raíz + lock),
+# después el código. Editar fuentes no invalida el install. El cache mount del
+# store de pnpm persiste entre builds (BuildKit), así un retry no re-baja todo.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --frozen-lockfile
+
+COPY . .
+
+ARG SERVICE
+RUN test -n "$SERVICE" || (echo "Falta --build-arg SERVICE" && exit 1)
+
+# build (dependsOn prisma-generate). Webpack genera dist/apps/$SERVICE con
+# main.js + un package.json que lista los deps runtime externalizados.
+RUN pnpm nx build "$SERVICE"
+
+# Aísla los assets de migración (solo servicios con base los tienen).
+RUN mkdir -p /migrate && \
+    if [ -f "apps/$SERVICE/prisma/schema.prisma" ]; then \
+      cp -r "apps/$SERVICE/prisma" /migrate/prisma && \
+      cp "apps/$SERVICE/prisma.config.ts" /migrate/prisma.config.ts ; \
+    fi
+
+# ──────────────────────── runtime ────────────────────────
+FROM node:24-bookworm-slim AS runtime
+
+# OpenSSL: el motor de migraciones de Prisma lo necesita (la imagen slim no lo
+# trae). ca-certificates para las conexiones TLS (Postgres/AMQPS gestionados).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@11 --activate
+ENV NODE_ENV=production
+WORKDIR /app
+
+# El workspace raíz declara `allowBuilds` (prisma, @prisma/engines, pg, argon2…);
+# se copia para que el `pnpm add` de abajo permita esos build scripts (pnpm 11
+# los bloquea si no están aprobados).
+COPY pnpm-workspace.yaml ./pnpm-workspace.yaml
+
+ARG SERVICE
+ENV SERVICE=${SERVICE}
+
+# Bundle del servicio + deps de producción (desde el package.json que generó
+# webpack). No hay lockfile podado (se evita `nx prune`, que falla en
+# contenedor): se resuelve desde el package.json con el store ya cacheado.
+ENV npm_config_fetch_timeout=1200000 \
+    npm_config_fetch_retries=8 \
+    npm_config_fetch_retry_maxtimeout=1200000 \
+    npm_config_fetch_retry_mintimeout=10000 \
+    npm_config_network_concurrency=3 \
+    PNPM_HOME=/pnpm
+COPY --from=builder /repo/dist/apps/${SERVICE}/ ./
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --prod
+
+# Assets de migración (vacío para gateway). Para servicios con base: el CLI de
+# Prisma (migrate) y `pg` (peer de @prisma/adapter-pg, que webpack no lista).
+COPY --from=builder /migrate/ ./migrate/
+RUN --mount=type=cache,target=/pnpm/store \
+    if [ -f ./migrate/prisma/schema.prisma ]; then pnpm add --prod pg@8 prisma@7 ; fi
+
+COPY infra/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Usuario no-root (la imagen node ya trae el uid 1000 `node`).
+USER node
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

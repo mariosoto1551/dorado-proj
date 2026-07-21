@@ -1,0 +1,290 @@
+# Blueprint de Render — los 9 procesos backend + 1 Postgres gestionado.
+# (Los 2 frontends van a Vercel; ver apps/*/vercel.json y docs/runbook-deploy.md.)
+#
+# Cómo se usa: New → Blueprint → apuntar a este archivo. Render construye cada
+# servicio con infra/docker/Dockerfile.service, pasando la env var `SERVICE`
+# como build-arg (comportamiento documentado de Render: las env vars están
+# disponibles como build arguments), así el mismo Dockerfile sirve para los 9.
+#
+# Valores `sync: false` = se cargan a mano en el panel (secretos o derivados que
+# el Blueprint no puede templatear). El runbook dice exactamente qué poner.
+#
+# ── Postgres: UNA instancia, 8 bases (como en local) ──
+# Render Postgres crea 1 base; las otras 7 se crean UNA vez con el script
+# infra/docker/init-databases.sh vía psql (paso del runbook). Cada servicio
+# apunta su DATABASE_URL a la Internal Database URL cambiando el nombre de base.
+
+databases:
+  - name: dorado-postgres
+    databaseName: identity_db
+    postgresMajorVersion: '18'
+    plan: basic-256mb # el free se pausa; el scheduler de session-service no puede dormir
+
+services:
+  # ─────────────── identity-service (emisor de JWT) ───────────────
+  - type: web
+    name: identity-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    autoDeploy: true
+    envVars:
+      - key: SERVICE
+        value: identity-service
+      - key: PORT
+        value: '3001'
+      - key: DATABASE_URL # Internal Database URL de dorado-postgres, base identity_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        generateValue: true # se genera una vez; copiar el MISMO valor al resto
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: JWT_PRIVATE_KEY # SOLO identity
+        sync: false
+      - key: RABBITMQ_URL # AMQPS de CloudAMQP
+        sync: false
+      - key: BILLING_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: REFRESH_COOKIE_SECURE
+        value: 'true'
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── billing-service ───────────────
+  - type: web
+    name: billing-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: billing-service
+      - key: PORT
+        value: '3002'
+      - key: DATABASE_URL # base billing_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── activity-service ───────────────
+  - type: web
+    name: activity-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: activity-service
+      - key: PORT
+        value: '3003'
+      - key: DATABASE_URL # base activity_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: BILLING_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: SESSION_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── session-service (scheduler cron: NO dormir) ───────────────
+  - type: web
+    name: session-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: session-service
+      - key: PORT
+        value: '3004'
+      - key: DATABASE_URL # base session_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── scoring-service ───────────────
+  - type: web
+    name: scoring-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: scoring-service
+      - key: PORT
+        value: '3005'
+      - key: DATABASE_URL # base scoring_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: SESSION_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── rewards-service ───────────────
+  - type: web
+    name: rewards-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: rewards-service
+      - key: PORT
+        value: '3006'
+      - key: DATABASE_URL # base rewards_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: SCORING_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── notification-service ───────────────
+  - type: web
+    name: notification-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: notification-service
+      - key: PORT
+        value: '3007'
+      - key: DATABASE_URL # base notification_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: ACTIVITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── audit-service ───────────────
+  - type: web
+    name: audit-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: audit-service
+      - key: PORT
+        value: '3008'
+      - key: DATABASE_URL # base audit_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+
+  # ─────────────── gateway (único público de cara a los frontends) ───────────────
+  - type: web
+    name: gateway
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: SERVICE
+        value: gateway
+      - key: PORT
+        value: '3000'
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: APP_WEB_URL # dominio de app-web en Vercel
+        sync: false
+      - key: PUBLIC_SITE_URL # dominio de public-site en Vercel
+        sync: false
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: BILLING_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: ACTIVITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: SESSION_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: SCORING_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: REWARDS_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: NOTIFICATION_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: AUDIT_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: LOG_LEVEL
+        value: info

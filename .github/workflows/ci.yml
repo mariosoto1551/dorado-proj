@@ -43,3 +43,29 @@ jobs:
       - uses: nrwl/nx-set-shas@v4
 
       - run: pnpm nx affected -t lint,test,build
+
+  # Suite E2E de Fase 12 contra el stack completo (cierra la deuda "E2E en CI"
+  # que quedó diferida a Fase 13). Reusa el orquestador scripts/e2e-up.mjs:
+  # levanta infra (docker-compose crea las 8 bases), migra, sirve los 9
+  # procesos, espera healthchecks, corre Playwright y baja todo. Las suites son
+  # API-first (no requieren browsers de Playwright).
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Levanta infra + stack, corre la suite y hace teardown. El exit code de
+      # Playwright se propaga como exit del script (falla el job si falla la suite).
+      - run: node scripts/e2e-up.mjs
+
