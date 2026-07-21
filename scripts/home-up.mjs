@@ -46,17 +46,30 @@ function log(msg) {
   console.log(`\x1b[36m[casa]\x1b[0m ${msg}`);
 }
 
-/** Primera IPv4 no interna = la IP de tu PC en la red de casa. */
-function ipDeLaRed() {
-  for (const nets of Object.values(os.networkInterfaces())) {
+/**
+ * IPs candidatas de la red de casa. Descarta adaptadores virtuales (WSL,
+ * VirtualBox, Docker, Hyper-V…) que NO son la WiFi/Ethernet real, y prioriza
+ * WiFi > Ethernet. Devuelve la lista ordenada (la [0] es la mejor apuesta).
+ */
+function ipsCandidatas() {
+  const virtual = /vethernet|\bwsl\b|virtualbox|hyper-?v|docker|vmware|loopback|npcap/i;
+  const candidatas = [];
+
+  for (const [nombre, nets] of Object.entries(os.networkInterfaces())) {
+    if (virtual.test(nombre)) {
+      continue;
+    }
     for (const net of nets ?? []) {
       if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
+        candidatas.push({ nombre, address: net.address });
       }
     }
   }
 
-  return 'localhost';
+  const prioridad = (n) => (/wi-?fi|wireless|wlan/i.test(n) ? 0 : /ethernet/i.test(n) ? 1 : 2);
+  candidatas.sort((a, b) => prioridad(a.nombre) - prioridad(b.nombre));
+
+  return candidatas;
 }
 
 function correr(cmd, args, opciones = {}) {
@@ -114,7 +127,8 @@ function bajarTodo() {
 }
 
 async function main() {
-  const ip = ipDeLaRed();
+  const candidatas = ipsCandidatas();
+  const ip = candidatas[0]?.address ?? 'localhost';
 
   log('levantando infra (Postgres + RabbitMQ)…');
   correr('docker', [...COMPOSE, 'up', '-d']);
@@ -166,6 +180,13 @@ async function main() {
   console.log(`     \x1b[32mhttp://${ip}:4321/registro\x1b[0m (el sitio de registro)`);
   console.log('');
   console.log(`  (Todos los equipos tienen que estar en el MISMO WiFi que esta PC.)`);
+  if (candidatas.length > 1) {
+    console.log('');
+    console.log(`  Si esa dirección no funciona, probá con otra de tus redes:`);
+    for (const c of candidatas.slice(1)) {
+      console.log(`     http://${c.address}:4200   (${c.nombre})`);
+    }
+  }
   console.log('='.repeat(64) + '\n');
   log('Dejá esta ventana abierta mientras la usen. Ctrl+C para bajar todo.');
 }
