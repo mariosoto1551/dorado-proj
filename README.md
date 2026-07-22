@@ -73,6 +73,43 @@ Todo el tráfico de los frontends al backend pasa por el Gateway
 El `public-site` solo puede registrar organizaciones si se sirve en `:4321`, que
 es el origen que el Gateway acepta por CORS.
 
+### Modo casa (usarlo en la red de tu casa, desde cualquier celu/laptop)
+
+Para que tu familia entre desde sus celulares/laptops en el **mismo WiFi** —
+gratis, sin nube — un solo comando levanta TODO en tu PC:
+
+```bash
+pnpm dev:casa                    # = node scripts/home-up.mjs
+```
+
+Qué hace: levanta la infra (Postgres + RabbitMQ), aplica migraciones, arranca los
+9 servicios backend con `CORS_ALLOW_LAN=true` y sirve los frontends en `0.0.0.0`
+(accesibles desde la red). Al final imprime la dirección para pasarle a tu familia,
+detectando la IP de tu WiFi automáticamente (descarta adaptadores virtuales de
+WSL/Docker/VirtualBox). **Dejá esa ventana abierta** mientras la usen; `Ctrl+C`
+baja todo.
+
+```
+  Tu familia entra desde el navegador de su celu/laptop a:
+     http://<IP-de-tu-PC>:4200        (la app)
+
+  Vos, para registrar la organización la primera vez:
+     http://<IP-de-tu-PC>:4321/registro (el sitio de registro)
+```
+
+No hace falta reconstruir ni configurar la IP: el frontend deriva la URL del
+Gateway del host desde el que se abre (si entran a `http://192.168.1.50:4200`, la
+app le pega a `http://192.168.1.50:3000/api`). El registro de la organización solo
+funciona desde `:4321` (origen que el Gateway acepta por CORS).
+
+**Requisitos**: Docker corriendo + `pnpm install` hecho, y todos los equipos en el
+**mismo WiFi** que esta PC.
+
+> **Windows — Firewall**: la primera vez, Windows pregunta si permitís que Node
+> acceda a la red. Hay que elegir **"Permitir acceso"** en **redes privadas** para
+> que los otros equipos puedan conectarse. Si ya lo bloqueaste sin querer, se
+> arregla en *Firewall de Windows Defender → Permitir una aplicación*.
+
 ### Servir una pieza suelta
 
 ```bash

@@ -9,6 +9,7 @@
     "dev:backend:noinfra": "node scripts/e2e-up.mjs --serve-only --no-infra",
     "dev:app": "nx serve app-web",
     "dev:site": "nx serve public-site",
+    "dev:casa": "node scripts/home-up.mjs",
     "build": "nx run-many -t build",
     "lint": "nx run-many -t lint",
     "test": "nx run-many -t test",

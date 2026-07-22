@@ -95,12 +95,13 @@ async function esperar(url, timeoutMs) {
   return false;
 }
 
-function spawnPersistente(cmd, args, env) {
+function spawnPersistente(cmd, args, env, extra = {}) {
   const hijo = spawn(cmd, args, {
     stdio: 'inherit',
     shell: esWindows,
     detached: !esWindows,
     env: { ...process.env, ...env },
+    ...extra,
   });
   hijos.push(hijo);
 
@@ -167,7 +168,9 @@ async function main() {
   // Frontends en 0.0.0.0 para que los alcance la red local.
   log('sirviendo app-web y public-site en la red…');
   spawnPersistente('pnpm', ['nx', 'serve', 'app-web', '--host', '0.0.0.0']);
-  spawnPersistente('npx', ['astro', 'dev', '--root', 'apps/public-site', '--host', '0.0.0.0']);
+  // Astro 7: correr con cwd en la carpeta del sitio; `--root apps/public-site`
+  // desde la raíz no resuelve el proyecto en esta versión.
+  spawnPersistente('npx', ['astro', 'dev', '--host', '0.0.0.0'], {}, { cwd: 'apps/public-site' });
 
   await sleep(4000);
   console.log('\n' + '='.repeat(64));

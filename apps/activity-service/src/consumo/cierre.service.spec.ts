@@ -89,7 +89,7 @@ function usuario(id: string): UsuarioDto {
   };
 }
 
-function envelopeCierre(eventId = randomUUID()): EventEnvelope<SesionEventoPayload> {
+function envelopeCierre(eventId: string = randomUUID()): EventEnvelope<SesionEventoPayload> {
   return {
     eventId,
     eventType: 'SesionCerrada',
