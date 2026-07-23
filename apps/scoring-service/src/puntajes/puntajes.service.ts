@@ -127,7 +127,7 @@ export class PuntajesService {
     usuarioId: string,
     seccionId: string
   ): Promise<PuntajeUsuarioDto> {
-    const [suma, descalificacion, umbrales] = await Promise.all([
+    const [suma, descalificacion, umbrales, config] = await Promise.all([
       this.prisma.client.eventoPuntos.aggregate({
         where: { usuarioId, seccionId },
         _sum: { puntosSnapshot: true },
@@ -139,9 +139,13 @@ export class PuntajesService {
         where: { grupoId },
         orderBy: { orden: 'asc' },
       }),
+      this.prisma.client.configuracionScoringGrupo.findUnique({
+        where: { grupoId },
+      }),
     ]);
 
-    const puntajeTotal = suma._sum.puntosSnapshot ?? 0;
+    // Base configurable por grupo (fase-14): se suma al ledger. Default 0.
+    const puntajeTotal = (suma._sum.puntosSnapshot ?? 0) + (config?.puntosIniciales ?? 0);
     const descalificado = descalificacion !== null;
     const zona = descalificado ? null : zonaParaPuntaje(umbrales, puntajeTotal);
 

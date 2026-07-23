@@ -107,3 +107,22 @@ export interface MiEstadoHoyDto {
   sesionId: string | null;
   actividades: MiEstadoActividadHoyDto[];
 }
+
+/** Una completada individual de un usuario, para que el tutor la pueda quitar. */
+export interface RegistroCompletadaDto {
+  registroId: string;
+  createdAt: string;
+}
+
+/**
+ * Actividades OPCIONALES que un usuario completó en la Sesión abierta (fase-14,
+ * corrección del tutor). Agrupadas por actividad, con las filas individuales
+ * para poder quitar una (la última) o todas. Solo completadas NO eliminadas.
+ */
+export interface CompletadaOpcionalDto {
+  actividadId: string;
+  nombre: string;
+  valorPuntos: number;
+  /** Ordenadas por createdAt asc; para "quitar una" se elimina la última. */
+  registros: RegistroCompletadaDto[];
+}

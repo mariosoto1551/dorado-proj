@@ -93,3 +93,25 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Clases de componente compartidas por app-web y public-site — un solo lugar
+ * para los CTAs de marca, así login/registro de Angular y el "crear cuenta" del
+ * sitio público se ven idénticos. */
+@layer components {
+  /* CTA primario reutilizable — alto contraste (mejor CTR, ver skill). */
+  .btn-primario {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-marca-600
+      px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-marca-600/25
+      transition-all duration-200 hover:-translate-y-0.5 hover:bg-marca-700
+      hover:shadow-xl hover:shadow-marca-600/30 active:translate-y-0
+      disabled:pointer-events-none disabled:opacity-60;
+  }
+
+  .btn-secundario {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border
+      border-slate-300 bg-white/60 px-5 py-3 text-sm font-semibold text-slate-700
+      backdrop-blur transition-all duration-200 hover:border-slate-400
+      hover:bg-white dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200
+      dark:hover:border-slate-600 dark:hover:bg-slate-900;
+  }
+}

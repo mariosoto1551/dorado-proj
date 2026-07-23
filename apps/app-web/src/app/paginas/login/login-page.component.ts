@@ -27,6 +27,12 @@ export class LoginPageComponent {
 
   protected readonly error = signal<string | null>(null);
 
+  protected readonly destacados = [
+    'Seguí el puntaje de cada participante en tiempo real.',
+    'Registrá conductas y actividades en segundos.',
+    'Canjeá recompensas sin planillas ni cuentas a mano.',
+  ];
+
   protected readonly form = this.fb.group({
     identificador: ['', Validators.required],
     password: ['', Validators.required],

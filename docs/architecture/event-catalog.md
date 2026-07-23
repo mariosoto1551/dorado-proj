@@ -14,6 +14,7 @@
 | `NoHizoRegistrado` | `activity.no_hizo_registrado` | Activity Catalog | Scoring, Notification | MÍNIMO |
 | `ConductaRegistrada` | `activity.conducta_registrada` | Activity Catalog | Scoring, Notification | MÍNIMO |
 | `ConductaRegistroEliminado` | `activity.conducta_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
+| `ActividadRegistroEliminado` | `activity.actividad_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
 | `SesionAbierta` | `session.sesion_abierta` | Session/Section | Notification | EXTENSIÓN |
 | `SesionCerrada` | `session.sesion_cerrada` | Session/Section | Scoring (si `evaluarUmbralesEn = CADA_SESION`), Notification | EXTENSIÓN |
 | `SeccionAbierta` | `session.seccion_abierta` | Session/Section | Notification | EXTENSIÓN |
@@ -95,6 +96,15 @@ interface ConductaRegistradaPayload {
 }
 
 interface ConductaRegistroEliminadoPayload {
+  registroId: string;
+  usuarioId: string;
+  eliminadoPorTutorId: string;
+}
+
+// fase-14: un tutor quitó una completada de actividad (opcional, o la
+// confirmación de una obligatoria overrideada por "no hizo"). Scoring compensa
+// el asiento original vía origenId = registroId (mismo patrón que conducta).
+interface ActividadRegistroEliminadoPayload {
   registroId: string;
   usuarioId: string;
   eliminadoPorTutorId: string;

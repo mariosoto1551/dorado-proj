@@ -3,6 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 
 import type {
+  ConfiguracionScoringGrupoDto,
   DescalificacionDto,
   EventoPuntosDto,
   PuntajeUsuarioDto,
@@ -39,6 +40,23 @@ export class ScoringApiService {
 
   eliminarUmbral(umbralId: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/umbrales/${umbralId}`);
+  }
+
+  // ---- Configuración de scoring (puntos iniciales por Sección) ----
+  obtenerConfiguracion(grupoId: string): Observable<ConfiguracionScoringGrupoDto> {
+    return this.http.get<ConfiguracionScoringGrupoDto>(
+      `${this.base}/grupos/${grupoId}/configuracion`
+    );
+  }
+
+  guardarConfiguracion(
+    grupoId: string,
+    datos: ConfiguracionScoringGrupoDto
+  ): Observable<ConfiguracionScoringGrupoDto> {
+    return this.http.put<ConfiguracionScoringGrupoDto>(
+      `${this.base}/grupos/${grupoId}/configuracion`,
+      datos
+    );
   }
 
   // ---- Puntajes (derivados del ledger) ----

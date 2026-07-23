@@ -56,47 +56,47 @@ const FORM_VACIO: FormRecompensa = {
       </app-encabezado-pagina>
 
       @if (umbrales().length === 0 && !cargando()) {
-        <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+        <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30">
           Primero definí al menos una zona en «Zonas» para poder crear recompensas.
         </p>
       }
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (recompensas().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           Todavía no hay recompensas.
         </div>
       } @else {
         <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           @for (r of recompensas(); track r.id) {
-            <li class="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <li class="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
-                  <p class="truncate font-semibold text-slate-900">{{ r.nombre }}</p>
+                  <p class="truncate font-semibold text-slate-900 dark:text-white">{{ r.nombre }}</p>
                   @if (r.descripcion) {
-                    <p class="mt-0.5 line-clamp-2 text-xs text-slate-500">{{ r.descripcion }}</p>
+                    <p class="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{{ r.descripcion }}</p>
                   }
                 </div>
-                <span class="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                <span class="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                   {{ r.nombreZonaSnapshot }}
                 </span>
               </div>
 
               <div class="mt-3 flex flex-wrap gap-1.5 text-xs">
                 @if (r.permiteSeleccion) {
-                  <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500">Selección</span>
+                  <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">Selección</span>
                 }
                 @if (r.permiteAzar) {
-                  <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500">Azar</span>
+                  <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">Azar</span>
                 }
               </div>
 
-              <div class="mt-3 flex justify-end gap-1 border-t border-slate-50 pt-2">
+              <div class="mt-3 flex justify-end gap-1 border-t border-slate-50 pt-2 dark:border-slate-800">
                 <button
                   type="button"
                   (click)="abrirEditar(r)"
-                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-marca-600"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-marca-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-marca-300"
                   aria-label="Editar"
                 >
                   <span class="h-4 w-4"><app-icono nombre="pencil" /></span>
@@ -104,7 +104,7 @@ const FORM_VACIO: FormRecompensa = {
                 <button
                   type="button"
                   (click)="aArchivar.set(r)"
-                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                   aria-label="Archivar"
                 >
                   <span class="h-4 w-4"><app-icono nombre="trash" /></span>
@@ -126,43 +126,43 @@ const FORM_VACIO: FormRecompensa = {
         ></button>
         <form
           (submit)="guardar($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up sm:rounded-2xl"
+          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
         >
-          <h2 class="text-lg font-bold text-slate-900">
+          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
             {{ editando() ? 'Editar recompensa' : 'Nueva recompensa' }}
           </h2>
 
           <div class="mt-4 space-y-3">
             <label class="block">
-              <span class="text-xs font-semibold text-slate-600">Nombre</span>
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
               <input
                 [(ngModel)]="form.nombre"
                 name="nombre"
                 required
                 maxlength="120"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               />
             </label>
 
             <label class="block">
-              <span class="text-xs font-semibold text-slate-600">Descripción (opcional)</span>
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Descripción (opcional)</span>
               <textarea
                 [(ngModel)]="form.descripcion"
                 name="descripcion"
                 rows="2"
                 maxlength="500"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               ></textarea>
             </label>
 
             <label class="block">
-              <span class="text-xs font-semibold text-slate-600">Zona</span>
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Zona</span>
               <select
                 [(ngModel)]="form.umbralZonaId"
                 name="umbralZonaId"
                 required
                 [disabled]="editando() !== null"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               >
                 <option value="" disabled>Elegí una zona…</option>
                 @for (u of umbrales(); track u.id) {
@@ -172,23 +172,23 @@ const FORM_VACIO: FormRecompensa = {
             </label>
 
             <div class="flex gap-2">
-              <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3">
+              <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <input
                   [(ngModel)]="form.permiteSeleccion"
                   name="permiteSeleccion"
                   type="checkbox"
-                  class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500"
+                  class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
                 />
-                <span class="text-sm text-slate-700">Selección</span>
+                <span class="text-sm text-slate-700 dark:text-slate-200">Selección</span>
               </label>
-              <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3">
+              <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <input
                   [(ngModel)]="form.permiteAzar"
                   name="permiteAzar"
                   type="checkbox"
-                  class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500"
+                  class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
                 />
-                <span class="text-sm text-slate-700">Azar</span>
+                <span class="text-sm text-slate-700 dark:text-slate-200">Azar</span>
               </label>
             </div>
           </div>
@@ -197,7 +197,7 @@ const FORM_VACIO: FormRecompensa = {
             <button
               type="button"
               (click)="cerrarForm()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               Cancelar
             </button>

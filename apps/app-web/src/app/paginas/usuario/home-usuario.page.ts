@@ -55,34 +55,34 @@ interface CronometroActivo {
       </div>
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (!seccion()) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           Todavía no hay una semana activa. Volvé más tarde. 🌱
         </div>
       } @else if (!haySesionAbierta()) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           La sesión está cerrada por ahora. Pronto se abre la próxima. ⏳
         </div>
       } @else {
-        <h2 class="mt-6 mb-3 text-sm font-bold text-slate-500 uppercase">Actividades de hoy</h2>
+        <h2 class="mt-6 mb-3 text-sm font-bold text-slate-500 uppercase dark:text-slate-400">Actividades de hoy</h2>
         <ul class="space-y-2.5">
           @for (a of actividades(); track a.id) {
             <li
-              class="flex items-center gap-3 rounded-2xl border-2 bg-white p-4 shadow-sm transition"
-              [class]="resaltado(a) ? 'border-emerald-200 bg-emerald-50' : 'border-slate-100'"
+              class="flex items-center gap-3 rounded-2xl border-2 bg-white p-4 shadow-sm transition dark:bg-slate-900"
+              [class]="resaltado(a) ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40' : 'border-slate-100 dark:border-slate-800'"
             >
               <div class="min-w-0 flex-1">
-                <p class="font-semibold text-slate-900" [class.line-through]="resaltado(a)">
+                <p class="font-semibold text-slate-900 dark:text-white" [class.line-through]="resaltado(a)">
                   {{ a.nombre }}
                 </p>
-                <p class="mt-0.5 text-xs text-slate-500">
+                <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   @if (esConfirmable(a)) {
-                    <span class="font-semibold text-amber-600">Obligatoria</span> · confirmá que la hiciste
+                    <span class="font-semibold text-amber-600 dark:text-amber-400">Obligatoria</span> · confirmá que la hiciste
                   } @else if (esObligatoriaPasiva(a)) {
-                    <span class="font-semibold text-amber-600">Obligatoria</span>
+                    <span class="font-semibold text-amber-600 dark:text-amber-400">Obligatoria</span>
                   } @else {
-                    <span class="font-bold text-marca-600">+{{ a.valorPuntos }} pts</span>
+                    <span class="font-bold text-marca-600 dark:text-marca-400">+{{ a.valorPuntos }} pts</span>
                     @if (a.tipoLimiteTiempo === 'DEADLINE') {
                       · hasta {{ a.deadlineHora }}
                     } @else if (a.tipoLimiteTiempo === 'CRONOMETRO') {
@@ -98,11 +98,11 @@ interface CronometroActivo {
                       @for (lleno of segmentos(a); track $index) {
                         <span
                           class="h-2 w-6 rounded-full transition"
-                          [class]="lleno ? 'bg-marca-500' : 'bg-slate-200'"
+                          [class]="lleno ? 'bg-marca-500' : 'bg-slate-200 dark:bg-slate-700'"
                         ></span>
                       }
                     </div>
-                    <span class="text-xs font-semibold tabular-nums text-slate-500">
+                    <span class="text-xs font-semibold tabular-nums text-slate-500 dark:text-slate-400">
                       {{ vecesHechas(a) }} de {{ a.repeticionesMaximasSesion }}
                     </span>
                   </div>
@@ -110,7 +110,7 @@ interface CronometroActivo {
               </div>
 
               @if (esObligatoriaPasiva(a)) {
-                <span class="shrink-0 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
+                <span class="shrink-0 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                   Obligatoria
                 </span>
               } @else if (mostrarCheck(a)) {
@@ -139,7 +139,7 @@ interface CronometroActivo {
               }
             </li>
           } @empty {
-            <li class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+            <li class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
               No hay actividades activas.
             </li>
           }

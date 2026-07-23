@@ -51,24 +51,24 @@ const FORM_VACIO: FormConducta = {
       </app-encabezado-pagina>
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (conductas().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           Todavía no hay conductas.
         </div>
       } @else {
         <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           @for (c of conductas(); track c.id) {
-            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <span
                 class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                [class]="c.tipo === 'BUENA' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'"
+                [class]="c.tipo === 'BUENA' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'"
               >
                 <span class="h-5 w-5"><app-icono nombre="flag" /></span>
               </span>
               <div class="min-w-0 flex-1">
-                <p class="truncate font-semibold text-slate-900">{{ c.nombre }}</p>
-                <p class="text-xs text-slate-500">
+                <p class="truncate font-semibold text-slate-900 dark:text-white">{{ c.nombre }}</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
                   {{ c.tipo === 'BUENA' ? 'Buena' : 'Mala' }}
                   @if (c.permiteAutoreporte) {
                     · autoreportable
@@ -77,7 +77,7 @@ const FORM_VACIO: FormConducta = {
               </div>
               <span
                 class="shrink-0 rounded-full px-2.5 py-1 text-sm font-bold"
-                [class]="c.tipo === 'BUENA' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+                [class]="c.tipo === 'BUENA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'"
               >
                 {{ c.tipo === 'BUENA' ? '+' : '−' }}{{ c.valorPuntos }}
               </span>
@@ -85,7 +85,7 @@ const FORM_VACIO: FormConducta = {
                 <button
                   type="button"
                   (click)="abrirEditar(c)"
-                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-marca-600"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-marca-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-marca-300"
                   aria-label="Editar"
                 >
                   <span class="h-4 w-4"><app-icono nombre="pencil" /></span>
@@ -93,7 +93,7 @@ const FORM_VACIO: FormConducta = {
                 <button
                   type="button"
                   (click)="aArchivar.set(c)"
-                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                   aria-label="Archivar"
                 >
                   <span class="h-4 w-4"><app-icono nombre="trash" /></span>
@@ -115,52 +115,52 @@ const FORM_VACIO: FormConducta = {
         ></button>
         <form
           (submit)="guardar($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up sm:rounded-2xl"
+          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
         >
-          <h2 class="text-lg font-bold text-slate-900">
+          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
             {{ editando() ? 'Editar conducta' : 'Nueva conducta' }}
           </h2>
 
           <div class="mt-4 space-y-3">
             <label class="block">
-              <span class="text-xs font-semibold text-slate-600">Nombre</span>
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
               <input
                 [(ngModel)]="form.nombre"
                 name="nombre"
                 required
                 maxlength="120"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               />
             </label>
 
             <div class="grid grid-cols-2 gap-3">
               <label class="block">
-                <span class="text-xs font-semibold text-slate-600">Tipo</span>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</span>
                 <select
                   [(ngModel)]="form.tipo"
                   name="tipo"
                   (ngModelChange)="onTipoCambio()"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 >
                   <option [ngValue]="TC.BUENA">Buena (+)</option>
                   <option [ngValue]="TC.MALA">Mala (−)</option>
                 </select>
               </label>
               <label class="block">
-                <span class="text-xs font-semibold text-slate-600">Puntos</span>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos</span>
                 <input
                   [(ngModel)]="form.valorPuntos"
                   name="valorPuntos"
                   type="number"
                   min="1"
                   required
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 />
               </label>
             </div>
 
             <label
-              class="flex items-center gap-2 rounded-lg border border-slate-200 p-3"
+              class="flex items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
               [class.opacity-40]="form.tipo === TC.BUENA"
             >
               <input
@@ -168,11 +168,11 @@ const FORM_VACIO: FormConducta = {
                 name="permiteAutoreporte"
                 type="checkbox"
                 [disabled]="form.tipo === TC.BUENA"
-                class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500"
+                class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
               />
-              <span class="text-sm text-slate-700">
+              <span class="text-sm text-slate-700 dark:text-slate-200">
                 El usuario puede autoreportarla
-                <span class="block text-xs text-slate-400">Solo aplica a conductas malas.</span>
+                <span class="block text-xs text-slate-400 dark:text-slate-500">Solo aplica a conductas malas.</span>
               </span>
             </label>
           </div>
@@ -181,7 +181,7 @@ const FORM_VACIO: FormConducta = {
             <button
               type="button"
               (click)="cerrarForm()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               Cancelar
             </button>

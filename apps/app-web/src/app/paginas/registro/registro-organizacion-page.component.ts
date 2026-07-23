@@ -1,9 +1,23 @@
 import { Component, inject, signal } from '@angular/core';
-import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  NonNullableFormBuilder,
+  ReactiveFormsModule,
+  Validators,
+  type AbstractControl,
+  type ValidationErrors,
+} from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import { mensajeDeError } from '../../core/api/errores';
 import { AuthService } from '../../core/auth/auth.service';
+
+/** Valida a nivel grupo que password y su confirmación coincidan. */
+function passwordsCoinciden(grupo: AbstractControl): ValidationErrors | null {
+  const password = grupo.get('password')?.value;
+  const confirmacion = grupo.get('passwordConfirmacion')?.value;
+
+  return password === confirmacion ? null : { passwordMismatch: true };
+}
 
 /**
  * Auto-registro de organización (spec fase-03): crea la Organización y su
@@ -26,11 +40,21 @@ export class RegistroOrganizacionPageComponent {
 
   protected readonly error = signal<string | null>(null);
 
-  protected readonly form = this.fb.group({
-    nombre: ['', [Validators.required, Validators.maxLength(120)]],
-    emailContacto: ['', [Validators.required, Validators.email]],
-    password: ['', [Validators.required, Validators.minLength(8)]],
-  });
+  protected readonly destacados = [
+    'Tu cuenta queda como administrador (tutor) de la organización.',
+    'Creás grupos, actividades y recompensas a tu medida.',
+    'Invitás a otros tutores y participantes cuando quieras.',
+  ];
+
+  protected readonly form = this.fb.group(
+    {
+      nombre: ['', [Validators.required, Validators.maxLength(120)]],
+      emailContacto: ['', [Validators.required, Validators.email]],
+      password: ['', [Validators.required, Validators.minLength(8)]],
+      passwordConfirmacion: ['', [Validators.required]],
+    },
+    { validators: passwordsCoinciden }
+  );
 
   protected enviar(): void {
     if (this.form.invalid || this.cargando()) {
@@ -42,7 +66,9 @@ export class RegistroOrganizacionPageComponent {
     this.cargando.set(true);
     this.error.set(null);
 
-    this.auth.registrarOrganizacion(this.form.getRawValue()).subscribe({
+    const { nombre, emailContacto, password } = this.form.getRawValue();
+
+    this.auth.registrarOrganizacion({ nombre, emailContacto, password }).subscribe({
       // Organización recién creada: nunca tiene grupos → onboarding directo.
       next: () => void this.router.navigateByUrl('/onboarding'),
       error: (err: unknown) => {

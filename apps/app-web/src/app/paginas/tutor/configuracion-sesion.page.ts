@@ -86,121 +86,121 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
       <app-encabezado-pagina titulo="Configuración de sesión" subtitulo="Cómo se abren y cierran las semanas." />
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else {
         <form (submit)="guardar($event)" class="mt-5 space-y-5">
           <!-- Modo -->
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-sm font-bold text-slate-900">Modo</span>
+          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <span class="text-sm font-bold text-slate-900 dark:text-white">Modo</span>
             <div class="mt-3 grid grid-cols-2 gap-2">
               <label
                 class="flex cursor-pointer flex-col rounded-xl border-2 p-3 transition"
-                [class]="modo === M.MANUAL ? 'border-marca-500 bg-marca-50' : 'border-slate-200'"
+                [class]="modo === M.MANUAL ? 'border-marca-500 bg-marca-50 dark:border-marca-500 dark:bg-marca-900/30' : 'border-slate-200 dark:border-slate-700'"
               >
                 <input [(ngModel)]="modo" name="modo" type="radio" [value]="M.MANUAL" class="sr-only" />
-                <span class="text-sm font-semibold text-slate-800">Manual</span>
-                <span class="mt-0.5 text-xs text-slate-500">Vos abrís y cerrás cada semana.</span>
+                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Manual</span>
+                <span class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Vos abrís y cerrás cada semana.</span>
               </label>
               <label
                 class="flex cursor-pointer flex-col rounded-xl border-2 p-3 transition"
-                [class]="modo === M.AUTOMATICO ? 'border-marca-500 bg-marca-50' : 'border-slate-200'"
+                [class]="modo === M.AUTOMATICO ? 'border-marca-500 bg-marca-50 dark:border-marca-500 dark:bg-marca-900/30' : 'border-slate-200 dark:border-slate-700'"
               >
                 <input [(ngModel)]="modo" name="modo" type="radio" [value]="M.AUTOMATICO" class="sr-only" />
-                <span class="text-sm font-semibold text-slate-800">Automático</span>
-                <span class="mt-0.5 text-xs text-slate-500">Un horario abre/cierra solo.</span>
+                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Automático</span>
+                <span class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Un horario abre/cierra solo.</span>
               </label>
             </div>
           </div>
 
           @if (modo === M.AUTOMATICO) {
             <!-- Apertura de sesión -->
-            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm animate-fade-in">
-              <span class="text-sm font-bold text-slate-900">Apertura de sesión</span>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-fade-in">
+              <span class="text-sm font-bold text-slate-900 dark:text-white">Apertura de sesión</span>
               <div class="mt-3">
-                <span class="text-xs font-semibold text-slate-600">Días</span>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Días</span>
                 <div class="mt-1.5 flex flex-wrap gap-1.5">
                   @for (d of DIAS; track d.valor) {
                     <button
                       type="button"
                       (click)="alternarDia(d.valor)"
                       class="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
-                      [class]="diasSesion().includes(d.valor) ? 'bg-marca-600 text-white' : 'bg-slate-100 text-slate-600'"
+                      [class]="diasSesion().includes(d.valor) ? 'bg-marca-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'"
                     >
                       {{ d.etiqueta }}
                     </button>
                   }
                 </div>
-                <p class="mt-1.5 text-xs text-slate-400">Los días en que se abre una sesión nueva.</p>
+                <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">Los días en que se abre una sesión nueva.</p>
               </div>
               <label class="mt-3 block">
-                <span class="text-xs font-semibold text-slate-600">Hora</span>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Hora</span>
                 <input
                   [(ngModel)]="horaSesion"
                   name="horaSesion"
                   type="time"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 />
               </label>
             </div>
 
             <!-- Cierre de sección -->
-            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm animate-fade-in">
-              <span class="text-sm font-bold text-slate-900">Cierre de sección</span>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-fade-in">
+              <span class="text-sm font-bold text-slate-900 dark:text-white">Cierre de sección</span>
               <div class="mt-3">
-                <span class="text-xs font-semibold text-slate-600">Días</span>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Días</span>
                 <div class="mt-1.5 flex flex-wrap gap-1.5">
                   @for (d of DIAS; track d.valor) {
                     <button
                       type="button"
                       (click)="alternarDiaCierre(d.valor)"
                       class="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
-                      [class]="diasCierre().includes(d.valor) ? 'bg-marca-600 text-white' : 'bg-slate-100 text-slate-600'"
+                      [class]="diasCierre().includes(d.valor) ? 'bg-marca-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'"
                     >
                       {{ d.etiqueta }}
                     </button>
                   }
                 </div>
-                <p class="mt-1.5 text-xs text-slate-400">El día en que el ciclo se cierra y arranca el siguiente.</p>
+                <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">El día en que el ciclo se cierra y arranca el siguiente.</p>
               </div>
               <label class="mt-3 block">
-                <span class="text-xs font-semibold text-slate-600">Hora</span>
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Hora</span>
                 <input
                   [(ngModel)]="horaCierre"
                   name="horaCierre"
                   type="time"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 />
               </label>
             </div>
           }
 
           <!-- Comunes -->
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <label class="block">
-              <span class="text-xs font-semibold text-slate-600">Sesiones por sección</span>
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Sesiones por sección</span>
               <input
                 [(ngModel)]="sesionesPorSeccion"
                 name="sesionesPorSeccion"
                 type="number"
                 min="1"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               />
-              <span class="mt-1 block text-xs text-slate-400">
+              <span class="mt-1 block text-xs text-slate-400 dark:text-slate-500">
                 Cuántas sesiones dura un ciclo antes de pasar a evaluación (el "domingo" de zonas y
                 recompensas). En automático suele coincidir con la cantidad de días de apertura.
               </span>
             </label>
             <label class="mt-3 block">
-              <span class="text-xs font-semibold text-slate-600">Evaluar zonas</span>
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Evaluar zonas</span>
               <select
                 [(ngModel)]="evaluarUmbralesEn"
                 name="evaluarUmbralesEn"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               >
                 <option [ngValue]="EU.CADA_SESION">En cada sesión</option>
                 <option [ngValue]="EU.SOLO_AL_CIERRE_SECCION">Solo al cerrar la sección</option>
               </select>
-              <span class="mt-1 block text-xs text-slate-400">
+              <span class="mt-1 block text-xs text-slate-400 dark:text-slate-500">
                 «En cada sesión» da feedback continuo; «solo al cerrar» muestra el resultado recién
                 al final del ciclo.
               </span>
@@ -208,9 +208,9 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
           </div>
 
           <!-- Resumen en lenguaje natural (se actualiza en vivo) -->
-          <div class="rounded-2xl border border-marca-200 bg-marca-50 p-4">
-            <p class="text-xs font-bold text-marca-700 uppercase">En resumen</p>
-            <p class="mt-1.5 text-sm leading-relaxed text-slate-700">{{ resumen() }}</p>
+          <div class="rounded-2xl border border-marca-200 bg-marca-50 p-4 dark:border-marca-900/60 dark:bg-marca-900/20">
+            <p class="text-xs font-bold text-marca-700 uppercase dark:text-marca-300">En resumen</p>
+            <p class="mt-1.5 text-sm leading-relaxed text-slate-700 dark:text-slate-200">{{ resumen() }}</p>
           </div>
 
           <button

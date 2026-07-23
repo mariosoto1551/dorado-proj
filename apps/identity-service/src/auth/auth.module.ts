@@ -9,6 +9,6 @@ import { TokensService } from './tokens.service';
   imports: [BillingModule],
   controllers: [AuthController],
   providers: [AuthService, TokensService],
-  exports: [AuthService],
+  exports: [AuthService, TokensService],
 })
 export class AuthModule {}

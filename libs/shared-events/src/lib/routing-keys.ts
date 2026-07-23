@@ -16,6 +16,7 @@ export const ROUTING_KEYS = {
   NO_HIZO_REGISTRADO: 'activity.no_hizo_registrado',
   CONDUCTA_REGISTRADA: 'activity.conducta_registrada',
   CONDUCTA_REGISTRO_ELIMINADO: 'activity.conducta_registro_eliminado',
+  ACTIVIDAD_REGISTRO_ELIMINADO: 'activity.actividad_registro_eliminado',
   SESION_ABIERTA: 'session.sesion_abierta',
   SESION_CERRADA: 'session.sesion_cerrada',
   SECCION_ABIERTA: 'session.seccion_abierta',

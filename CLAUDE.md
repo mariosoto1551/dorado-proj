@@ -70,6 +70,7 @@ Este proyecto usa **la última versión estable de cada tecnología al momento d
 | `notification-service` | 3007 |
 | `audit-service` | 3008 |
 | `app-web` (`ng serve` / `nx serve`) | 4200 |
+| `admin-web` (panel PLATFORM_ADMIN, `nx serve`) | 4300 |
 | `public-site` (`astro dev`) | 4321 |
 
 Todo el tráfico de los frontends hacia el backend pasa por el Gateway (`localhost:3000/api/*`) — nunca directo a un servicio interno, ni siquiera en desarrollo.

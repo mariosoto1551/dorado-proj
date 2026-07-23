@@ -35,7 +35,7 @@ export interface ZonaVisual {
       </span>
     } @else {
       <span
-        class="inline-flex items-center rounded-full bg-slate-200 font-semibold text-slate-500 whitespace-nowrap"
+        class="inline-flex items-center rounded-full bg-slate-200 font-semibold text-slate-500 whitespace-nowrap dark:bg-slate-700 dark:text-slate-300"
         [class]="claseTamano()"
       >
         Sin zona

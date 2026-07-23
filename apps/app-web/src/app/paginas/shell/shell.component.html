@@ -1,14 +1,14 @@
-<div class="flex min-h-dvh flex-col bg-slate-100">
+<div class="flex min-h-dvh flex-col bg-slate-100 dark:bg-slate-950">
   <!-- ===== Topbar (ambos roles) ===== -->
   <header
-    class="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-3 backdrop-blur sm:px-4"
+    class="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 sm:px-4"
   >
     <div class="flex items-center gap-2">
       @if (auth.esTutor()) {
         <button
           type="button"
           (click)="alternarDrawer()"
-          class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 md:hidden"
+          class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 md:hidden"
           aria-label="Menú"
         >
           <span class="h-5 w-5"><app-icono nombre="menu" /></span>
@@ -24,14 +24,14 @@
     <div class="flex items-center gap-1 sm:gap-2">
       <app-campana-notificaciones />
       <div class="hidden items-center gap-2 sm:flex">
-        <span class="max-w-40 truncate text-sm font-medium text-slate-700">
+        <span class="max-w-40 truncate text-sm font-medium text-slate-700 dark:text-slate-200">
           {{ auth.nombreMostrable() }}
         </span>
       </div>
       <button
         type="button"
         (click)="salir()"
-        class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-red-600"
+        class="flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-red-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400"
         aria-label="Salir"
         title="Salir"
       >
@@ -53,24 +53,50 @@
       }
 
       <aside
-        class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white pt-14 transition-transform md:sticky md:top-14 md:z-0 md:h-[calc(100dvh-3.5rem)] md:translate-x-0 md:pt-0"
+        class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white pt-14 transition-transform dark:border-slate-800 dark:bg-slate-900 md:sticky md:top-14 md:z-0 md:h-[calc(100dvh-3.5rem)] md:translate-x-0 md:pt-0"
         [class.translate-x-0]="drawerAbierto()"
         [class.-translate-x-full]="!drawerAbierto()"
       >
-        <nav class="flex-1 space-y-0.5 overflow-y-auto p-3">
-          @for (item of navTutor(); track item.ruta) {
-            @if (!item.soloAdmin || auth.esOrgAdmin()) {
-              <a
-                [routerLink]="item.ruta"
-                [routerLinkActiveOptions]="{ exact: item.ruta.endsWith(grupoIdActivo() ?? '') }"
-                routerLinkActive="bg-marca-50 text-marca-700 font-semibold"
-                (click)="cerrarDrawer()"
-                class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-              >
-                <span class="h-5 w-5 shrink-0"><app-icono [nombre]="item.icono" /></span>
-                {{ item.etiqueta }}
-              </a>
-            }
+        <nav class="flex-1 space-y-4 overflow-y-auto p-3">
+          <!-- Primeros pasos: visible hasta completar el setup del grupo -->
+          @if (mostrarGuia() && rutaGuia(); as ruta) {
+            <a
+              [routerLink]="ruta"
+              (click)="cerrarDrawer()"
+              class="flex items-center gap-3 rounded-xl bg-marca-50 px-3 py-2.5 text-sm font-semibold text-marca-700 ring-1 ring-marca-200 transition hover:bg-marca-100 dark:bg-marca-900/30 dark:text-marca-200 dark:ring-marca-900/60 dark:hover:bg-marca-900/50"
+            >
+              <span class="grid h-6 w-6 flex-none place-items-center rounded-full bg-marca-600 text-white">
+                <span class="h-3.5 w-3.5"><app-icono nombre="check" /></span>
+              </span>
+              <span class="flex-1">Primeros pasos</span>
+              <span class="rounded-full bg-marca-600 px-2 py-0.5 text-xs font-bold tabular-nums text-white">
+                {{ guia.completados() }}/{{ guia.totalPasos }}
+              </span>
+            </a>
+          }
+
+          @for (grupo of navTutor(); track grupo.titulo) {
+            <div>
+              <p class="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                {{ grupo.titulo }}
+              </p>
+              <div class="space-y-0.5">
+                @for (item of grupo.items; track item.ruta) {
+                  @if (!item.soloAdmin || auth.esOrgAdmin()) {
+                    <a
+                      [routerLink]="item.ruta"
+                      [routerLinkActiveOptions]="{ exact: item.ruta.endsWith(grupoIdActivo() ?? '') }"
+                      routerLinkActive="bg-marca-50 text-marca-700 font-semibold dark:bg-marca-900/40 dark:text-marca-300"
+                      (click)="cerrarDrawer()"
+                      class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800/60"
+                    >
+                      <span class="h-5 w-5 shrink-0"><app-icono [nombre]="item.icono" /></span>
+                      {{ item.etiqueta }}
+                    </a>
+                  }
+                }
+              </div>
+            </div>
           }
         </nav>
       </aside>
@@ -85,14 +111,14 @@
       </main>
 
       <nav
-        class="fixed inset-x-0 bottom-0 z-20 flex h-20 items-stretch border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+        class="fixed inset-x-0 bottom-0 z-20 flex h-20 items-stretch border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/90"
       >
         @for (item of navUsuario; track item.ruta) {
           <a
             [routerLink]="item.ruta"
             [routerLinkActiveOptions]="{ exact: item.ruta === '/' }"
-            routerLinkActive="text-marca-600"
-            class="flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-slate-400 transition"
+            routerLinkActive="text-marca-600 dark:text-marca-400"
+            class="flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-slate-400 transition dark:text-slate-500"
           >
             <span class="h-6 w-6"><app-icono [nombre]="item.icono" /></span>
             <span class="text-[11px] font-semibold">{{ item.etiqueta }}</span>
@@ -101,4 +127,9 @@
       </nav>
     }
   </div>
+
+  <!-- Widget flotante de primeros pasos (solo tutor, setup incompleto) -->
+  @if (mostrarGuiaFlotante()) {
+    <app-guia-flotante [grupoId]="grupoIdActivo()!" />
+  }
 </div>

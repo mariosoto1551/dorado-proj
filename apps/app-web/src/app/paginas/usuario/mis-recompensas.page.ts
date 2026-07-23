@@ -29,10 +29,10 @@ const MOTIVOS: Record<MotivoSinElegibles, string> = {
   imports: [IconoComponent],
   template: `
     <section class="mx-auto max-w-xl px-4 py-5">
-      <h1 class="text-xl font-bold tracking-tight text-slate-900">Mis recompensas</h1>
+      <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Mis recompensas</h1>
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (canje(); as c) {
         <!-- Ya canjeó -->
         <div class="mt-6 rounded-3xl bg-linear-to-br from-amber-400 to-amber-600 p-6 text-center text-white shadow-lg animate-pop">
@@ -46,24 +46,24 @@ const MOTIVOS: Record<MotivoSinElegibles, string> = {
           </p>
         </div>
       } @else if (motivo()) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           {{ MOTIVOS[motivo()!] }}
         </div>
       } @else {
-        <p class="mt-1 text-sm text-slate-500">¡Alcanzaste una zona con premios! Elegí uno. 🎁</p>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">¡Alcanzaste una zona con premios! Elegí uno. 🎁</p>
 
         @if (elegibles()?.disponiblesSeleccion?.length) {
-          <h2 class="mt-6 mb-2 text-sm font-bold text-slate-500 uppercase">Elegí uno</h2>
+          <h2 class="mt-6 mb-2 text-sm font-bold text-slate-500 uppercase dark:text-slate-400">Elegí uno</h2>
           <ul class="space-y-2.5">
             @for (r of elegibles()!.disponiblesSeleccion; track r.id) {
-              <li class="flex items-center gap-3 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-sm">
-                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-500">
+              <li class="flex items-center gap-3 rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-500 dark:bg-amber-500/15 dark:text-amber-400">
                   <span class="h-6 w-6"><app-icono nombre="gift" /></span>
                 </span>
                 <div class="min-w-0 flex-1">
-                  <p class="font-semibold text-slate-900">{{ r.nombre }}</p>
+                  <p class="font-semibold text-slate-900 dark:text-white">{{ r.nombre }}</p>
                   @if (r.descripcion) {
-                    <p class="text-xs text-slate-500">{{ r.descripcion }}</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">{{ r.descripcion }}</p>
                   }
                 </div>
                 <button
@@ -80,11 +80,11 @@ const MOTIVOS: Record<MotivoSinElegibles, string> = {
         }
 
         @if (elegibles()?.disponiblesAzar?.length) {
-          <div class="mt-6 rounded-3xl border-2 border-dashed border-marca-200 bg-marca-50 p-5 text-center">
-            <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-marca-100 text-marca-600">
+          <div class="mt-6 rounded-3xl border-2 border-dashed border-marca-200 bg-marca-50 p-5 text-center dark:border-marca-900/60 dark:bg-marca-900/20">
+            <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-marca-100 text-marca-600 dark:bg-marca-900/40 dark:text-marca-300">
               <span class="h-7 w-7"><app-icono nombre="dice" /></span>
             </div>
-            <p class="mt-2 text-sm font-medium text-slate-600">
+            <p class="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
               ¿Preferís la sorpresa? Hay {{ elegibles()!.disponiblesAzar.length }} premios al azar.
             </p>
             <button

@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 
@@ -15,10 +16,19 @@ import {
   RolesGuard,
   TenantContextGuard,
 } from '@dorado/shared-auth';
-import { Rol, TenantContext, UmbralZonaDto } from '@dorado/shared-types';
+import {
+  ConfiguracionScoringGrupoDto,
+  Rol,
+  TenantContext,
+  UmbralZonaDto,
+} from '@dorado/shared-types';
 
 import { UmbralesService } from './umbrales.service';
-import { CrearUmbralRequest, EditarUmbralRequest } from './dto/umbrales.dto';
+import {
+  CrearUmbralRequest,
+  EditarUmbralRequest,
+  GuardarConfiguracionScoringRequest,
+} from './dto/umbrales.dto';
 
 @Controller('scoring')
 @UseGuards(TenantContextGuard, RolesGuard)
@@ -42,6 +52,25 @@ export class UmbralesController {
     @Param('grupoId') grupoId: string
   ): Promise<UmbralZonaDto[]> {
     return await this.umbrales.listar(tenant, grupoId);
+  }
+
+  @Get('grupos/:grupoId/configuracion')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async obtenerConfiguracion(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string
+  ): Promise<ConfiguracionScoringGrupoDto> {
+    return await this.umbrales.obtenerConfiguracion(tenant, grupoId);
+  }
+
+  @Put('grupos/:grupoId/configuracion')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async guardarConfiguracion(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string,
+    @Body() datos: GuardarConfiguracionScoringRequest
+  ): Promise<ConfiguracionScoringGrupoDto> {
+    return await this.umbrales.guardarConfiguracion(tenant, grupoId, datos);
   }
 
   @Patch('umbrales/:id')

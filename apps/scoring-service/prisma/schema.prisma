@@ -107,6 +107,21 @@ model ResultadoSeccion {
   @@index([seccionId])
 }
 
+// Config de scoring por Grupo (fase-14). Por ahora solo `puntosIniciales`: la
+// base con la que arranca cada usuario en CADA Sección (default 0 = comportamiento
+// histórico). Se SUMA al derivar el puntaje (ledger + base); no es un acumulado
+// mutable — sigue siendo derivado (regla 1 de CLAUDE.md).
+model ConfiguracionScoringGrupo {
+  id              String   @id @default(uuid())
+  organizacionId  String
+  grupoId         String   @unique
+  puntosIniciales Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizacionId])
+}
+
 // Idempotencia de consumidores RabbitMQ (ADR-00 §5): se chequea antes de
 // aplicar efectos y se inserta en la MISMA transacción que el efecto.
 model EventoProcesado {

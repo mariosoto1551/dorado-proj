@@ -21,7 +21,9 @@ export interface SuscripcionDto {
   planId: string;
   plan: CodigoPlan;
   estado: 'ACTIVA' | 'CANCELADA';
-  fuente: 'MANUAL' | 'FLAG';
+  // Coincide con el enum Prisma real de billing (fase-04). Antes decía
+  // 'MANUAL' | 'FLAG' por un desajuste con el schema — corregido en fase-14-05.
+  fuente: 'AUTOMATICA' | 'MANUAL';
 }
 
 export interface EntitlementsDto {

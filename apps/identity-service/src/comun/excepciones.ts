@@ -48,6 +48,39 @@ export class InvitacionNoRevocableException extends DomainException {
   }
 }
 
+export class OrganizacionSuspendidaException extends DomainException {
+  constructor() {
+    // A diferencia de credenciales inválidas, acá SÍ se informa el motivo: es
+    // una acción administrativa legítima, no una fuga sobre credenciales.
+    super(
+      'ORGANIZACION_SUSPENDIDA',
+      'La organización está suspendida — contactá al administrador de la plataforma',
+      403
+    );
+  }
+}
+
+export class OrganizacionNoEncontradaException extends DomainException {
+  constructor() {
+    super('ORGANIZACION_NO_ENCONTRADA', 'La organización no existe', 404);
+  }
+}
+
+export class SoloPlatformAdminException extends DomainException {
+  constructor() {
+    super('SOLO_PLATFORM_ADMIN', 'Esta operación es exclusiva del panel de plataforma', 403);
+  }
+}
+
+export class BillingNoDisponibleException extends DomainException {
+  constructor() {
+    // A diferencia del login (que tolera billing caído con fallback FREE), las
+    // operaciones del panel sobre planes deben ser exactas: si billing no
+    // responde, se falla en vez de mentir sobre el plan (fase-14-05).
+    super('BILLING_NO_DISPONIBLE', 'El servicio de facturación no está disponible', 503);
+  }
+}
+
 export class LimitePlanAlcanzadoException extends DomainException {
   constructor(recurso: 'grupos' | 'tutores' | 'usuarios') {
     // La spec fase-04 pide `recurso` en el body del 403, además del code.

@@ -39,33 +39,33 @@ interface FilaRanking extends PuntajeUsuarioDto {
       <app-encabezado-pagina titulo="Evaluación de la sección" subtitulo="Revisá zonas y repartí recompensas." />
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else {
         <!-- Ranking final -->
-        <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <h2 class="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-900">Ranking final</h2>
+        <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 class="border-b border-slate-100 px-4 py-3 dark:border-slate-800 text-sm font-bold text-slate-900 dark:text-white">Ranking final</h2>
           @if (ranking().length === 0) {
-            <p class="px-4 py-8 text-center text-sm text-slate-400">Sin participantes.</p>
+            <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Sin participantes.</p>
           } @else {
-            <ul class="divide-y divide-slate-50">
+            <ul class="divide-y divide-slate-50 dark:divide-slate-800">
               @for (fila of ranking(); track fila.usuarioId) {
                 <li class="flex items-center gap-3 px-4 py-3" [class.opacity-50]="fila.descalificado">
                   <span
                     class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-                    [class]="fila.posicion <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'"
+                    [class]="fila.posicion <= 3 ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
                   >
                     {{ fila.posicion }}
                   </span>
-                  <span class="min-w-0 flex-1 truncate font-medium text-slate-800">{{ fila.nombre }}</span>
+                  <span class="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-100">{{ fila.nombre }}</span>
                   <ui-zona-badge [zona]="fila.zona" tamano="sm" />
-                  <span class="w-12 text-right text-sm font-bold text-slate-900">{{ fila.puntajeTotal }}</span>
+                  <span class="w-12 text-right text-sm font-bold text-slate-900 dark:text-white">{{ fila.puntajeTotal }}</span>
                   @if (fila.descalificado) {
-                    <span class="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">Descal.</span>
+                    <span class="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">Descal.</span>
                   } @else {
                     <button
                       type="button"
                       (click)="aDescalificar.set(fila)"
-                      class="rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                      class="rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
                     >
                       Descalificar
                     </button>
@@ -77,22 +77,22 @@ interface FilaRanking extends PuntajeUsuarioDto {
         </div>
 
         <!-- Canjes -->
-        <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <h2 class="border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-900">Recompensas a entregar</h2>
+        <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 class="border-b border-slate-100 px-4 py-3 dark:border-slate-800 text-sm font-bold text-slate-900 dark:text-white">Recompensas a entregar</h2>
           @if (canjes().length === 0) {
-            <p class="px-4 py-8 text-center text-sm text-slate-400">Nadie eligió recompensa todavía.</p>
+            <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Nadie eligió recompensa todavía.</p>
           } @else {
-            <ul class="divide-y divide-slate-50">
+            <ul class="divide-y divide-slate-50 dark:divide-slate-800">
               @for (c of canjes(); track c.id) {
                 <li class="flex items-center gap-3 px-4 py-3">
                   <div class="min-w-0 flex-1">
-                    <p class="truncate font-medium text-slate-800">{{ nombreUsuario(c.usuarioId) }}</p>
-                    <p class="truncate text-xs text-slate-500">
+                    <p class="truncate font-medium text-slate-800 dark:text-slate-100">{{ nombreUsuario(c.usuarioId) }}</p>
+                    <p class="truncate text-xs text-slate-500 dark:text-slate-400">
                       {{ nombreRecompensa(c.recompensaId) }} · {{ c.mecanica === 'AZAR' ? 'azar' : 'elección' }}
                     </p>
                   </div>
                   @if (c.estado === 'ENTREGADA') {
-                    <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                    <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                       Entregada
                     </span>
                   } @else {

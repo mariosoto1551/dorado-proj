@@ -13,6 +13,7 @@ import { forkJoin, type Observable } from 'rxjs';
 
 import {
   type ActividadDto,
+  type CompletadaOpcionalDto,
   type ConductaDto,
   EstadoSesion,
   type UsuarioDto,
@@ -48,10 +49,10 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
       </app-encabezado-pagina>
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (!seccion()) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-          <p class="text-sm text-slate-500">No hay una Sección activa.</p>
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+          <p class="text-sm text-slate-500 dark:text-slate-400">No hay una Sección activa.</p>
           <button
             type="button"
             (click)="iniciarSeccion()"
@@ -63,16 +64,16 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
         </div>
       } @else {
         <!-- Sesiones -->
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div class="flex items-center justify-between">
-            <h2 class="text-sm font-bold text-slate-900">Sección #{{ seccion()!.numero }}</h2>
-            <span class="text-xs text-slate-400">{{ seccion()!.sesiones.length }} sesiones</span>
+            <h2 class="text-sm font-bold text-slate-900 dark:text-white">Sección #{{ seccion()!.numero }}</h2>
+            <span class="text-xs text-slate-400 dark:text-slate-500">{{ seccion()!.sesiones.length }} sesiones</span>
           </div>
           <div class="mt-3 flex flex-wrap gap-1.5">
             @for (s of seccion()!.sesiones; track s.id) {
               <span
                 class="rounded-lg px-2.5 py-1 text-xs font-semibold"
-                [class]="s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                [class]="s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
               >
                 Sesión {{ s.numero }} · {{ s.estado === 'ABIERTA' ? 'abierta' : 'cerrada' }}
               </span>
@@ -85,11 +86,11 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
           @if (sesionAbierta()) {
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
               <!-- No hizo -->
-              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h3 class="text-sm font-bold text-slate-900">Registrar «no hizo»</h3>
+              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Registrar «no hizo»</h3>
                 <select
                   [(ngModel)]="usuarioNoHizo"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 >
                   <option value="">Usuario…</option>
                   @for (u of usuarios(); track u.id) {
@@ -98,10 +99,10 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                 </select>
                 <select
                   [(ngModel)]="actividadNoHizo"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 >
-                  <option value="">Actividad…</option>
-                  @for (a of actividades(); track a.id) {
+                  <option value="">Obligatoria…</option>
+                  @for (a of obligatorias(); track a.id) {
                     <option [value]="a.id">{{ a.nombre }}</option>
                   }
                 </select>
@@ -109,18 +110,18 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                   type="button"
                   (click)="registrarNoHizo()"
                   [disabled]="procesando() || !usuarioNoHizo || !actividadNoHizo"
-                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40"
+                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40 dark:bg-slate-700 dark:hover:bg-slate-600"
                 >
                   Registrar
                 </button>
               </div>
 
               <!-- Conducta -->
-              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h3 class="text-sm font-bold text-slate-900">Registrar conducta</h3>
+              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Registrar conducta</h3>
                 <select
                   [(ngModel)]="usuarioConducta"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 >
                   <option value="">Usuario…</option>
                   @for (u of usuarios(); track u.id) {
@@ -129,7 +130,7 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                 </select>
                 <select
                   [(ngModel)]="conductaSel"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
                 >
                   <option value="">Conducta…</option>
                   @for (c of conductas(); track c.id) {
@@ -142,29 +143,88 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                   type="button"
                   (click)="registrarConducta()"
                   [disabled]="procesando() || !usuarioConducta || !conductaSel"
-                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40"
+                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40 dark:bg-slate-700 dark:hover:bg-slate-600"
                 >
                   Registrar
                 </button>
               </div>
             </div>
+
+            <!-- Corregir completadas de un usuario (fase-14) -->
+            <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Corregir completadas de un usuario</h3>
+              <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Quitá opcionales que un usuario marcó de más. Resta los puntos y se refleja en su pantalla al instante.
+              </p>
+              <select
+                [(ngModel)]="usuarioCorregir"
+                (ngModelChange)="onUsuarioCorregirCambio()"
+                class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              >
+                <option value="">Usuario…</option>
+                @for (u of usuarios(); track u.id) {
+                  <option [value]="u.id">{{ u.nombre }}</option>
+                }
+              </select>
+
+              @if (usuarioCorregir) {
+                @if (cargandoCorreccion()) {
+                  <p class="mt-3 text-center text-xs text-slate-400 dark:text-slate-500">Cargando…</p>
+                } @else if (completadas().length === 0) {
+                  <p class="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    Este usuario no tiene opcionales completadas en la sesión.
+                  </p>
+                } @else {
+                  <ul class="mt-3 space-y-2">
+                    @for (c of completadas(); track c.actividadId) {
+                      <li class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{{ c.nombre }}</p>
+                          <p class="text-xs text-slate-500 dark:text-slate-400">
+                            {{ c.registros.length }}× · +{{ c.valorPuntos }} c/u
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          (click)="quitarUna(c)"
+                          [disabled]="procesando()"
+                          class="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-slate-300 text-lg font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                          aria-label="Quitar una"
+                          title="Quitar una"
+                        >
+                          −
+                        </button>
+                        <button
+                          type="button"
+                          (click)="quitarTodas(c)"
+                          [disabled]="procesando()"
+                          class="flex-none rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
+                        >
+                          Quitar todas
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              }
+            </div>
           } @else {
-            <p class="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500">
+            <p class="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               No hay una sesión abierta. Abrí la siguiente para registrar.
             </p>
           }
         }
 
         <!-- Controles de la sección -->
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 class="text-sm font-bold text-slate-900">Controles</h3>
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Controles</h3>
           <div class="mt-3 flex flex-wrap gap-2">
             @if (seccion()!.estado === 'ABIERTA') {
               @if (sesionAbierta()) {
                 <button
                   type="button"
                   (click)="confirmar.set('cierre-sesion')"
-                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   Cerrar sesión abierta
                 </button>
@@ -173,7 +233,7 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                   type="button"
                   (click)="abrirSiguienteSesion()"
                   [disabled]="procesando()"
-                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 disabled:opacity-50"
                 >
                   Abrir siguiente sesión
                 </button>
@@ -197,7 +257,7 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
               <button
                 type="button"
                 (click)="confirmar.set('cerrar-seccion')"
-                class="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                class="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
               >
                 Cerrar sección
               </button>
@@ -253,8 +313,19 @@ export class PanelOperativoPage {
 
   protected conductaSel = '';
 
+  protected usuarioCorregir = '';
+
+  protected readonly completadas = signal<CompletadaOpcionalDto[]>([]);
+
+  protected readonly cargandoCorreccion = signal(false);
+
   protected readonly sesionAbierta = computed(() =>
     this.seccion()?.sesiones.find((s) => s.estado === EstadoSesion.ABIERTA) ?? null
+  );
+
+  /** "No hizo" es solo para obligatorias — las opcionales se corrigen quitando. */
+  protected readonly obligatorias = computed(() =>
+    this.actividades().filter((actividad) => actividad.tipoPuntaje === 'OBLIGATORIA')
   );
 
   protected readonly tituloConfirm = computed(() => {
@@ -366,6 +437,76 @@ export class PanelOperativoPage {
       error: (e) => {
         this.toasts.error(mensajeDeError(e));
         this.procesando.set(false);
+      },
+    });
+  }
+
+  protected onUsuarioCorregirCambio(): void {
+    this.completadas.set([]);
+
+    if (this.usuarioCorregir) {
+      this.cargarCompletadas();
+    }
+  }
+
+  protected quitarUna(completada: CompletadaOpcionalDto): void {
+    const ultimo = completada.registros[completada.registros.length - 1];
+
+    if (!ultimo) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.activity.eliminarRegistroActividad(ultimo.registroId).subscribe({
+      next: () => {
+        this.toasts.exito(`Se quitó una de «${completada.nombre}».`);
+        this.procesando.set(false);
+        this.cargarCompletadas();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  protected quitarTodas(completada: CompletadaOpcionalDto): void {
+    if (completada.registros.length === 0) {
+      return;
+    }
+
+    this.procesando.set(true);
+    forkJoin(
+      completada.registros.map((registro) =>
+        this.activity.eliminarRegistroActividad(registro.registroId)
+      )
+    ).subscribe({
+      next: () => {
+        this.toasts.exito(`Se quitaron todas las de «${completada.nombre}».`);
+        this.procesando.set(false);
+        this.cargarCompletadas();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  private cargarCompletadas(): void {
+    if (!this.usuarioCorregir) {
+      return;
+    }
+
+    this.cargandoCorreccion.set(true);
+    this.activity.completadasOpcionales(this.grupoId(), this.usuarioCorregir).subscribe({
+      next: (lista) => {
+        this.completadas.set(lista);
+        this.cargandoCorreccion.set(false);
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.cargandoCorreccion.set(false);
       },
     });
   }

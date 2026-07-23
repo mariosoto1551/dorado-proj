@@ -8,3 +8,4 @@ export * from './lib/session';
 export * from './lib/scoring';
 export * from './lib/rewards';
 export * from './lib/notification-audit';
+export * from './lib/platform-admin';

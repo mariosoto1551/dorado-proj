@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { getCorrelationId } from '@dorado/shared-logging';
-import { CodigoPlan, EntitlementsDto } from '@dorado/shared-types';
+import { CodigoPlan, EntitlementsDto, SuscripcionDto } from '@dorado/shared-types';
+
+import { BillingNoDisponibleException } from '../comun/excepciones';
 
 /**
  * Timeout de la llamada síncrona a billing (spec fase-04: 2s). Si billing no
@@ -56,20 +58,73 @@ export class BillingClientService {
     );
   }
 
+  /**
+   * Suscripción vigente de una organización, para el detalle del panel de
+   * PLATFORM_ADMIN (fase-14-05). A diferencia de `resolvePlan`, NO tiene
+   * fallback: si billing no responde, lanza 503 (el panel no debe mostrar
+   * datos de plan potencialmente falsos).
+   */
+  async obtenerSuscripcion(organizacionId: string): Promise<SuscripcionDto> {
+    const respuesta = await this.getObligatorio<SuscripcionDto>(
+      `/internal/billing/organizaciones/${organizacionId}/suscripcion`
+    );
+
+    return respuesta;
+  }
+
+  /** Cambia el plan de una organización (asignación manual del panel). 503 si billing no responde. */
+  async cambiarPlan(organizacionId: string, plan: CodigoPlan): Promise<SuscripcionDto> {
+    return await this.postObligatorio<SuscripcionDto>(
+      `/internal/billing/organizaciones/${organizacionId}/plan`,
+      { codigo: plan }
+    );
+  }
+
+  private async getObligatorio<T>(ruta: string): Promise<T> {
+    const respuesta = await this.request<T>('GET', ruta);
+
+    if (respuesta === null) {
+      throw new BillingNoDisponibleException();
+    }
+
+    return respuesta;
+  }
+
+  private async postObligatorio<T>(ruta: string, body: unknown): Promise<T> {
+    const respuesta = await this.request<T>('POST', ruta, body);
+
+    if (respuesta === null) {
+      throw new BillingNoDisponibleException();
+    }
+
+    return respuesta;
+  }
+
   private async get<T>(ruta: string): Promise<T | null> {
+    return await this.request<T>('GET', ruta);
+  }
+
+  private async request<T>(
+    metodo: 'GET' | 'POST',
+    ruta: string,
+    body?: unknown
+  ): Promise<T | null> {
     const correlationId = getCorrelationId();
 
     try {
       const respuesta = await fetch(`${this.baseUrl}${ruta}`, {
+        method: metodo,
         headers: {
           'x-internal-secret': this.secreto,
+          ...(body !== undefined && { 'content-type': 'application/json' }),
           ...(correlationId && { 'x-correlation-id': correlationId }),
         },
+        ...(body !== undefined && { body: JSON.stringify(body) }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
 
       if (!respuesta.ok) {
-        this.logger.warn(`GET ${ruta} respondió ${respuesta.status} — usando fallback`);
+        this.logger.warn(`${metodo} ${ruta} respondió ${respuesta.status} — usando fallback`);
 
         return null;
       }
@@ -77,7 +132,7 @@ export class BillingClientService {
       return (await respuesta.json()) as T;
     } catch (error) {
       this.logger.warn(
-        `GET ${ruta} falló (${error instanceof Error ? error.message : String(error)}) — usando fallback`
+        `${metodo} ${ruta} falló (${error instanceof Error ? error.message : String(error)}) — usando fallback`
       );
 
       return null;

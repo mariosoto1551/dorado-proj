@@ -28,3 +28,8 @@ export interface MiOrganizacionResponse {
 export interface PlanOrganizacionResponse {
   codigo: CodigoPlan;
 }
+
+/** Body de POST /internal/billing/organizaciones/:id/plan (fase-14-05). */
+export interface CambiarPlanInternoRequest {
+  codigo: CodigoPlan;
+}

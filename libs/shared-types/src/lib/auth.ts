@@ -10,6 +10,7 @@ export enum Rol {
 export enum PrincipalType {
   TUTOR = 'TUTOR',
   USUARIO = 'USUARIO',
+  PLATFORM_ADMIN = 'PLATFORM_ADMIN',
 }
 
 export interface JwtPayload {

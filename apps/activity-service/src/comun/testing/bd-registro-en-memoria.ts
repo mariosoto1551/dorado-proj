@@ -116,6 +116,9 @@ export function crearBdRegistroEnMemoria(datos: {
     conducta: crearDelegado<Conducta>(conductas, () => ({ id: randomUUID() })),
     registroActividad: crearDelegado<RegistroActividad>(registrosActividad, () => ({
       id: randomUUID(),
+      eliminado: false,
+      eliminadoPorTutorId: null,
+      eliminadoEn: null,
       createdAt: new Date(),
     })),
     registroConducta: crearDelegado<RegistroConducta>(registrosConducta, () => ({

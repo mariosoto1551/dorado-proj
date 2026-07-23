@@ -10,6 +10,7 @@ import { GruposModule } from '../grupos/grupos.module';
 import { InternalModule } from '../internal/internal.module';
 import { InvitacionesModule } from '../invitaciones/invitaciones.module';
 import { MeModule } from '../me/me.module';
+import { PlatformAdminModule } from '../platform-admin/platform-admin.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { TutoresModule } from '../tutores/tutores.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
@@ -33,6 +34,7 @@ import { UsuariosModule } from '../usuarios/usuarios.module';
     TutoresModule,
     MeModule,
     InternalModule,
+    PlatformAdminModule,
   ],
 })
 export class AppModule {}

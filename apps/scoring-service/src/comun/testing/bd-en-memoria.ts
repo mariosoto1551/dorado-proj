@@ -155,11 +155,18 @@ interface FilaEventoProcesado extends Fila {
   consumidor: string;
 }
 
+interface FilaConfiguracion extends Fila {
+  grupoId: string;
+  organizacionId: string;
+  puntosIniciales: number;
+}
+
 export interface BdEnMemoria {
   eventosPuntos: EventoPuntos[];
   umbrales: UmbralZona[];
   descalificaciones: DescalificacionSeccion[];
   resultados: ResultadoSeccion[];
+  configuraciones: FilaConfiguracion[];
   procesados: FilaEventoProcesado[];
   /** Doble de PrismaService (client + $transaction sobre los mismos arrays). */
   prisma: PrismaService;
@@ -170,11 +177,13 @@ export function crearBdEnMemoria(datos: {
   umbrales?: UmbralZona[];
   descalificaciones?: DescalificacionSeccion[];
   resultados?: ResultadoSeccion[];
+  configuraciones?: FilaConfiguracion[];
 } = {}): BdEnMemoria {
   const eventosPuntos: EventoPuntos[] = [...(datos.eventosPuntos ?? [])];
   const umbrales: UmbralZona[] = [...(datos.umbrales ?? [])];
   const descalificaciones: DescalificacionSeccion[] = [...(datos.descalificaciones ?? [])];
   const resultados: ResultadoSeccion[] = [...(datos.resultados ?? [])];
+  const configuraciones: FilaConfiguracion[] = [...(datos.configuraciones ?? [])];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -204,6 +213,33 @@ export function crearBdEnMemoria(datos: {
         nueva['usuarioId'] === existente['usuarioId'] &&
         nueva['seccionId'] === existente['seccionId']
     ),
+    configuracionScoringGrupo: {
+      findUnique: async ({ where }: { where: { grupoId: string } }) =>
+        configuraciones.find((fila) => fila.grupoId === where.grupoId) ?? null,
+      upsert: async ({
+        where,
+        create,
+        update,
+      }: {
+        where: { grupoId: string };
+        create: FilaConfiguracion;
+        update: Partial<FilaConfiguracion>;
+      }) => {
+        const existente = configuraciones.find((fila) => fila.grupoId === where.grupoId);
+
+        if (existente) {
+          Object.assign(existente, update);
+
+          return existente;
+        }
+
+        const fila = { id: randomUUID(), createdAt: new Date(), updatedAt: new Date(), ...create };
+
+        configuraciones.push(fila);
+
+        return fila;
+      },
+    },
     eventoProcesado: {
       findUnique: async ({ where }: { where: { eventId: string } }) =>
         procesados.find((fila) => fila.eventId === where.eventId) ?? null,
@@ -229,6 +265,7 @@ export function crearBdEnMemoria(datos: {
     umbrales,
     descalificaciones,
     resultados,
+    configuraciones,
     procesados,
     prisma: { client } as unknown as PrismaService,
   };

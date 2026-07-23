@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import type {
   ActividadCompletadaPayload,
+  ActividadRegistroEliminadoPayload,
   ConductaRegistradaPayload,
   ConductaRegistroEliminadoPayload,
   EventEnvelope,
@@ -71,6 +72,7 @@ export class ScoringConsumer {
       ROUTING_KEYS.NO_HIZO_REGISTRADO,
       ROUTING_KEYS.CONDUCTA_REGISTRADA,
       ROUTING_KEYS.CONDUCTA_REGISTRO_ELIMINADO,
+      ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
     ],
     queue: 'scoring.q.registros-actividad',
     queueOptions: OPCIONES_COLA,
@@ -99,6 +101,11 @@ export class ScoringConsumer {
         case 'ConductaRegistroEliminado':
           await this.proyeccion.procesarConductaRegistroEliminado(
             envelope as EventEnvelope<ConductaRegistroEliminadoPayload>
+          );
+          break;
+        case 'ActividadRegistroEliminado':
+          await this.proyeccion.procesarActividadRegistroEliminado(
+            envelope as EventEnvelope<ActividadRegistroEliminadoPayload>
           );
           break;
         default:

@@ -30,14 +30,14 @@ import {
           class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
         ></button>
         <div
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up sm:rounded-2xl"
+          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
           role="dialog"
           aria-modal="true"
         >
-          <h2 class="text-lg font-bold text-slate-900">{{ titulo() }}</h2>
+          <h2 class="text-lg font-bold text-slate-900 dark:text-white">{{ titulo() }}</h2>
 
           @if (mensaje()) {
-            <p class="mt-2 text-sm text-slate-600">{{ mensaje() }}</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">{{ mensaje() }}</p>
           }
 
           @if (requiereMotivo()) {
@@ -46,7 +46,7 @@ import {
               (input)="motivo.set($any($event.target).value)"
               rows="3"
               [placeholder]="placeholderMotivo()"
-              class="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none"
+              class="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
             ></textarea>
           }
 
@@ -54,7 +54,7 @@ import {
             <button
               type="button"
               (click)="cancelar.emit()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               {{ textoCancelar() }}
             </button>

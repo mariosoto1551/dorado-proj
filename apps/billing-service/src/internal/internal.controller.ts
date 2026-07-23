@@ -1,9 +1,14 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
-import type { EntitlementsDto } from '@dorado/shared-types';
+import type { CodigoPlan, EntitlementsDto } from '@dorado/shared-types';
 
-import type { PlanOrganizacionResponse } from '../suscripciones/dto/suscripciones.dto';
+import type {
+  CambiarPlanInternoRequest,
+  PlanOrganizacionResponse,
+  SuscripcionWire,
+} from '../suscripciones/dto/suscripciones.dto';
+import { CodigoPlan as CodigoPlanPrisma } from '../generated/prisma/enums';
 import { SuscripcionesService } from '../suscripciones/suscripciones.service';
 
 /**
@@ -30,5 +35,24 @@ export class InternalController {
     @Param('organizacionId') organizacionId: string
   ): Promise<EntitlementsDto> {
     return await this.suscripciones.entitlementsDeOrganizacion(organizacionId);
+  }
+
+  /** Usado por el panel de PLATFORM_ADMIN (fase-14-05): detalle de una org. */
+  @Get('organizaciones/:organizacionId/suscripcion')
+  async suscripcion(
+    @Param('organizacionId') organizacionId: string
+  ): Promise<SuscripcionWire> {
+    return await this.suscripciones.suscripcionDeOrganizacion(organizacionId);
+  }
+
+  /** Cambio de plan por el PLATFORM_ADMIN (fase-14-05) — asignación manual. */
+  @Post('organizaciones/:organizacionId/plan')
+  async cambiarPlan(
+    @Param('organizacionId') organizacionId: string,
+    @Body() body: CambiarPlanInternoRequest
+  ): Promise<SuscripcionWire> {
+    const codigo = body.codigo as CodigoPlan as unknown as CodigoPlanPrisma;
+
+    return await this.suscripciones.cambiarPlan(organizacionId, codigo);
   }
 }

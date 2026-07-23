@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import type {
   ActividadCompletadaPayload,
+  ActividadRegistroEliminadoPayload,
   ConductaRegistradaPayload,
   ConductaRegistroEliminadoPayload,
   EventEnvelope,
@@ -124,6 +125,53 @@ export class ProyeccionService {
           registradoPorTipo: 'SYSTEM',
           corregidoDeId: original.id,
           motivoCorreccion: 'Registro de conducta eliminado por un tutor',
+        },
+      });
+    });
+  }
+
+  /**
+   * Compensa una completada de actividad que un tutor quitó (fase-14): busca el
+   * asiento original por `origenId = registroId` (tipoOrigen ACTIVIDAD_COMPLETADA)
+   * y crea uno nuevo de signo opuesto con `corregidoDeId`. Mismo patrón exacto
+   * que la eliminación de conducta — nunca borra ni edita la fila original.
+   */
+  async procesarActividadRegistroEliminado(
+    envelope: EventEnvelope<ActividadRegistroEliminadoPayload>
+  ): Promise<void> {
+    if (await this.yaProcesado(envelope.eventId)) {
+      return;
+    }
+
+    const original = await this.prisma.client.eventoPuntos.findFirst({
+      where: {
+        origenId: envelope.payload.registroId,
+        tipoOrigen: TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
+        organizacionId: envelope.organizacionId,
+      },
+    });
+
+    if (!original) {
+      throw new Error(
+        `No existe EventoPuntos de actividad con origenId ${envelope.payload.registroId} para compensar`
+      );
+    }
+
+    await this.enTransaccionIdempotente(envelope.eventId, async (tx) => {
+      await tx.eventoPuntos.create({
+        data: {
+          organizacionId: original.organizacionId,
+          grupoId: original.grupoId,
+          usuarioId: original.usuarioId,
+          seccionId: original.seccionId,
+          sesionId: original.sesionId,
+          tipoOrigen: TipoOrigenPuntos.CORRECCION,
+          origenId: original.id,
+          puntosSnapshot: -original.puntosSnapshot,
+          registradoPorId: envelope.payload.eliminadoPorTutorId,
+          registradoPorTipo: 'SYSTEM',
+          corregidoDeId: original.id,
+          motivoCorreccion: 'Completada de actividad quitada por un tutor',
         },
       });
     });

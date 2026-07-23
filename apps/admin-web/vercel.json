@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "Proyecto Vercel de admin-web (Angular SPA, panel de PLATFORM_ADMIN). Root Directory = raíz del repo. El apiBaseUrl de prod se fija en apps/admin-web/src/environments/environment.prod.ts (fileReplacements) — ver docs/runbook-deploy.md. Rewrite → index.html (routing del lado del cliente).",
+  "buildCommand": "pnpm nx build admin-web --configuration=production",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "dist/apps/admin-web/browser",
+  "framework": null,
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

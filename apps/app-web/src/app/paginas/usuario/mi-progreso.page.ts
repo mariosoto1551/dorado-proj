@@ -31,28 +31,28 @@ interface SeccionHistorial {
   imports: [ZonaBadgeComponent],
   template: `
     <section class="mx-auto max-w-xl px-4 py-5">
-      <h1 class="text-xl font-bold tracking-tight text-slate-900">Mi progreso</h1>
+      <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Mi progreso</h1>
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else {
         @if (actual(); as p) {
-          <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div class="flex items-center justify-between">
               <div>
-                <p class="text-xs text-slate-400">Semana actual</p>
-                <p class="text-4xl font-black tabular-nums text-slate-900">{{ p.puntajeTotal }}</p>
+                <p class="text-xs text-slate-400 dark:text-slate-500">Semana actual</p>
+                <p class="text-4xl font-black tabular-nums text-slate-900 dark:text-white">{{ p.puntajeTotal }}</p>
               </div>
               <ui-zona-badge [zona]="p.zona" tamano="lg" />
             </div>
 
             @if (progreso(); as prog) {
               <div class="mt-5">
-                <div class="mb-1.5 flex justify-between text-xs font-medium text-slate-500">
+                <div class="mb-1.5 flex justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
                   <span>{{ p.zona?.nombreZona }}</span>
                   <span>{{ prog.faltan }} pts para {{ prog.siguienteNombre }}</span>
                 </div>
-                <div class="h-3 overflow-hidden rounded-full bg-slate-100">
+                <div class="h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                   <div
                     class="h-full rounded-full transition-all duration-700"
                     [style.width.%]="prog.porcentaje"
@@ -61,30 +61,30 @@ interface SeccionHistorial {
                 </div>
               </div>
             } @else if (p.zona) {
-              <p class="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-center text-sm font-semibold text-amber-700">
+              <p class="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-center text-sm font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                 🏆 ¡Estás en la zona más alta!
               </p>
             }
           </div>
         } @else {
-          <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+          <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
             Todavía no hay una semana activa.
           </div>
         }
 
         <!-- Historial -->
         @if (historial().length > 0) {
-          <h2 class="mt-8 mb-2 text-sm font-bold text-slate-500 uppercase">Semanas anteriores</h2>
+          <h2 class="mt-8 mb-2 text-sm font-bold text-slate-500 uppercase dark:text-slate-400">Semanas anteriores</h2>
           <ul class="space-y-2">
             @for (h of historial(); track h.seccion.id) {
-              <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-500">
+              <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   #{{ h.seccion.numero }}
                 </span>
                 <div class="flex-1">
                   <ui-zona-badge [zona]="h.puntaje.zona" tamano="sm" />
                 </div>
-                <span class="text-lg font-bold tabular-nums text-slate-900">{{ h.puntaje.puntajeTotal }}</span>
+                <span class="text-lg font-bold tabular-nums text-slate-900 dark:text-white">{{ h.puntaje.puntajeTotal }}</span>
               </li>
             }
           </ul>

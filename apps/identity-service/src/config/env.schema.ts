@@ -58,6 +58,26 @@ export class EnvSchema {
   })
   BILLING_INTERNAL_URL!: string;
 
+  // Bootstrap del PLATFORM_ADMIN (fase-14-05): si ambas vienen y la cuenta no
+  // existe, se crea al arrancar. Opcionales: sin ellas, no hay admin (ej. tests).
+  @IsOptional()
+  @IsString()
+  @Matches(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, {
+    message: 'PLATFORM_ADMIN_EMAIL debe ser un email válido',
+  })
+  PLATFORM_ADMIN_EMAIL?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8, {
+    message: 'PLATFORM_ADMIN_PASSWORD debe tener al menos 8 caracteres',
+  })
+  PLATFORM_ADMIN_PASSWORD?: string;
+
+  @IsOptional()
+  @IsString()
+  PLATFORM_ADMIN_NOMBRE?: string;
+
   @IsOptional()
   @IsIn(['true', 'false'])
   REFRESH_COOKIE_SECURE?: string;

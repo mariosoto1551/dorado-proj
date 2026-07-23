@@ -47,14 +47,21 @@ function init(): void {
   const errorMsg = document.querySelector<HTMLElement>('#registro-error-msg');
   const vistaForm = document.querySelector<HTMLElement>('#vista-form');
   const vistaExito = document.querySelector<HTMLElement>('#vista-exito');
-  const loginUrl = `${APP_WEB_URL}/login`;
+  const mismatchMsg = document.querySelector<HTMLElement>('#password-mismatch');
+  const linkLogin = document.querySelector<HTMLAnchorElement>('#link-login');
+  const linkPanel = document.querySelector<HTMLAnchorElement>('#link-panel-exito');
 
-  // Ambos links a app-web/login (el del pie del form y el de la pantalla de éxito).
-  document
-    .querySelectorAll<HTMLAnchorElement>('#link-login, #link-login-exito')
-    .forEach((a) => {
-      a.href = loginUrl;
-    });
+  // Link "¿ya tenés cuenta?" → login. Botón de éxito → raíz de app-web: la
+  // cookie de refresh (dorado_refresh) ya quedó guardada por el POST de abajo
+  // (credentials: 'include'), así que app-web rehidrata la sesión sola al
+  // arrancar y el usuario cae logueado en su panel, sin re-loguearse.
+  if (linkLogin) {
+    linkLogin.href = `${APP_WEB_URL}/login`;
+  }
+
+  if (linkPanel) {
+    linkPanel.href = `${APP_WEB_URL}/`;
+  }
 
   function mostrarError(mensaje: string): void {
     if (errorBox && errorMsg) {
@@ -87,6 +94,7 @@ function init(): void {
       emailContacto: String(datos.get('emailContacto') ?? '').trim(),
       password: String(datos.get('password') ?? ''),
     };
+    const passwordConfirmacion = String(datos.get('passwordConfirmacion') ?? '');
 
     // Validación mínima en cliente (el servidor es la fuente de verdad).
     if (!cuerpo.nombre || !cuerpo.emailContacto || cuerpo.password.length < 8) {
@@ -94,18 +102,33 @@ function init(): void {
       return;
     }
 
+    // La confirmación solo se valida en cliente: no viaja al servidor.
+    if (cuerpo.password !== passwordConfirmacion) {
+      mismatchMsg?.classList.remove('hidden');
+      mostrarError('Las contraseñas no coinciden. Revisá que sean iguales en los dos campos.');
+      return;
+    }
+
+    mismatchMsg?.classList.add('hidden');
+
     setCargando(true);
 
     try {
       const respuesta = await fetch(`${GATEWAY_URL}/api/auth/organizaciones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // include: el navegador guarda la cookie httpOnly dorado_refresh que
+        // setea el Gateway. Al ser el mismo dominio (localhost) que app-web,
+        // esa cookie viaja después con el refresh silencioso de app-web y deja
+        // al usuario logueado en su panel sin tener que iniciar sesión de nuevo.
+        credentials: 'include',
         body: JSON.stringify(cuerpo),
       });
 
       if (respuesta.ok) {
-        // Éxito (201). No guardamos la sesión: mostramos la pantalla de éxito
-        // con el link a app-web/login (los datos tipeados ya no importan).
+        // Éxito (201): la sesión ya quedó establecida (cookie de refresh).
+        // Mostramos la pantalla de éxito con el botón a app-web/ (el panel),
+        // adonde el usuario entra ya logueado.
         vistaForm?.classList.add('hidden');
         vistaExito?.classList.remove('hidden');
         vistaExito?.scrollIntoView({ behavior: 'smooth', block: 'center' });

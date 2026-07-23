@@ -28,11 +28,11 @@ export class ToastHostComponent {
   protected clase(tono: Toast['tono']): string {
     switch (tono) {
       case 'exito':
-        return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200';
+        return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/30';
       case 'error':
-        return 'bg-red-50 text-red-800 ring-1 ring-red-200';
+        return 'bg-red-50 text-red-800 ring-1 ring-red-200 dark:bg-red-500/15 dark:text-red-200 dark:ring-red-500/30';
       default:
-        return 'bg-slate-800 text-white';
+        return 'bg-slate-800 text-white dark:bg-slate-700';
     }
   }
 }

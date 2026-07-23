@@ -40,7 +40,7 @@ import { mensajeDeError } from '../../core/api/errores';
           type="button"
           (click)="generar(TI.TUTOR)"
           [disabled]="generando()"
-          class="flex items-center gap-1.5 rounded-lg border border-marca-300 bg-white px-3.5 py-2 text-sm font-semibold text-marca-700 transition hover:bg-marca-50 disabled:opacity-50"
+          class="flex items-center gap-1.5 rounded-lg border border-marca-300 bg-white px-3.5 py-2 text-sm font-semibold text-marca-700 transition hover:bg-marca-50 disabled:opacity-50 dark:border-marca-800 dark:bg-slate-900 dark:text-marca-300 dark:hover:bg-marca-900/30"
         >
           <span class="h-4 w-4"><app-icono nombre="plus" /></span>
           Invitar tutor
@@ -48,29 +48,29 @@ import { mensajeDeError } from '../../core/api/errores';
       </div>
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (pendientes().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           No hay invitaciones pendientes.
         </div>
       } @else {
         <ul class="mt-5 space-y-2">
           @for (i of pendientes(); track i.id) {
-            <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div class="flex items-center justify-between gap-2">
-                <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   {{ i.tipoInvitado === 'TUTOR' ? 'Tutor' : 'Usuario' }}
                 </span>
-                <span class="text-xs text-slate-400">vence {{ fecha(i.expiraEn) }}</span>
+                <span class="text-xs text-slate-400 dark:text-slate-500">vence {{ fecha(i.expiraEn) }}</span>
               </div>
               <div class="mt-2 flex items-center gap-2">
-                <code class="min-w-0 flex-1 truncate rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <code class="min-w-0 flex-1 truncate rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   {{ linkDe(i) }}
                 </code>
                 <button
                   type="button"
                   (click)="copiar(i)"
-                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-marca-50 text-marca-600 transition hover:bg-marca-100"
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-marca-50 text-marca-600 transition hover:bg-marca-100 dark:bg-marca-900/40 dark:text-marca-300 dark:hover:bg-marca-900/60"
                   aria-label="Copiar link"
                   title="Copiar link"
                 >
@@ -79,7 +79,7 @@ import { mensajeDeError } from '../../core/api/errores';
                 <button
                   type="button"
                   (click)="aRevocar.set(i)"
-                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                   aria-label="Revocar"
                   title="Revocar"
                 >

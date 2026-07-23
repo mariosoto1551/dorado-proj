@@ -36,6 +36,14 @@ export class CrearUmbralRequest {
   colorHex!: string;
 }
 
+// PUT /scoring/grupos/:grupoId/configuracion — base de puntos iniciales por
+// Sección (fase-14). Entero >= 0; 0 = arrancar en cero (histórico).
+export class GuardarConfiguracionScoringRequest {
+  @IsInt()
+  @Min(0)
+  puntosIniciales!: number;
+}
+
 export class EditarUmbralRequest {
   @IsOptional()
   @IsString()

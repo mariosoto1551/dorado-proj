@@ -155,7 +155,7 @@ export class EvaluacionService {
   ): Promise<EvaluacionUsuario[]> {
     const usuarios = await this.identity.usuariosDelGrupo(grupoId);
 
-    const [umbrales, sumas, descalificaciones] = await Promise.all([
+    const [umbrales, sumas, descalificaciones, config] = await Promise.all([
       this.prisma.client.umbralZona.findMany({
         where: { grupoId, organizacionId },
         orderBy: { orden: 'asc' },
@@ -168,8 +168,15 @@ export class EvaluacionService {
       this.prisma.client.descalificacionSeccion.findMany({
         where: { seccionId, grupoId, organizacionId },
       }),
+      this.prisma.client.configuracionScoringGrupo.findUnique({
+        where: { grupoId },
+      }),
     ]);
 
+    // Base configurable por grupo (fase-14): se suma al ledger. Default 0. Queda
+    // capturada en el snapshot ResultadoSeccion (el histórico no cambia si luego
+    // se edita la base).
+    const base = config?.puntosIniciales ?? 0;
     const sumaPorUsuario = new Map(
       sumas.map((suma) => [suma.usuarioId, suma._sum.puntosSnapshot ?? 0])
     );
@@ -178,7 +185,7 @@ export class EvaluacionService {
     );
 
     return usuarios.map((usuario) => {
-      const puntajeTotal = sumaPorUsuario.get(usuario.id) ?? 0;
+      const puntajeTotal = (sumaPorUsuario.get(usuario.id) ?? 0) + base;
       const descalificado = descalificados.has(usuario.id);
 
       return {

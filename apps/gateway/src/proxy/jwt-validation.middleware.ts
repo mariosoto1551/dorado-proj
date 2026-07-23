@@ -16,6 +16,9 @@ const RUTAS_PUBLICAS: ReadonlyArray<{ metodo: string; patron: RegExp }> = [
   { metodo: 'POST', patron: /^\/api\/auth\/organizaciones\/?$/ },
   { metodo: 'POST', patron: /^\/api\/auth\/login\/?$/ },
   { metodo: 'POST', patron: /^\/api\/auth\/refresh\/?$/ },
+  // Auth del panel de plataforma (fase-14-05): sin bearer (refresh vía cookie).
+  { metodo: 'POST', patron: /^\/api\/auth\/admin\/login\/?$/ },
+  { metodo: 'POST', patron: /^\/api\/auth\/admin\/refresh\/?$/ },
   { metodo: 'GET', patron: /^\/api\/auth\/invitaciones\/[^/]+\/?$/ },
   { metodo: 'POST', patron: /^\/api\/auth\/invitaciones\/[^/]+\/canjear\/?$/ },
   { metodo: 'GET', patron: /^\/api\/health\/?$/ },

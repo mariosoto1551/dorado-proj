@@ -5,5 +5,5 @@
 @import '../../../libs/shared-ui/src/theme.css';
 
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  @apply bg-slate-100 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
 }

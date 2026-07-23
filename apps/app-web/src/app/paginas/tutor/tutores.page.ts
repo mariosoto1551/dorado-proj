@@ -27,31 +27,31 @@ import { mensajeDeError } from '../../core/api/errores';
       <app-encabezado-pagina titulo="Tutores" subtitulo="Quiénes administran este grupo." />
 
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400">Cargando…</p>
+        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else {
         <ul class="mt-5 space-y-2">
           @for (t of tutores(); track t.id) {
-            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-marca-100 text-marca-700">
+            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-marca-100 text-marca-700 dark:bg-marca-900/40 dark:text-marca-300">
                 <span class="h-5 w-5"><app-icono nombre="shield" /></span>
               </span>
               <div class="min-w-0 flex-1">
-                <p class="truncate font-semibold text-slate-900">
+                <p class="truncate font-semibold text-slate-900 dark:text-white">
                   {{ t.nombre }}
                   @if (t.id === auth.principalId()) {
-                    <span class="text-xs font-normal text-slate-400">(vos)</span>
+                    <span class="text-xs font-normal text-slate-400 dark:text-slate-500">(vos)</span>
                   }
                 </p>
-                <p class="truncate text-xs text-slate-400">{{ t.email }}</p>
+                <p class="truncate text-xs text-slate-400 dark:text-slate-500">{{ t.email }}</p>
               </div>
-              <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+              <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 {{ t.rol === 'ORG_ADMIN' ? 'Admin' : 'Tutor' }}
               </span>
               @if (auth.esOrgAdmin() && t.rol !== 'ORG_ADMIN' && t.id !== auth.principalId()) {
                 <button
                   type="button"
                   (click)="aDesactivar.set(t)"
-                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                   aria-label="Desactivar"
                 >
                   <span class="h-4 w-4"><app-icono nombre="trash" /></span>

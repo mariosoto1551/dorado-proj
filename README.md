@@ -10,14 +10,14 @@ familiar, no el producto en sí.
 
 ## Stack
 
-Nx (monorepo) · NestJS 11 (9 servicios backend) · Angular 22 (`app-web`) ·
-Astro 7 (`public-site`) · Prisma 7 + PostgreSQL 18 · RabbitMQ 4.3 ·
+Nx (monorepo) · NestJS 11 (9 servicios backend) · Angular 22 (`app-web` +
+`admin-web`) · Astro 7 (`public-site`) · Prisma 7 + PostgreSQL 18 · RabbitMQ 4.3 ·
 Vitest + Playwright · pnpm · Node 24 LTS.
 
 ## Estructura
 
 ```
-apps/        gateway + 8 microservicios NestJS, app-web (Angular), public-site (Astro)
+apps/        gateway + 8 microservicios NestJS, app-web + admin-web (Angular), public-site (Astro)
 libs/        shared-types, shared-events, shared-auth, shared-logging, shared-ui
 infra/       docker-compose.yml (Postgres + RabbitMQ + Adminer), k8s/
 docs/        arquitectura (ADR, catálogo de eventos, DTOs), specs de fase, progreso
@@ -31,10 +31,11 @@ scripts/     utilitarios del repo
 - Node 24 LTS · pnpm 11 · Docker (para Postgres + RabbitMQ).
 - La primera vez: `pnpm install`.
 
-### Arranque en 3 pasos
+### Arranque
 
-La app son **tres piezas** que se levantan en terminales separadas: el backend
-(infra + los 9 servicios NestJS detrás del Gateway), y los dos frontends.
+Las piezas se levantan en terminales separadas: el backend (infra + los 9
+servicios NestJS detrás del Gateway) y los frontends. Para el uso normal
+alcanza con los pasos 1 y 2; los pasos 3 y 4 son opcionales.
 
 ```bash
 # 1) Backend completo — infra (Postgres+RabbitMQ) + migraciones + los 9 servicios.
@@ -46,7 +47,25 @@ pnpm dev:app                     # http://localhost:4200
 
 # 3) Sitio público (Astro) — en OTRA terminal, solo si lo necesitás.
 pnpm dev:site                    # http://localhost:4321
+
+# 4) Panel de plataforma (Angular) — OTRA terminal, solo si administrás la
+#    plataforma (gestión de organizaciones/planes por un PLATFORM_ADMIN).
+pnpm dev:admin                   # http://localhost:4300
 ```
+
+El panel (`admin-web`) es opcional: solo lo usás como administrador de la
+plataforma (no es parte de la app familiar). Comparte el mismo backend/Gateway.
+Necesita una cuenta `PLATFORM_ADMIN`, que **no** se registra desde ninguna UI:
+se crea al arrancar `identity-service` si definís estas variables de entorno
+(`apps/identity-service/.env`), idempotente:
+
+```bash
+PLATFORM_ADMIN_EMAIL=vos@plataforma.dorado
+PLATFORM_ADMIN_PASSWORD=una-clave-larga-y-secreta
+# PLATFORM_ADMIN_NOMBRE=Administrador de plataforma   # opcional
+```
+
+Con eso, entrás al panel en `http://localhost:4300` con ese email y contraseña.
 
 `pnpm dev:backend` usa `scripts/e2e-up.mjs --serve-only`: levanta la infra con
 docker-compose, corre `prisma migrate deploy` en las 8 bases, arranca gateway +
@@ -64,6 +83,7 @@ de planes FREE/PRO (billing) se aplica solo en el bootstrap del servicio.
 | Gateway (única entrada al backend) | http://localhost:3000/api/* |
 | Servicios internos | :3001–:3008 (no se acceden directo) |
 | `app-web` (Angular) | http://localhost:4200 |
+| `admin-web` (panel PLATFORM_ADMIN, Angular) | http://localhost:4300 |
 | `public-site` (Astro) | http://localhost:4321 |
 | Adminer (DB) | http://localhost:8081 |
 | RabbitMQ Management | http://localhost:15672 |
@@ -115,6 +135,7 @@ funciona desde `:4321` (origen que el Gateway acepta por CORS).
 ```bash
 pnpm nx serve gateway          # o cualquier servicio individual
 pnpm nx serve app-web          # :4200
+pnpm nx serve admin-web        # :4300  (panel PLATFORM_ADMIN)
 pnpm nx serve public-site      # :4321  (equivale a `astro dev`)
 ```
 

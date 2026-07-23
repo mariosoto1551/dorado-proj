@@ -4,6 +4,7 @@ import type { Observable } from 'rxjs';
 
 import type {
   ActividadDto,
+  CompletadaOpcionalDto,
   ConductaDto,
   MiEstadoHoyDto,
   RegistroActividadDto,
@@ -96,6 +97,20 @@ export class ActivityApiService {
     return this.http.post<RegistroActividadDto>(
       `${this.base}/actividades/${actividadId}/no-hizo`,
       { usuarioId }
+    );
+  }
+
+  /** Completadas OPCIONALES de un usuario en la sesión abierta (para corregir). */
+  completadasOpcionales(grupoId: string, usuarioId: string): Observable<CompletadaOpcionalDto[]> {
+    return this.http.get<CompletadaOpcionalDto[]>(
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/completadas`
+    );
+  }
+
+  /** Quita (soft-delete) una completada de actividad de un usuario. */
+  eliminarRegistroActividad(registroId: string): Observable<RegistroActividadDto> {
+    return this.http.delete<RegistroActividadDto>(
+      `${this.base}/registros-actividad/${registroId}`
     );
   }
 

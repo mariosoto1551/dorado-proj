@@ -6,8 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { ROUTING_KEYS } from '@dorado/shared-events';
+import { ActividadRegistroEliminadoPayload, ROUTING_KEYS } from '@dorado/shared-events';
 import {
+  CompletadaOpcionalDto,
   EstadoSeccion,
   EstadoSesion,
   MiEstadoActividadHoyDto,
@@ -244,12 +245,15 @@ export class RegistroService {
         orderBy: { createdAt: 'asc' },
       }),
       // vecesHechas: el mismo conteo real que valida `completar` (validación 4).
+      // Excluye eliminadas: si un tutor quitó una completada (fase-14), la
+      // pantalla del usuario lo refleja al instante.
       this.prisma.client.registroActividad.groupBy({
         by: ['actividadId'],
         where: {
           usuarioId,
           sesionId: sesionAbierta.id,
           tipo: TipoRegistroActividad.COMPLETADA,
+          eliminado: false,
         },
         _count: { _all: true },
       }),
@@ -330,7 +334,150 @@ export class RegistroService {
       },
     });
 
+    // Override (fase-14): si la obligatoria era confirmable y el usuario ya la
+    // había confirmado, esa confirmación deja de valer — se da de baja para que
+    // su pantalla la muestre como NO hecha. Sin evento: la confirmación valía 0
+    // pts (no tiene asiento en el ledger); el castigo lo aplica el NO_HIZO de
+    // arriba, y `paresPendientes` del cierre ya no duplica (hay un registro).
+    if (actividad.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION) {
+      await this.prisma.client.registroActividad.updateMany({
+        where: {
+          usuarioId,
+          actividadId,
+          sesionId: sesion.sesionId,
+          tipo: TipoRegistroActividad.COMPLETADA,
+          eliminado: false,
+        },
+        data: {
+          eliminado: true,
+          eliminadoPorTutorId: tenant.principalId,
+          eliminadoEn: new Date(),
+        },
+      });
+    }
+
     return registroActividadADto(registro);
+  }
+
+  /**
+   * GET /activity/grupos/:grupoId/usuarios/:usuarioId/completadas — Tutor.
+   * Las OPCIONALES que el usuario completó en la Sesión abierta (no eliminadas),
+   * agrupadas por actividad con sus filas individuales, para que el tutor quite
+   * una (la última) o todas (fase-14). Sin Sesión ABIERTA devuelve [].
+   */
+  async listarCompletadasOpcionales(
+    tenant: TenantContext,
+    grupoId: string,
+    usuarioId: string
+  ): Promise<CompletadaOpcionalDto[]> {
+    const usuarioObjetivo = await this.resolverUsuarioObjetivo(tenant, grupoId, usuarioId);
+    const seccion = await this.session.obtenerSeccionActual(grupoId);
+    const sesionAbierta =
+      seccion?.estado === EstadoSeccion.ABIERTA
+        ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
+        : undefined;
+
+    if (!sesionAbierta) {
+      return [];
+    }
+
+    const opcionales = await this.prisma.client.actividad.findMany({
+      where: { grupoId, estado: EstadoCatalogo.ACTIVA, tipoPuntaje: TipoPuntaje.OPCIONAL },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (opcionales.length === 0) {
+      return [];
+    }
+
+    const registros = await this.prisma.client.registroActividad.findMany({
+      where: {
+        usuarioId: usuarioObjetivo,
+        sesionId: sesionAbierta.id,
+        tipo: TipoRegistroActividad.COMPLETADA,
+        eliminado: false,
+        actividadId: { in: opcionales.map((actividad) => actividad.id) },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, actividadId: true, createdAt: true },
+    });
+
+    const porActividad = new Map<string, CompletadaOpcionalDto['registros']>();
+
+    for (const registro of registros) {
+      const lista = porActividad.get(registro.actividadId) ?? [];
+      lista.push({ registroId: registro.id, createdAt: registro.createdAt.toISOString() });
+      porActividad.set(registro.actividadId, lista);
+    }
+
+    return opcionales
+      .filter((actividad) => porActividad.has(actividad.id))
+      .map((actividad) => ({
+        actividadId: actividad.id,
+        nombre: actividad.nombre,
+        valorPuntos: actividad.valorPuntos,
+        registros: porActividad.get(actividad.id) ?? [],
+      }));
+  }
+
+  /**
+   * DELETE /activity/registros-actividad/:id — Tutor. Soft-delete de una
+   * COMPLETADA (fase-14, espejo del borrado de conducta). scoring compensa el
+   * asiento vía evento; nunca DELETE físico. Una confirmación (0 pts) no tiene
+   * asiento en el ledger, así que en ese caso NO se publica evento.
+   */
+  async eliminarRegistroActividad(
+    tenant: TenantContext,
+    registroId: string
+  ): Promise<RegistroActividadDto> {
+    const registro = await this.prisma.client.registroActividad.findFirst({
+      where: { id: registroId },
+    });
+
+    // Mismo 404 para inexistente / de otra org / no-completada (no revela nada).
+    if (
+      !registro ||
+      registro.organizacionId !== tenant.organizacionId ||
+      registro.tipo !== TipoRegistroActividad.COMPLETADA
+    ) {
+      throw new NotFoundException('Registro de actividad no encontrado');
+    }
+
+    if (registro.eliminado) {
+      throw new ConflictException('El registro ya fue eliminado');
+    }
+
+    const ahora = new Date();
+
+    await this.prisma.client.registroActividad.updateMany({
+      where: { id: registroId },
+      data: {
+        eliminado: true,
+        eliminadoPorTutorId: tenant.principalId,
+        eliminadoEn: ahora,
+      },
+    });
+
+    if (registro.valorPuntosSnapshot !== 0) {
+      await this.eventos.publicar<ActividadRegistroEliminadoPayload>({
+        eventType: 'ActividadRegistroEliminado',
+        routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
+        organizacionId: registro.organizacionId,
+        grupoId: registro.grupoId,
+        payload: {
+          registroId,
+          usuarioId: registro.usuarioId,
+          eliminadoPorTutorId: tenant.principalId,
+        },
+      });
+    }
+
+    return registroActividadADto({
+      ...registro,
+      eliminado: true,
+      eliminadoPorTutorId: tenant.principalId,
+      eliminadoEn: ahora,
+    });
   }
 
   /** POST /activity/conductas/:id/registrar — signo según tipo de conducta. */

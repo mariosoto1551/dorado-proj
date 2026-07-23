@@ -42,6 +42,8 @@ export const SERVICIOS_INTERNOS: readonly ServicioInterno[] = [
 export const TABLA_RUTEO: readonly RutaProxy[] = [
   { prefijo: '/api/auth', servicio: IDENTITY },
   { prefijo: '/api/identity', servicio: IDENTITY },
+  // Panel de PLATFORM_ADMIN (fase-14-05): identity atiende un tercer prefijo.
+  { prefijo: '/api/admin', servicio: IDENTITY },
   { prefijo: '/api/billing', servicio: BILLING },
   { prefijo: '/api/activity', servicio: ACTIVITY },
   { prefijo: '/api/session', servicio: SESSION },

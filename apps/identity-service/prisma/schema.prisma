@@ -39,6 +39,20 @@ enum EstadoInvitacion {
   REVOCADA
 }
 
+// Cuenta de plataforma (PLATFORM_ADMIN, fase-14-05). Vive POR ENCIMA del tenant:
+// única tabla de negocio de identity SIN organizacionId — excepción explícita a
+// la regla 3 de CLAUDE.md, porque un admin de plataforma no pertenece a ninguna
+// Organización. No se crea por endpoint público: solo por bootstrap de env.
+model PlatformAdmin {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  passwordHash String
+  nombre       String
+  estado       EstadoCuenta @default(ACTIVO)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
 model Organizacion {
   id            String             @id @default(uuid())
   nombre        String

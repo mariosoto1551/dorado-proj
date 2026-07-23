@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type {
   MiOrganizacionResponse,
   PlanOrganizacionResponse,
+  SuscripcionWire,
 } from './dto/suscripciones.dto';
 
 /** Identificador de este consumidor en la tabla EventoProcesado (ADR-00 §5). */
@@ -98,6 +99,58 @@ export class SuscripcionesService {
     const plan = await this.planVigente(organizacionId);
 
     return entitlementsDePlan(plan);
+  }
+
+  /**
+   * GET /internal/billing/organizaciones/:id/suscripcion — usado por el panel
+   * de PLATFORM_ADMIN (fase-14-05) para el detalle de una organización.
+   */
+  async suscripcionDeOrganizacion(organizacionId: string): Promise<SuscripcionWire> {
+    const suscripcion = await this.prisma.client.suscripcion.findFirst({
+      where: { organizacionId },
+      include: { plan: true },
+    });
+
+    if (!suscripcion) {
+      throw new SuscripcionNoEncontradaException();
+    }
+
+    return suscripcionAWire(suscripcion, suscripcion.plan.codigo as CodigoPlanDto);
+  }
+
+  /**
+   * POST /internal/billing/organizaciones/:id/plan — cambio de plan por el
+   * PLATFORM_ADMIN (fase-14-05). Reemplaza el UPDATE manual en base de la nota
+   * de Fase 4. NO es la pasarela de pagos (ítem #3): es asignación manual.
+   *
+   * Idempotente: poner el mismo plan dos veces no rompe. La `fuente` pasa a
+   * MANUAL (dejó de ser la asignación automática del alta). Si no existe
+   * suscripción todavía (evento de alta no llegó), se crea.
+   */
+  async cambiarPlan(organizacionId: string, codigo: CodigoPlan): Promise<SuscripcionWire> {
+    const plan = await this.planPorCodigo(codigo);
+
+    const suscripcion = await this.prisma.client.suscripcion.upsert({
+      where: { organizacionId },
+      create: {
+        organizacionId,
+        planId: plan.id,
+        fuente: FuenteSuscripcion.MANUAL,
+        estado: EstadoSuscripcion.ACTIVA,
+      },
+      update: {
+        planId: plan.id,
+        fuente: FuenteSuscripcion.MANUAL,
+        estado: EstadoSuscripcion.ACTIVA,
+      },
+      include: { plan: true },
+    });
+
+    this.logger.log(
+      `Plan de organización ${organizacionId} cambiado a ${codigo} (fuente MANUAL, panel de plataforma)`
+    );
+
+    return suscripcionAWire(suscripcion, suscripcion.plan.codigo as CodigoPlanDto);
   }
 
   // ---------- Endpoint autenticado ----------

@@ -23,7 +23,7 @@ import { NotificationApiService } from '../../core/api/notification-api.service'
       <button
         type="button"
         (click)="alternar()"
-        class="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
+        class="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
         aria-label="Notificaciones"
       >
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -47,15 +47,15 @@ import { NotificationApiService } from '../../core/api/notification-api.service'
         <button type="button" aria-label="Cerrar" class="fixed inset-0 z-30 cursor-default" (click)="cerrar()"></button>
 
         <div
-          class="absolute right-0 z-40 mt-2 flex max-h-[70dvh] w-80 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl animate-slide-up sm:w-96"
+          class="absolute right-0 z-40 mt-2 flex max-h-[70dvh] w-80 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl animate-slide-up dark:border-slate-700 dark:bg-slate-900 sm:w-96"
         >
-          <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <h3 class="text-sm font-bold text-slate-900">Notificaciones</h3>
+          <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Notificaciones</h3>
             @if (notif.noLeidas() > 0) {
               <button
                 type="button"
                 (click)="marcarTodas()"
-                class="text-xs font-semibold text-marca-600 hover:text-marca-700"
+                class="text-xs font-semibold text-marca-600 hover:text-marca-700 dark:text-marca-400 dark:hover:text-marca-300"
               >
                 Marcar todas
               </button>
@@ -64,9 +64,9 @@ import { NotificationApiService } from '../../core/api/notification-api.service'
 
           <div class="flex-1 overflow-y-auto">
             @if (cargando()) {
-              <p class="px-4 py-6 text-center text-sm text-slate-400">Cargando…</p>
+              <p class="px-4 py-6 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
             } @else if (items().length === 0) {
-              <p class="px-4 py-8 text-center text-sm text-slate-400">
+              <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
                 No tenés notificaciones.
               </p>
             } @else {
@@ -74,16 +74,17 @@ import { NotificationApiService } from '../../core/api/notification-api.service'
                 <button
                   type="button"
                   (click)="marcarUna(n)"
-                  class="flex w-full items-start gap-3 border-b border-slate-50 px-4 py-3 text-left transition hover:bg-slate-50"
+                  class="flex w-full items-start gap-3 border-b border-slate-50 px-4 py-3 text-left transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50"
                   [class.bg-marca-50]="!n.leida"
+                  [class.dark:bg-marca-900/30]="!n.leida"
                 >
                   <span
                     class="mt-1.5 h-2 w-2 shrink-0 rounded-full"
                     [class]="n.leida ? 'bg-transparent' : 'bg-marca-500'"
                   ></span>
                   <span class="min-w-0 flex-1">
-                    <span class="block text-sm text-slate-800">{{ n.mensaje }}</span>
-                    <span class="mt-0.5 block text-xs text-slate-400">{{
+                    <span class="block text-sm text-slate-800 dark:text-slate-100">{{ n.mensaje }}</span>
+                    <span class="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">{{
                       tiempoRelativo(n.createdAt)
                     }}</span>
                   </span>

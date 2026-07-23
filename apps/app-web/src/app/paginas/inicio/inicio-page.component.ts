@@ -13,7 +13,7 @@ import { AuthService } from '../../core/auth/auth.service';
       <h2 class="text-2xl font-bold tracking-tight">
         ¡Hola, {{ auth.nombreMostrable() }}!
       </h2>
-      <p class="mt-2 text-sm text-slate-600">
+      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
         Tu espacio está listo. Las actividades, puntos y zonas llegan en las
         próximas fases.
       </p>

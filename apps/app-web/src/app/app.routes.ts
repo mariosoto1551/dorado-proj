@@ -58,6 +58,13 @@ export const appRoutes: Route[] = [
               import('./paginas/tutor/resumen-grupo.page').then((m) => m.ResumenGrupoPage),
           },
           {
+            path: 'guia',
+            loadComponent: () =>
+              import('./paginas/tutor/guia-primeros-pasos.page').then(
+                (m) => m.GuiaPrimerosPasosPage
+              ),
+          },
+          {
             path: 'actividades',
             loadComponent: () =>
               import('./paginas/tutor/actividades.page').then((m) => m.ActividadesPage),

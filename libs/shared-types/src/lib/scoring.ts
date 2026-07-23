@@ -42,6 +42,15 @@ export interface PuntajeUsuarioDto {
   descalificado: boolean;
 }
 
+/**
+ * Config de scoring por Grupo (fase-14). `puntosIniciales` es la base con la
+ * que cada usuario arranca en CADA Sección — se suma al derivar el puntaje.
+ * La configura el admin del grupo; 0 = arrancar en cero (histórico).
+ */
+export interface ConfiguracionScoringGrupoDto {
+  puntosIniciales: number;
+}
+
 export interface DescalificacionDto {
   id: string;
   organizacionId: string;

@@ -1,6 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { TenantContext, UmbralZonaDto } from '@dorado/shared-types';
+import {
+  ConfiguracionScoringGrupoDto,
+  TenantContext,
+  UmbralZonaDto,
+} from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { umbralADto } from '../comun/mapeadores';
@@ -8,7 +12,11 @@ import { validarConjuntoUmbrales, type RangoUmbral } from '../comun/zonas';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { UmbralZona } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import type { CrearUmbralRequest, EditarUmbralRequest } from './dto/umbrales.dto';
+import type {
+  CrearUmbralRequest,
+  EditarUmbralRequest,
+  GuardarConfiguracionScoringRequest,
+} from './dto/umbrales.dto';
 
 /**
  * CRUD de UmbralZona (spec fase-07): toda escritura valida el CONJUNTO
@@ -64,6 +72,54 @@ export class UmbralesService {
     });
 
     return umbralADto(umbral);
+  }
+
+  /** GET /scoring/grupos/:grupoId/configuracion — base de puntos iniciales. */
+  async obtenerConfiguracion(
+    tenant: TenantContext,
+    grupoId: string
+  ): Promise<ConfiguracionScoringGrupoDto> {
+    this.acceso.asegurarAccesoLectura(tenant, grupoId);
+
+    const config = await this.prisma.client.configuracionScoringGrupo.findUnique({
+      where: { grupoId },
+    });
+
+    return { puntosIniciales: config?.puntosIniciales ?? 0 };
+  }
+
+  /** PUT /scoring/grupos/:grupoId/configuracion — setea la base (upsert). */
+  async guardarConfiguracion(
+    tenant: TenantContext,
+    grupoId: string,
+    datos: GuardarConfiguracionScoringRequest
+  ): Promise<ConfiguracionScoringGrupoDto> {
+    await this.acceso.asegurarAccesoEscritura(tenant, grupoId);
+
+    const config = await this.prisma.client.configuracionScoringGrupo.upsert({
+      where: { grupoId },
+      create: {
+        // organizacionId SIEMPRE del JWT validado, nunca del cliente (regla 3).
+        organizacionId: tenant.organizacionId,
+        grupoId,
+        puntosIniciales: datos.puntosIniciales,
+      },
+      update: { puntosIniciales: datos.puntosIniciales },
+    });
+
+    // Retrofit fase-09: rastro de auditoría de toda escritura administrativa.
+    await this.eventos.publicarAccionAdministrativa({
+      organizacionId: tenant.organizacionId,
+      grupoId,
+      actorId: tenant.principalId,
+      actorTipo: tenant.principalType,
+      accion: 'CONFIG_SCORING_GUARDADA',
+      entidadTipo: 'ConfiguracionScoringGrupo',
+      entidadId: config.id,
+      detalle: { despues: { puntosIniciales: config.puntosIniciales } },
+    });
+
+    return { puntosIniciales: config.puntosIniciales };
   }
 
   /** GET /scoring/grupos/:grupoId/umbrales — cualquier rol del grupo. */

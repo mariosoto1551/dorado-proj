@@ -83,6 +83,17 @@ export interface ConductaRegistroEliminadoPayload {
   eliminadoPorTutorId: string;
 }
 
+/**
+ * Un tutor quitó una completada de actividad de un usuario (fase-14: corrección
+ * de opcionales, y baja de la confirmación de una obligatoria overrideada por
+ * "no hizo"). scoring compensa el asiento original vía `origenId = registroId`.
+ */
+export interface ActividadRegistroEliminadoPayload {
+  registroId: string;
+  usuarioId: string;
+  eliminadoPorTutorId: string;
+}
+
 export interface SesionEventoPayload {
   sesionId: string;
   seccionId: string;

@@ -14,11 +14,12 @@ import { BillingClientService } from '../billing/billing-client.service';
 import {
   CredencialesInvalidasException,
   IdentificadorEnUsoException,
+  OrganizacionSuspendidaException,
   RefreshTokenInvalidoException,
 } from '../comun/excepciones';
 import { organizacionADto, tutorADto, usuarioADto } from '../comun/mapeadores';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
-import { EstadoCuenta, RolTutor } from '../generated/prisma/enums';
+import { EstadoCuenta, EstadoOrganizacion, RolTutor } from '../generated/prisma/enums';
 import type { Tutor, Usuario } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LoginRequest } from './dto/login.dto';
@@ -165,6 +166,8 @@ export class AuthService {
    * la base y plan resuelto) + refresh token nuevo + perfil.
    */
   async emitirSesionTutor(tutor: Tutor): Promise<SesionEmitida> {
+    await this.verificarOrganizacionActiva(tutor.organizacionId);
+
     // ORG_ADMIN viaja con grupoIds vacío = acceso implícito a todos (ADR-00 §3).
     const grupoIds =
       tutor.rol === RolTutor.ORG_ADMIN
@@ -198,6 +201,8 @@ export class AuthService {
   }
 
   async emitirSesionUsuario(usuario: Usuario): Promise<SesionEmitida> {
+    await this.verificarOrganizacionActiva(usuario.organizacionId);
+
     const plan = await this.billing.resolvePlan(usuario.organizacionId);
 
     const accessToken = await this.tokens.emitirAccessToken({
@@ -232,6 +237,23 @@ export class AuthService {
     }
 
     return error as Error;
+  }
+
+  /**
+   * Bloquea la emisión de cualquier sesión (login/refresh/registro) para una
+   * organización SUSPENDIDA (fase-14-05). Los access tokens ya emitidos siguen
+   * válidos hasta su `exp` (≤2h): la suspensión corta el re-login y el refresh,
+   * no las sesiones en vuelo. Cambio de comportamiento respecto de fase-02,
+   * documentado en docs/progreso/fase-14-post-mvp.md.
+   */
+  private async verificarOrganizacionActiva(organizacionId: string): Promise<void> {
+    const organizacion = await this.prisma.client.organizacion.findFirst({
+      where: { id: organizacionId },
+    });
+
+    if (organizacion?.estado === EstadoOrganizacion.SUSPENDIDA) {
+      throw new OrganizacionSuspendidaException();
+    }
   }
 
   private async verificarCredencial(

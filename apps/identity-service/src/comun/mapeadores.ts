@@ -2,6 +2,7 @@ import type {
   GrupoDto,
   InvitacionDto,
   OrganizacionDto,
+  PlatformAdminDto,
   TutorDto,
   UsuarioDto,
 } from '@dorado/shared-types';
@@ -10,6 +11,7 @@ import type {
   Grupo,
   Invitacion,
   Organizacion,
+  PlatformAdmin,
   Tutor,
   Usuario,
 } from '../generated/prisma/client';
@@ -25,6 +27,16 @@ export function organizacionADto(organizacion: Organizacion): OrganizacionDto {
     emailContacto: organizacion.emailContacto,
     estado: organizacion.estado as OrganizacionDto['estado'],
     createdAt: organizacion.createdAt.toISOString(),
+  };
+}
+
+export function platformAdminADto(admin: PlatformAdmin): PlatformAdminDto {
+  return {
+    id: admin.id,
+    email: admin.email,
+    nombre: admin.nombre,
+    estado: admin.estado as PlatformAdminDto['estado'],
+    createdAt: admin.createdAt.toISOString(),
   };
 }
 

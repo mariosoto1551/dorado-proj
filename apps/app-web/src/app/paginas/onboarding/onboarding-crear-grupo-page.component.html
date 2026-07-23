@@ -1,55 +1,52 @@
 <section class="mx-auto w-full max-w-sm px-4 py-8">
-  <h2 class="mb-1 text-2xl font-bold tracking-tight">Creá tu primer Grupo</h2>
-  <p class="mb-6 text-sm text-slate-600">
+  <h2 class="mb-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Creá tu primer Grupo</h2>
+  <p class="mb-6 text-sm text-slate-600 dark:text-slate-300">
     Un Grupo reúne a tus participantes: sus actividades, puntos y zonas viven ahí.
   </p>
 
   <form
     [formGroup]="form"
     (ngSubmit)="enviar()"
-    class="space-y-4 rounded-xl bg-white p-6 shadow-sm"
+    class="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
   >
     <div>
-      <label for="nombre" class="mb-1 block text-sm font-medium">Nombre del grupo</label>
+      <label for="nombre" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Nombre del grupo</label>
       <input
         id="nombre"
         type="text"
         formControlName="nombre"
         placeholder="Ej: Familia García"
-        class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
       />
       @if (form.controls.nombre.touched && form.controls.nombre.invalid) {
-        <p class="mt-1 text-sm text-red-600">Ingresá un nombre (máx. 120 caracteres).</p>
+        <p class="mt-1.5 text-xs text-red-600 dark:text-red-400">Ingresá un nombre (máx. 120 caracteres).</p>
       }
     </div>
 
     <div>
-      <label for="timezone" class="mb-1 block text-sm font-medium">Zona horaria</label>
+      <label for="timezone" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Zona horaria</label>
       <select
         id="timezone"
         formControlName="timezone"
-        class="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+        class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
       >
         @for (tz of timezones; track tz) {
           <option [value]="tz">{{ tz }}</option>
         }
       </select>
-      <p class="mt-1 text-xs text-slate-500">
+      <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
         Los horarios de sesiones y deadlines del grupo se calculan en esta zona.
       </p>
     </div>
 
     @if (error(); as mensaje) {
-      <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-        {{ mensaje }}
-      </p>
+      <div role="alert" class="flex items-start gap-3 rounded-xl border border-zona-rojo/30 bg-zona-rojo/10 p-3.5 text-sm text-red-700 dark:text-red-300">
+        <svg class="mt-0.5 flex-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+        <span>{{ mensaje }}</span>
+      </div>
     }
 
-    <button
-      type="submit"
-      [disabled]="cargando()"
-      class="h-11 w-full rounded-lg bg-amber-500 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
-    >
+    <button type="submit" [disabled]="cargando()" class="btn-primario w-full text-base">
       {{ cargando() ? 'Creando…' : 'Crear grupo' }}
     </button>
   </form>

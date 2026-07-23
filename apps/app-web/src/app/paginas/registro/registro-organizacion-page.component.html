@@ -1,76 +1,133 @@
-<main class="flex min-h-dvh items-center justify-center px-4 py-8">
-  <section class="w-full max-w-sm">
-    <h1 class="mb-1 text-center text-3xl font-bold tracking-tight">Dorado</h1>
-    <p class="mb-6 text-center text-sm text-slate-600">Registrá tu organización</p>
+<main class="relative flex min-h-dvh items-center justify-center overflow-hidden bg-slate-50 px-4 py-10 dark:bg-slate-950">
+  <!-- Glow de marca de fondo (mismo recurso visual que el sitio público). -->
+  <div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+    <div class="absolute -top-40 left-1/2 h-96 w-[36rem] -translate-x-1/2 rounded-full bg-marca-400/20 blur-3xl dark:bg-marca-600/15"></div>
+  </div>
 
-    <form
-      [formGroup]="form"
-      (ngSubmit)="enviar()"
-      class="space-y-4 rounded-xl bg-white p-6 shadow-sm"
-    >
-      <div>
-        <label for="nombre" class="mb-1 block text-sm font-medium">
-          Nombre de la organización
-        </label>
-        <input
-          id="nombre"
-          type="text"
-          formControlName="nombre"
-          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
-        />
-        @if (form.controls.nombre.touched && form.controls.nombre.invalid) {
-          <p class="mt-1 text-sm text-red-600">Ingresá un nombre (máx. 120 caracteres).</p>
+  <div class="grid w-full max-w-5xl items-center gap-10 lg:grid-cols-2 lg:gap-16">
+    <!-- Columna de contexto (solo desktop) -->
+    <div class="hidden flex-col justify-center lg:flex">
+      <a class="mb-8 flex items-center gap-2.5 text-slate-900 dark:text-white" aria-label="Proyecto Dorado">
+        <span class="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-marca-500 to-marca-700 text-base font-black text-white shadow-sm" aria-hidden="true">◆</span>
+        <span class="text-lg font-bold tracking-tight">Proyecto Dorado</span>
+      </a>
+
+      <h2 class="text-balance text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        Creá tu organización
+      </h2>
+      <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+        En un minuto tenés tu propio sistema de puntos listo para configurar.
+        Empezás en el plan <strong class="font-semibold text-slate-800 dark:text-slate-100">Free</strong>, sin tarjeta.
+      </p>
+
+      <ul class="mt-8 space-y-4">
+        @for (t of destacados; track t) {
+          <li class="flex items-start gap-3 text-slate-700 dark:text-slate-200">
+            <span class="mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full bg-marca-100 text-marca-600 dark:bg-marca-900/60 dark:text-marca-300" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+            </span>
+            <span class="text-sm leading-relaxed">{{ t }}</span>
+          </li>
         }
-      </div>
+      </ul>
+    </div>
 
-      <div>
-        <label for="emailContacto" class="mb-1 block text-sm font-medium">
-          Email de contacto
-        </label>
-        <input
-          id="emailContacto"
-          type="email"
-          formControlName="emailContacto"
-          autocomplete="email"
-          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
-        />
-        @if (form.controls.emailContacto.touched && form.controls.emailContacto.invalid) {
-          <p class="mt-1 text-sm text-red-600">Ingresá un email válido.</p>
-        }
-      </div>
+    <!-- Columna del formulario -->
+    <div class="animate-slide-up">
+      <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 sm:p-8">
+        <!-- Wordmark en móvil (la columna de contexto está oculta) -->
+        <a class="mb-6 flex items-center justify-center gap-2.5 text-slate-900 dark:text-white lg:hidden" aria-label="Proyecto Dorado">
+          <span class="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-marca-500 to-marca-700 text-sm font-black text-white shadow-sm" aria-hidden="true">◆</span>
+          <span class="text-base font-bold tracking-tight">Proyecto Dorado</span>
+        </a>
 
-      <div>
-        <label for="password" class="mb-1 block text-sm font-medium">Contraseña</label>
-        <input
-          id="password"
-          type="password"
-          formControlName="password"
-          autocomplete="new-password"
-          class="h-11 w-full rounded-lg border border-slate-300 px-3 text-base focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
-        />
-        @if (form.controls.password.touched && form.controls.password.invalid) {
-          <p class="mt-1 text-sm text-red-600">Mínimo 8 caracteres.</p>
-        }
-      </div>
+        <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Creá tu cuenta</h1>
+        <p class="mt-1.5 text-sm text-slate-500 dark:text-slate-400">Tu cuenta queda como administrador de la organización.</p>
 
-      @if (error(); as mensaje) {
-        <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          {{ mensaje }}
+        <form [formGroup]="form" (ngSubmit)="enviar()" novalidate class="mt-6 space-y-5">
+          <div>
+            <label for="nombre" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Nombre de la organización
+            </label>
+            <input
+              id="nombre"
+              type="text"
+              formControlName="nombre"
+              maxlength="120"
+              autocomplete="organization"
+              placeholder="Ej: Familia Pérez, 5.º B, Club Norte"
+              class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+            />
+            @if (form.controls.nombre.touched && form.controls.nombre.invalid) {
+              <p class="mt-1.5 text-xs text-red-600 dark:text-red-400">Ingresá un nombre (máx. 120 caracteres).</p>
+            }
+          </div>
+
+          <div>
+            <label for="emailContacto" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Email de contacto
+            </label>
+            <input
+              id="emailContacto"
+              type="email"
+              formControlName="emailContacto"
+              autocomplete="email"
+              placeholder="tu@email.com"
+              class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+            />
+            @if (form.controls.emailContacto.touched && form.controls.emailContacto.invalid) {
+              <p class="mt-1.5 text-xs text-red-600 dark:text-red-400">Ingresá un email válido.</p>
+            }
+            <p class="mt-1.5 text-xs text-slate-400">Lo usás para iniciar sesión como administrador.</p>
+          </div>
+
+          <div>
+            <label for="password" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Contraseña</label>
+            <input
+              id="password"
+              type="password"
+              formControlName="password"
+              autocomplete="new-password"
+              placeholder="Al menos 8 caracteres"
+              class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+            />
+            @if (form.controls.password.touched && form.controls.password.invalid) {
+              <p class="mt-1.5 text-xs text-red-600 dark:text-red-400">Mínimo 8 caracteres.</p>
+            }
+          </div>
+
+          <div>
+            <label for="passwordConfirmacion" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">Confirmar contraseña</label>
+            <input
+              id="passwordConfirmacion"
+              type="password"
+              formControlName="passwordConfirmacion"
+              autocomplete="new-password"
+              placeholder="Repetí la contraseña"
+              class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-marca-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-white dark:placeholder:text-slate-500"
+            />
+            @if (form.controls.passwordConfirmacion.touched && form.hasError('passwordMismatch')) {
+              <p class="mt-1.5 text-xs text-red-600 dark:text-red-400">Las contraseñas no coinciden.</p>
+            }
+          </div>
+
+          @if (error(); as mensaje) {
+            <div role="alert" class="flex items-start gap-3 rounded-xl border border-zona-rojo/30 bg-zona-rojo/10 p-3.5 text-sm text-red-700 dark:text-red-300">
+              <svg class="mt-0.5 flex-none" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+              <span>{{ mensaje }}</span>
+            </div>
+          }
+
+          <button type="submit" [disabled]="cargando()" class="btn-primario w-full text-base">
+            {{ cargando() ? 'Creando…' : 'Crear cuenta gratis' }}
+          </button>
+        </form>
+
+        <p class="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">
+          ¿Ya tenés cuenta?
+          <a routerLink="/login" class="font-semibold text-marca-600 hover:text-marca-700 dark:text-marca-400">Ingresá</a>
         </p>
-      }
-
-      <button
-        type="submit"
-        [disabled]="cargando()"
-        class="h-11 w-full rounded-lg bg-amber-500 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
-      >
-        {{ cargando() ? 'Creando…' : 'Crear organización' }}
-      </button>
-    </form>
-
-    <p class="mt-4 text-center text-sm text-slate-600">
-      ¿Ya tenés cuenta?
-      <a routerLink="/login" class="font-medium text-amber-700 hover:underline">Ingresá</a>
-    </p>
-  </section>
+      </div>
+    </div>
+  </div>
 </main>

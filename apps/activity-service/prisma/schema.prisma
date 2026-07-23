@@ -94,7 +94,12 @@ model RegistroActividad {
   registradoPorId     String
   // 'TUTOR' | 'USUARIO'
   registradoPorTipo   String
-  createdAt           DateTime @default(now())
+  // Soft-delete de una COMPLETADA que un tutor quita (fase-14): nunca DELETE
+  // físico — scoring compensa vía evento (mismo patrón que RegistroConducta).
+  eliminado           Boolean   @default(false)
+  eliminadoPorTutorId String?
+  eliminadoEn         DateTime?
+  createdAt           DateTime  @default(now())
 
   @@index([organizacionId])
   @@index([usuarioId, actividadId, sesionId])

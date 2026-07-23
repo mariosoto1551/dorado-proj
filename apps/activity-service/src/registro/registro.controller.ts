@@ -7,6 +7,7 @@ import {
   TenantContextGuard,
 } from '@dorado/shared-auth';
 import {
+  CompletadaOpcionalDto,
   MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
@@ -65,6 +66,27 @@ export class RegistroController {
     @Body() datos: RegistrarNoHizoRequest
   ): Promise<RegistroActividadDto> {
     return await this.registro.registrarNoHizo(tenant, actividadId, datos);
+  }
+
+  /** Completadas OPCIONALES de un usuario en la sesión abierta (fase-14). */
+  @Get('grupos/:grupoId/usuarios/:usuarioId/completadas')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async completadasOpcionales(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string,
+    @Param('usuarioId') usuarioId: string
+  ): Promise<CompletadaOpcionalDto[]> {
+    return await this.registro.listarCompletadasOpcionales(tenant, grupoId, usuarioId);
+  }
+
+  /** Quitar (soft-delete) una completada de actividad de un usuario (fase-14). */
+  @Delete('registros-actividad/:id')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async eliminarRegistroActividad(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') registroId: string
+  ): Promise<RegistroActividadDto> {
+    return await this.registro.eliminarRegistroActividad(tenant, registroId);
   }
 
   @Post('conductas/:id/registrar')
