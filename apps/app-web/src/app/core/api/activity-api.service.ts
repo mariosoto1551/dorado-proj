@@ -5,10 +5,14 @@ import type { Observable } from 'rxjs';
 import type {
   ActividadDto,
   CompletadaOpcionalDto,
+  CompletarTareaEquipoResponse,
   ConductaDto,
+  CrearReporteMiembroRequest,
+  EstadoReporte,
   MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
+  ReporteMiembroDto,
 } from '@dorado/shared-types';
 
 import { environment } from '../../../environments/environment';
@@ -118,6 +122,42 @@ export class ActivityApiService {
     return this.http.post<RegistroConductaDto>(
       `${this.base}/conductas/${conductaId}/registrar`,
       usuarioId ? { usuarioId } : {}
+    );
+  }
+
+  // ---- Tareas de equipo y reportes del jefe (fase-14-09) ----
+  completarTareaEquipo(
+    equipoId: string,
+    actividadId: string
+  ): Observable<CompletarTareaEquipoResponse> {
+    return this.http.post<CompletarTareaEquipoResponse>(
+      `${this.base}/equipos/${equipoId}/tareas/${actividadId}/completar`,
+      {}
+    );
+  }
+
+  crearReporte(equipoId: string, datos: CrearReporteMiembroRequest): Observable<ReporteMiembroDto> {
+    return this.http.post<ReporteMiembroDto>(`${this.base}/equipos/${equipoId}/reportes`, datos);
+  }
+
+  listarReportes(grupoId: string, estado?: EstadoReporte): Observable<ReporteMiembroDto[]> {
+    let params = new HttpParams();
+
+    if (estado) {
+      params = params.set('estado', estado);
+    }
+
+    return this.http.get<ReporteMiembroDto[]>(`${this.base}/grupos/${grupoId}/reportes`, { params });
+  }
+
+  aprobarReporte(reporteId: string): Observable<ReporteMiembroDto> {
+    return this.http.post<ReporteMiembroDto>(`${this.base}/reportes/${reporteId}/aprobar`, {});
+  }
+
+  rechazarReporte(reporteId: string, motivo?: string): Observable<ReporteMiembroDto> {
+    return this.http.post<ReporteMiembroDto>(
+      `${this.base}/reportes/${reporteId}/rechazar`,
+      motivo ? { motivo } : {}
     );
   }
 }

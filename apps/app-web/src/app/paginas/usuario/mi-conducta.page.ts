@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -85,7 +86,11 @@ export class MiConductaPage {
   );
 
   constructor() {
-    this.cargar();
+    // Reacciona al grupo activo (fase-14, participante multi-grupo).
+    effect(() => {
+      this.auth.grupoUsuario();
+      this.cargar();
+    });
   }
 
   protected reportar(c: ConductaDto): void {

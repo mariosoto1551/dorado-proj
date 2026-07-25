@@ -3,8 +3,14 @@ import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 
 import type {
+  AgregarMiembroEquipoRequest,
+  CrearEquipoRequest,
+  EditarEquipoRequest,
+  EquipoDto,
   GrupoDto,
   InvitacionDto,
+  MiEquipoDto,
+  SustituirJefeEquipoRequest,
   TutorDto,
   UsuarioDto,
 } from '@dorado/shared-types';
@@ -26,6 +32,11 @@ export class IdentityApiService {
 
   listarGrupos(): Observable<GrupoDto[]> {
     return this.http.get<GrupoDto[]>(`${this.base}/grupos`);
+  }
+
+  /** Grupos del principal autenticado — sirve también para USUARIO (fase-14). */
+  misGrupos(): Observable<GrupoDto[]> {
+    return this.http.get<GrupoDto[]>(`${this.base}/mis-grupos`);
   }
 
   obtenerGrupo(grupoId: string): Observable<GrupoDto> {
@@ -70,5 +81,39 @@ export class IdentityApiService {
 
   revocarInvitacion(invitacionId: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/invitaciones/${invitacionId}`);
+  }
+
+  // ---- Equipos de trabajo (fase-14-09) ----
+  listarEquipos(grupoId: string): Observable<EquipoDto[]> {
+    return this.http.get<EquipoDto[]>(`${this.base}/grupos/${grupoId}/equipos`);
+  }
+
+  crearEquipo(grupoId: string, datos: CrearEquipoRequest): Observable<EquipoDto> {
+    return this.http.post<EquipoDto>(`${this.base}/grupos/${grupoId}/equipos`, datos);
+  }
+
+  obtenerEquipo(equipoId: string): Observable<EquipoDto> {
+    return this.http.get<EquipoDto>(`${this.base}/equipos/${equipoId}`);
+  }
+
+  editarEquipo(equipoId: string, datos: EditarEquipoRequest): Observable<EquipoDto> {
+    return this.http.patch<EquipoDto>(`${this.base}/equipos/${equipoId}`, datos);
+  }
+
+  agregarMiembroEquipo(equipoId: string, datos: AgregarMiembroEquipoRequest): Observable<EquipoDto> {
+    return this.http.post<EquipoDto>(`${this.base}/equipos/${equipoId}/miembros`, datos);
+  }
+
+  quitarMiembroEquipo(equipoId: string, usuarioId: string): Observable<EquipoDto> {
+    return this.http.delete<EquipoDto>(`${this.base}/equipos/${equipoId}/miembros/${usuarioId}`);
+  }
+
+  sustituirJefeEquipo(equipoId: string, datos: SustituirJefeEquipoRequest): Observable<EquipoDto> {
+    return this.http.post<EquipoDto>(`${this.base}/equipos/${equipoId}/jefe`, datos);
+  }
+
+  /** Equipos del participante autenticado (uno por grupo). */
+  misEquipos(): Observable<MiEquipoDto[]> {
+    return this.http.get<MiEquipoDto[]>(`${this.base}/mis-equipos`);
   }
 }

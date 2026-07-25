@@ -13,8 +13,19 @@ import { IdentityApiService } from '../../core/api/identity-api.service';
   imports: [RouterLink, IconoComponent],
   template: `
     <section class="mx-auto max-w-2xl px-4 py-8">
-      <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Elegí un grupo</h1>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Administrás {{ grupos().length }} grupos.</p>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Elegí un grupo</h1>
+          <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Administrás {{ grupos().length }} grupos.</p>
+        </div>
+        <a
+          routerLink="/onboarding"
+          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+        >
+          <span class="h-4 w-4"><app-icono nombre="plus" /></span>
+          Nuevo grupo
+        </a>
+      </div>
 
       <div class="mt-6 grid gap-3 sm:grid-cols-2">
         @for (g of grupos(); track g.id) {

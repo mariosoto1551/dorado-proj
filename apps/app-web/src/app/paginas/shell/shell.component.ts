@@ -18,6 +18,7 @@ import { AuthService } from '../../core/auth/auth.service';
 import { GuiaSetupService } from '../../core/guia/guia-setup.service';
 import { CampanaNotificacionesComponent } from './campana-notificaciones.component';
 import { GuiaFlotanteComponent } from './guia-flotante.component';
+import { SelectorGrupoUsuarioComponent } from './selector-grupo-usuario.component';
 
 interface ItemNav {
   ruta: string;
@@ -48,6 +49,7 @@ interface GrupoNav {
     CampanaNotificacionesComponent,
     IconoComponent,
     GuiaFlotanteComponent,
+    SelectorGrupoUsuarioComponent,
   ],
   templateUrl: './shell.component.html',
 })
@@ -115,6 +117,8 @@ export class ShellComponent implements OnInit, OnDestroy {
         titulo: 'Gente',
         items: [
           { ruta: `${base}/usuarios`, etiqueta: 'Usuarios', icono: 'users' },
+          { ruta: `${base}/equipos`, etiqueta: 'Equipos', icono: 'shield' },
+          { ruta: `${base}/reportes`, etiqueta: 'Reportes', icono: 'flag' },
           { ruta: `${base}/tutores`, etiqueta: 'Tutores', icono: 'shield', soloAdmin: true },
           { ruta: `${base}/invitaciones`, etiqueta: 'Invitaciones', icono: 'link' },
         ],
@@ -141,6 +145,7 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   protected readonly navUsuario: ItemNav[] = [
     { ruta: '/', etiqueta: 'Inicio', icono: 'home' },
+    { ruta: '/mi-equipo', etiqueta: 'Equipo', icono: 'users' },
     { ruta: '/mi-conducta', etiqueta: 'Conducta', icono: 'flag' },
     { ruta: '/mi-progreso', etiqueta: 'Progreso', icono: 'chart' },
     { ruta: '/mis-recompensas', etiqueta: 'Premios', icono: 'gift' },

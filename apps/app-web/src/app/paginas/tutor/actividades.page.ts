@@ -10,6 +10,7 @@ import { FormsModule } from '@angular/forms';
 
 import {
   type ActividadDto,
+  AlcanceActividad,
   ComportamientoAlCierre,
   TipoLimiteTiempo,
   TipoPuntaje,
@@ -34,6 +35,9 @@ interface FormActividad {
   repeticionesMaximasSesion: number;
   /** Solo aplica a OBLIGATORIA (fase-14-08); se mapea a comportamientoAlCierre. */
   requiereConfirmacion: boolean;
+  /** fase-14-09: EQUIPO = la completa el jefe y se reparte a los integrantes. */
+  alcance: AlcanceActividad;
+  bonoJefePuntos: number;
 }
 
 const FORM_VACIO: FormActividad = {
@@ -46,6 +50,8 @@ const FORM_VACIO: FormActividad = {
   duracionCronometroMinutos: 15,
   repeticionesMaximasSesion: 1,
   requiereConfirmacion: false,
+  alcance: AlcanceActividad.INDIVIDUAL,
+  bonoJefePuntos: 0,
 };
 
 /** CRUD de Actividades (fase-10). Form con campos condicionales por tipoLimiteTiempo. */
@@ -109,6 +115,11 @@ const FORM_VACIO: FormActividad = {
                 <span class="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                   {{ a.tipoPuntaje === 'OBLIGATORIA' ? 'Obligatoria' : 'Opcional' }}
                 </span>
+                @if (a.alcance === 'EQUIPO') {
+                  <span class="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-300">
+                    👥 Equipo@if (a.bonoJefePuntos > 0) { · jefe +{{ a.bonoJefePuntos }} }
+                  </span>
+                }
               </div>
 
               <div class="mt-3 flex justify-end gap-1 border-t border-slate-50 pt-2 dark:border-slate-800">
@@ -175,32 +186,73 @@ const FORM_VACIO: FormActividad = {
               ></textarea>
             </label>
 
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos</span>
-                <input
-                  [(ngModel)]="form.valorPuntos"
-                  name="valorPuntos"
-                  type="number"
-                  min="1"
-                  required
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                />
-              </label>
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</span>
-                <select
-                  [(ngModel)]="form.tipoPuntaje"
-                  name="tipoPuntaje"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                >
-                  <option [ngValue]="TP.OPCIONAL">Opcional</option>
-                  <option [ngValue]="TP.OBLIGATORIA">Obligatoria</option>
-                </select>
-              </label>
-            </div>
+            <label class="block">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Alcance</span>
+              <select
+                [(ngModel)]="form.alcance"
+                name="alcance"
+                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              >
+                <option [ngValue]="AA.INDIVIDUAL">Individual</option>
+                <option [ngValue]="AA.EQUIPO">Equipo</option>
+              </select>
+            </label>
 
-            @if (form.tipoPuntaje === TP.OBLIGATORIA) {
+            @if (form.alcance === AA.EQUIPO) {
+              <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 animate-fade-in dark:bg-teal-500/10 dark:text-teal-200">
+                👥 La completa el <strong>jefe</strong> del equipo una vez y los puntos se reparten a cada integrante. Las tareas de equipo son opcionales (suman).
+              </div>
+              <div class="grid grid-cols-2 gap-3 animate-fade-in">
+                <label class="block">
+                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos por integrante</span>
+                  <input
+                    [(ngModel)]="form.valorPuntos"
+                    name="valorPuntos"
+                    type="number"
+                    min="1"
+                    required
+                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  />
+                </label>
+                <label class="block">
+                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Bono al jefe</span>
+                  <input
+                    [(ngModel)]="form.bonoJefePuntos"
+                    name="bonoJefePuntos"
+                    type="number"
+                    min="0"
+                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  />
+                </label>
+              </div>
+            } @else {
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block">
+                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos</span>
+                  <input
+                    [(ngModel)]="form.valorPuntos"
+                    name="valorPuntos"
+                    type="number"
+                    min="1"
+                    required
+                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  />
+                </label>
+                <label class="block">
+                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</span>
+                  <select
+                    [(ngModel)]="form.tipoPuntaje"
+                    name="tipoPuntaje"
+                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  >
+                    <option [ngValue]="TP.OPCIONAL">Opcional</option>
+                    <option [ngValue]="TP.OBLIGATORIA">Obligatoria</option>
+                  </select>
+                </label>
+              </div>
+            }
+
+            @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OBLIGATORIA) {
               <label
                 class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
               >
@@ -307,6 +359,8 @@ export class ActividadesPage {
 
   protected readonly TLT = TipoLimiteTiempo;
 
+  protected readonly AA = AlcanceActividad;
+
   private readonly api = inject(ActivityApiService);
 
   private readonly toasts = inject(ToastService);
@@ -362,6 +416,8 @@ export class ActividadesPage {
       repeticionesMaximasSesion: a.repeticionesMaximasSesion,
       requiereConfirmacion:
         a.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION,
+      alcance: a.alcance,
+      bonoJefePuntos: a.bonoJefePuntos,
     };
     this.formAbierto.set(true);
   }
@@ -425,12 +481,16 @@ export class ActividadesPage {
 
   private armarPayload(): CrearActividadRequest {
     const f = this.form;
+    const esEquipo = f.alcance === AlcanceActividad.EQUIPO;
 
     return {
       nombre: f.nombre.trim(),
       descripcion: f.descripcion.trim() || null,
-      tipoPuntaje: f.tipoPuntaje,
+      // Una tarea de equipo es siempre OPCIONAL (el backend lo exige, fase-14-09).
+      tipoPuntaje: esEquipo ? TipoPuntaje.OPCIONAL : f.tipoPuntaje,
       valorPuntos: Number(f.valorPuntos),
+      alcance: f.alcance,
+      bonoJefePuntos: esEquipo ? Number(f.bonoJefePuntos) : 0,
       tipoLimiteTiempo: f.tipoLimiteTiempo,
       deadlineHora: f.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE ? f.deadlineHora : null,
       duracionCronometroMinutos:

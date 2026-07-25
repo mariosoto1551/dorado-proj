@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -127,7 +128,11 @@ export class MisRecompensasPage {
   protected readonly motivo = computed(() => this.elegibles()?.motivo ?? null);
 
   constructor() {
-    this.cargar();
+    // Reacciona al grupo activo (fase-14, participante multi-grupo).
+    effect(() => {
+      this.auth.grupoUsuario();
+      this.cargar();
+    });
   }
 
   protected nombreCanje(): string {

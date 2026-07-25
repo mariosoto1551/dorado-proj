@@ -6,6 +6,7 @@ import type {
   ConfiguracionScoringGrupoDto,
   DescalificacionDto,
   EventoPuntosDto,
+  PuntajeEquipoDto,
   PuntajeUsuarioDto,
   UmbralZonaDto,
 } from '@dorado/shared-types';
@@ -70,6 +71,11 @@ export class ScoringApiService {
     return this.http.get<PuntajeUsuarioDto[]>(
       `${this.base}/grupos/${grupoId}/secciones/${seccionId}/puntajes`
     );
+  }
+
+  /** Puntaje derivado de un equipo (fase-14-09); sin seccionId = total. */
+  puntajeDeEquipo(equipoId: string): Observable<PuntajeEquipoDto> {
+    return this.http.get<PuntajeEquipoDto>(`${this.base}/equipos/${equipoId}/puntaje`);
   }
 
   // ---- Descalificaciones ----

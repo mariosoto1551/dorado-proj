@@ -30,7 +30,7 @@ export class InvitacionPageComponent {
 
   private readonly fb = inject(NonNullableFormBuilder);
 
-  private readonly auth = inject(AuthService);
+  protected readonly auth = inject(AuthService);
 
   private readonly router = inject(Router);
 
@@ -46,6 +46,20 @@ export class InvitacionPageComponent {
     () => this.preview()?.tipoInvitado === TipoInvitado.USUARIO
   );
 
+  /**
+   * Puede unirse con la cuenta actual (fase-14) si hay sesión abierta y el tipo
+   * de la invitación coincide con el tipo de cuenta logueada (una cuenta de
+   * participante no acepta invitación de tutor y viceversa). El chequeo de misma
+   * organización lo hace el backend (muestra su error si no coincide).
+   */
+  protected readonly puedeUnirseConCuenta = computed(() => {
+    if (!this.auth.sesionActiva() || !this.preview()) {
+      return false;
+    }
+
+    return this.esUsuario() ? !this.auth.esTutor() : this.auth.esTutor();
+  });
+
   protected readonly cargando = signal(false);
 
   protected readonly error = signal<string | null>(null);
@@ -59,6 +73,27 @@ export class InvitacionPageComponent {
 
   constructor() {
     this.cargarPreview();
+  }
+
+  /** Unirse al grupo con la cuenta ya logueada — sin crear una nueva (fase-14). */
+  protected unirmeConCuenta(): void {
+    if (this.cargando()) {
+      return;
+    }
+
+    this.cargando.set(true);
+    this.error.set(null);
+
+    this.auth
+      .aceptarInvitacion(this.codigo)
+      .pipe(switchMap(() => this.auth.destinoPostLogin()))
+      .subscribe({
+        next: (destino) => void this.router.navigateByUrl(destino),
+        error: (err: unknown) => {
+          this.error.set(mensajeDeError(err));
+          this.cargando.set(false);
+        },
+      });
   }
 
   protected enviar(): void {

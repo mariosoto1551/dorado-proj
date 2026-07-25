@@ -68,13 +68,35 @@ export class AuthService {
   /** Id del principal autenticado (sub del JWT): tutorId o usuarioId. */
   readonly principalId = computed<string | null>(() => this.payload()?.sub ?? null);
 
-  /** Grupos del JWT (para USUARIO: su único grupo; para TUTOR: los asignados). */
+  /** Grupos del JWT (para USUARIO: TODOS los suyos; para TUTOR: los asignados). */
   readonly grupoIds = computed<string[]>(() => this.payload()?.grupoIds ?? []);
 
-  /** Grupo del USUARIO autenticado (su único grupo). Null para tutores. */
-  readonly grupoUsuario = computed<string | null>(() =>
-    !this.esTutor() ? (this.grupoIds()[0] ?? null) : null
-  );
+  /** Grupos del participante autenticado (fase-14, multi-grupo). Vacío si es tutor. */
+  readonly gruposUsuario = computed<string[]>(() => (this.esTutor() ? [] : this.grupoIds()));
+
+  /** Grupo elegido explícitamente por el participante en el selector (o null). */
+  private readonly grupoActivoSeleccionado = signal<string | null>(null);
+
+  /**
+   * Grupo ACTIVO del USUARIO autenticado (fase-14): el que eligió en el selector
+   * si sigue siendo válido, o el primero por defecto. Null para tutores. Con un
+   * solo grupo (caso más común) se comporta igual que antes.
+   */
+  readonly grupoUsuario = computed<string | null>(() => {
+    if (this.esTutor()) {
+      return null;
+    }
+
+    const grupos = this.gruposUsuario();
+    const elegido = this.grupoActivoSeleccionado();
+
+    return elegido && grupos.includes(elegido) ? elegido : (grupos[0] ?? null);
+  });
+
+  /** Cambia el grupo activo del participante (usado por el selector de grupo). */
+  seleccionarGrupoUsuario(grupoId: string): void {
+    this.grupoActivoSeleccionado.set(grupoId);
+  }
 
   login(datos: LoginDatos): Observable<SesionRespuesta> {
     return this.http
@@ -94,6 +116,21 @@ export class AuthService {
         { withCredentials: true }
       )
       .pipe(tap((respuesta) => this.establecerSesion(respuesta.accessToken, respuesta.tutor)));
+  }
+
+  /**
+   * Aceptar una invitación CON LA SESIÓN ACTUAL (fase-14): no crea cuenta, une
+   * al principal logueado al grupo. Devuelve una sesión nueva (el JWT ya trae el
+   * grupo sumado) y la deja activa, igual que un login.
+   */
+  aceptarInvitacion(codigo: string): Observable<SesionRespuesta> {
+    return this.http
+      .post<SesionRespuesta>(
+        `${environment.apiBaseUrl}/identity/invitaciones/${codigo}/aceptar`,
+        {},
+        { withCredentials: true }
+      )
+      .pipe(tap((sesion) => this.establecerSesion(sesion.accessToken, sesion.perfil)));
   }
 
   canjearInvitacion(codigo: string, datos: CanjeInvitacionDatos): Observable<SesionRespuesta> {

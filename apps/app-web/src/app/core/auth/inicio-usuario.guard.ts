@@ -6,12 +6,13 @@ import { IdentityApiService } from '../api/identity-api.service';
 import { AuthService } from './auth.service';
 
 /**
- * Guard de la ruta '' (fase-10, "enrutamiento por rol tras login"):
+ * Guard de la ruta '' (fase-10 + fase-14, "enrutamiento por rol tras login"):
  *  - USUARIO: se queda en '/' (home de actividades) → true.
- *  - TUTOR/ORG_ADMIN: redirige a su Grupo. Con 0 grupos → /onboarding; con 1 →
- *    /grupos/:id; con más de 1 → /grupos (selector). Un ORG_ADMIN ve todos los
- *    grupos de la org (grupoIds del JWT viene vacío por diseño), por eso se
- *    consulta la lista real en vez de fiarse del token.
+ *  - ORG_ADMIN: va a su panel de organización (/organizacion), su inicio propio
+ *    distinto del tutor (fase-14). Con 0 grupos todavía → /onboarding.
+ *  - TUTOR: redirige a su Grupo. Con 0 grupos → /onboarding; con 1 →
+ *    /grupos/:id; con más de 1 → /grupos (selector). Se consulta la lista real
+ *    de grupos (el grupoIds del JWT viene vacío para el ORG_ADMIN por diseño).
  */
 export const inicioUsuarioGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
@@ -20,6 +21,15 @@ export const inicioUsuarioGuard: CanActivateFn = () => {
 
   if (!auth.esTutor()) {
     return true;
+  }
+
+  if (auth.esOrgAdmin()) {
+    return identity.listarGrupos().pipe(
+      map((grupos) =>
+        router.createUrlTree([grupos.length === 0 ? '/onboarding' : '/organizacion'])
+      ),
+      catchError(() => of(router.createUrlTree(['/organizacion'])))
+    );
   }
 
   return identity.listarGrupos().pipe(

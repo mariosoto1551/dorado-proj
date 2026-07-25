@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -189,7 +190,12 @@ export class HomeUsuarioPage {
   );
 
   constructor() {
-    this.cargar();
+    // Reacciona al grupo activo (fase-14, participante multi-grupo): al cambiarlo
+    // en el selector, se recarga la pantalla con los datos del grupo elegido.
+    effect(() => {
+      this.auth.grupoUsuario();
+      this.cargar();
+    });
   }
 
   protected cronometroDe(actividadId: string): CronometroActivo | undefined {

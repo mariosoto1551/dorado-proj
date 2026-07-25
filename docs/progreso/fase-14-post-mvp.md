@@ -124,8 +124,8 @@ Tres mejoras sobre el MVP: (1) poder crear más de un grupo; (2) diferenciar la 
 - **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
 
 ## Ítem: Equipos de trabajo (jefe de equipo + tareas colectivas)
-- **Estado**: EN_PROGRESO — **backend completo** (identity/activity/scoring/notification; compila, tests existentes verdes, lint limpio, migraciones aplicadas contra DB real). **Falta**: frontend app-web + tests unitarios nuevos + E2E real.
-- **Fecha**: 2026-07-25 / **Spec**: `docs/phases/fase-14-09-equipos-de-trabajo.md` (aprobada por José 2026-07-24) / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Estado**: EN_PROGRESO — **backend + frontend completos** (todo compila, tests existentes verdes, lint limpio, migraciones aplicadas contra DB real; mockups de UI aprobados por José antes de construir). **Falta**: tests unitarios nuevos + E2E real (por API y en navegador).
+- **Fecha**: 2026-07-25 / **Spec**: `docs/phases/fase-14-09-equipos-de-trabajo.md` (aprobada por José 2026-07-24) / **Commit**: backend `ea44851`; frontend — (branch `fase-14-roles-grupos-multiples`)
 - **Nota de la aprobación (2026-07-24)**: José confirmó los defaults (incl. decisión 10: reparto = valor completo a cada miembro, no dividir) y precisó que el reporte del jefe es sobre una **conducta MALA concreta del catálogo** (no un reporte libre) — reflejado en la spec (`conductaId` requerido en `ReporteMiembro`, aprobar sin body).
 
 ### Backend ejecutado (compila + tests existentes verdes: identity 34 / activity 87 / scoring 45; lint limpio)
@@ -136,10 +136,17 @@ Tres mejoras sobre el MVP: (1) poder crear más de un grupo; (2) diferenciar la 
 - **notification**: consumidor de `ReporteMiembroCreado` → notifica a los tutores del grupo. `TareaEquipoCompletada` a usuarios quedó fuera (era opcional/EXTENSIÓN).
 - **gateway**: sin cambios (ruteo por prefijo `/api/identity|activity|scoring`).
 
+### Frontend ejecutado (`apps/app-web`, build + lint limpios; mockups aprobados por José)
+- **API**: `IdentityApiService` (equipos: listar/crear/detalle/editar/miembros/sustituir jefe + `misEquipos`), `ActivityApiService` (completar tarea de equipo, crear/listar/aprobar/rechazar reportes), `ScoringApiService` (`puntajeDeEquipo`). `api.types.CrearActividadRequest` sumó `alcance`+`bonoJefePuntos`.
+- **Tutor**: `equipos.page.ts` (lista con jefe/integrantes/puntaje; crear con jefe+miembros; sustituir jefe; gestionar integrantes; archivar) y `reportes.page.ts` (bandeja pendientes/resueltos, aprobar/rechazar). Form de `actividades.page.ts`: selector Alcance Individual/Equipo + "puntos por integrante"/"bono al jefe" + chip "Equipo" en la lista.
+- **Participante**: `mi-equipo.page.ts` (puntaje del equipo, tareas de equipo con "Marcar como hecha" para el jefe, integrantes con "Reportar" para el jefe; modal de reporte con conducta MALA + nota). Reacciona al grupo activo (multi-grupo).
+- **Navegación**: shell — "Equipos" y "Reportes" en el menú del tutor (grupo "Gente"); "Equipo" en el bottom-nav del participante (5 ítems). Rutas `grupos/:grupoId/equipos`, `.../reportes`, y `/mi-equipo`.
+
 ### Qué falta / verificar
-1. **Frontend app-web**: gestión de equipos (tutor), form de actividad con alcance/bono, bandeja de reportes, vista "Mi equipo" + completar tarea / reportar (jefe).
-2. **Tests unitarios nuevos** de los services (reparto con bono, aprobación de reporte, un-equipo-por-grupo, sustitución de jefe) — deuda.
-3. **E2E real** por API vía Gateway: crear equipo → tarea de equipo → completar (jefe) → ver reparto en scoring/puntaje de equipo → reporte → aprobar (tutor) → descuento solo al reportado.
+1. **Tests unitarios nuevos** de los services (reparto con bono, aprobación de reporte, un-equipo-por-grupo, sustitución de jefe) — deuda.
+2. **E2E real** por API vía Gateway: crear equipo → tarea de equipo → completar (jefe) → ver reparto en scoring/puntaje de equipo → reporte → aprobar (tutor) → descuento solo al reportado.
+3. **E2E en navegador** de las pantallas nuevas (verificado por build/lint, no por click).
+4. **Deuda UI menor**: `mi-equipo` no marca "tarea de equipo ya hecha hoy" (el backend igual corta por `repeticionesMaximasSesion`); el puntaje de equipo se muestra total (no por sección) — decisión de arranque.
 
 ## Ítem: Contenido creado por los integrantes (gated por config del Grupo)
 - **Estado**: PENDIENTE — idea de José (2026-07-24), registrada como ítem 10 en `docs/phases/fase-14-post-mvp.md`; falta redactar spec.

@@ -6,6 +6,7 @@
  * se actualiza acá también.
  */
 import type {
+  AlcanceActividad,
   ComportamientoAlCierre,
   EstadoSeccion,
   EvaluarUmbralesEn,
@@ -59,6 +60,8 @@ export interface CrearActividadRequest {
   repeticionesMaximasSesion?: number;
   repeticionesMaximasSeccion?: number | null;
   comportamientoAlCierre?: ComportamientoAlCierre;
+  alcance?: AlcanceActividad;
+  bonoJefePuntos?: number;
 }
 
 export type EditarActividadRequest = Partial<CrearActividadRequest>;

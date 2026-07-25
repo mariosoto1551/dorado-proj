@@ -39,6 +39,17 @@ interface FilaRanking extends PuntajeUsuarioDto {
         }
       </div>
 
+      <!-- Base de puntos con la que cada participante arranca cada semana (fase-14) -->
+      @if (puntosIniciales() !== null) {
+        <a
+          [routerLink]="['/grupos', grupoId(), 'umbrales']"
+          class="mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-marca-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-marca-700"
+        >
+          <span class="h-4 w-4 text-marca-500"><app-icono nombre="chart" /></span>
+          Puntos iniciales: <span class="font-bold text-slate-900 dark:text-white">{{ puntosIniciales() }}</span>
+        </a>
+      }
+
       <!-- Banner de primeros pasos: aparece hasta terminar de configurar el grupo -->
       @if (guia.cargado() && !guia.completa()) {
         <a
@@ -165,6 +176,9 @@ export class ResumenGrupoPage {
 
   protected readonly seccion = signal<SeccionConSesionesResponse | null>(null);
 
+  /** Base de puntos iniciales del grupo (fase-14); null hasta cargarla. */
+  protected readonly puntosIniciales = signal<number | null>(null);
+
   private readonly puntajes = signal<PuntajeUsuarioDto[]>([]);
 
   private readonly usuarios = signal<UsuarioDto[]>([]);
@@ -195,6 +209,12 @@ export class ResumenGrupoPage {
     this.cargando.set(true);
     this.seccion.set(null);
     this.puntajes.set([]);
+    this.puntosIniciales.set(null);
+
+    this.scoring.obtenerConfiguracion(grupoId).subscribe({
+      next: (config) => this.puntosIniciales.set(config.puntosIniciales),
+      error: () => undefined,
+    });
 
     forkJoin({
       seccion: this.session.seccionActual(grupoId),

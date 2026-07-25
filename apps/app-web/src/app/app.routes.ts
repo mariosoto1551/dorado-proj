@@ -2,6 +2,7 @@ import { Route } from '@angular/router';
 
 import { authGuard } from './core/auth/auth.guard';
 import { inicioUsuarioGuard } from './core/auth/inicio-usuario.guard';
+import { soloOrgAdminGuard } from './core/auth/solo-org-admin.guard';
 import { soloTutorGuard } from './core/auth/solo-tutor.guard';
 
 export const appRoutes: Route[] = [
@@ -37,6 +38,15 @@ export const appRoutes: Route[] = [
           import('./paginas/onboarding/onboarding-crear-grupo-page.component').then(
             (m) => m.OnboardingCrearGrupoPageComponent
           ),
+      },
+
+      // ===== Panel de organización (solo ORG_ADMIN) =====
+      {
+        path: 'organizacion',
+        pathMatch: 'full',
+        canActivate: [soloOrgAdminGuard],
+        loadComponent: () =>
+          import('./paginas/admin/panel-organizacion.page').then((m) => m.PanelOrganizacionPage),
       },
 
       // ===== Área Tutor / ORG_ADMIN =====
@@ -95,6 +105,16 @@ export const appRoutes: Route[] = [
               import('./paginas/tutor/usuarios.page').then((m) => m.UsuariosPage),
           },
           {
+            path: 'equipos',
+            loadComponent: () =>
+              import('./paginas/tutor/equipos.page').then((m) => m.EquiposPage),
+          },
+          {
+            path: 'reportes',
+            loadComponent: () =>
+              import('./paginas/tutor/reportes.page').then((m) => m.ReportesPage),
+          },
+          {
             path: 'tutores',
             loadComponent: () =>
               import('./paginas/tutor/tutores.page').then((m) => m.TutoresPage),
@@ -134,6 +154,11 @@ export const appRoutes: Route[] = [
         path: 'mis-recompensas',
         loadComponent: () =>
           import('./paginas/usuario/mis-recompensas.page').then((m) => m.MisRecompensasPage),
+      },
+      {
+        path: 'mi-equipo',
+        loadComponent: () =>
+          import('./paginas/usuario/mi-equipo.page').then((m) => m.MiEquipoPage),
       },
       {
         path: '',
