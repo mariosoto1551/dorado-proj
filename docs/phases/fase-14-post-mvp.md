@@ -38,6 +38,16 @@ Fase 13 completa y estable.
 - Modelo "B2": el Usuario puede confirmar una obligatoria (`comportamientoAlCierre = REQUIERE_CONFIRMACION`, por actividad); si no la confirma, `activity-service` genera un `no-hizo` automático al cerrar la sesión (primer consumidor de eventos de ese servicio). Confirmar vale 0 puntos (solo evita el descuento). De paso, endpoint `GET /activity/grupos/:grupoId/mi-estado-hoy` que expone el conteo real de repeticiones y cierra la deuda técnica del `Set` local de la home (Fase 10) + habilita la barrita "X de N".
 - Depende de: `SesionCerrada` (Fase 6), `NoHizoRegistrado` (Fase 7), interno de usuarios de identity (Fase 2) — todos existen. No implementar hasta que Fase 13 esté estable.
 
+### 9. Equipos de trabajo (jefe de equipo + tareas colectivas)
+- **Ya especificado en detalle** (decidido con José, 2026-07-24): ver `docs/phases/fase-14-09-equipos-de-trabajo.md`.
+- Agrupar participantes de un Grupo en **equipos** con un **jefe** que completa **tareas colectivas** (`Actividad.alcance = EQUIPO`); scoring **reparte** los puntos a cada miembro como `EventoPuntos` propio etiquetado con `equipoId` (ledger derivado, sin campo mutable — regla 1). El jefe puede **reportar** a un integrante que no coopera; el descuento se aplica **solo si el Tutor lo aprueba** (registrado como conducta MALA por el Tutor). Sustitución del jefe: manual por el Tutor. Transversal a identity, activity, scoring y notification.
+- Depende de: `UsuarioGrupo` (multi-grupo, Fase 14), `ConductaRegistrada` (Fase 7), internos de identity (Fase 2), ciclo de sesión (Fase 6) — todos existen. No implementar hasta que Fase 13 esté estable.
+
+### 10. Contenido creado por los integrantes, gated por configuración del Grupo
+- **Idea de José (2026-07-24), pendiente de spec detallada.** El Grupo debe poder **configurar** si sus integrantes (participantes) pueden **crear su propio contenido**: actividades `OPCIONAL`, conductas `BUENA` y `MALA`. Hoy solo el Tutor/ORG_ADMIN crea catálogo; esto lo habilita **condicionalmente** a los usuarios, solo si un flag de configuración del Grupo lo permite (default: desactivado, comportamiento actual).
+- Alcance a definir en la sub-spec: nueva config por Grupo (¿en identity o en activity?), qué tipos puede crear el integrante y con qué límites/moderación (¿crea directo `ACTIVA` o queda `PENDIENTE` de aprobación del Tutor?), y cómo se relaciona con el reporte de conducta MALA del jefe de equipo (ítem 9) — un integrante creando una conducta MALA para reportar es un caso a acotar con cuidado (riesgo de abuso). **No mezclar con el ítem 9**: es un punto propio.
+- Depende de: catálogo de actividades/conductas (Fase 5) y la diferenciación de roles en la UI (Fase 14). No implementar hasta que Fase 13 esté estable.
+
 ## Nota para Claude Code
 
 No empieces ninguno de estos ítems por iniciativa propia ni los mezcles con trabajo de Fases 0–13. Cada uno de estos necesita su propia sesión de planificación detallada (mismo nivel de detalle que las fases anteriores) antes de tocar código — este archivo es un índice de alcance, no una especificación ejecutable todavía.

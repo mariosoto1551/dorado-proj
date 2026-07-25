@@ -50,11 +50,70 @@ App Angular 22 nueva (zoneless, standalone, signal-first), aislada de app-web. E
 - **Sin tests unitarios de componentes admin-web** todavía (build + lint cubren typecheck de plantillas). Deuda: agregar specs de `SesionAdminService`/`adminGuard` y de las páginas.
 - **`project.json` escrito a mano** (no generador `@nx/angular`): registrado igual en el grafo (`nx show projects` lo lista), mismo criterio que `public-site`.
 
-### Qué falta / verificar la próxima sesión (contra DB/stack real)
-1. Aplicar la migración de identity (`prisma migrate deploy`/`dev`) con Postgres arriba y arrancar identity con `PLATFORM_ADMIN_EMAIL/PASSWORD` para verificar el bootstrap.
-2. Flujo E2E real: `nx serve admin-web` (4300) + stack → login admin → listar orgs → cambiar plan (verificar que el JWT del tutor trae el plan nuevo tras re-login) → suspender (verificar 403 `ORGANIZACION_SUSPENDIDA` en login del tutor) → reactivar.
-3. Agregar `PLATFORM_ADMIN_*` a `.env.production.example` y READMEs de despliegue; sumar `admin-web` como target Vercel en el runbook (fase-13).
-4. (Hecho) Fila puerto 4300 agregada a la tabla de `CLAUDE.md` (proyecto + global).
+### Verificación contra DB/stack real (2026-07-24) — panel de plataforma OPERATIVO
+Encendido y verificado end-to-end contra la infra local (Postgres/RabbitMQ en docker, servicios vía nx serve):
+1. **Migración aplicada** (`20260722100000_platform_admin_fase14` presente en `_prisma_migrations`, tabla `PlatformAdmin` existe) y **bootstrap OK**: cuenta `jose@plataforma.dorado` ("José (plataforma)") creada desde env (`apps/identity-service/.env`, password `dorado-admin-2026`).
+2. **Flujo E2E real (curl vía Gateway :3000)**: login admin ✅ (JWT `rol=PLATFORM_ADMIN`); `GET /api/admin/organizaciones` ✅ (1 org: "Familia Rodriguez"); `POST /api/admin/organizaciones/:id/plan` `{plan:"PRO"}` ✅ → suscripción quedó **PRO / fuente MANUAL / ACTIVA** en `billing_db`. admin-web (4300) responde 200 y el preflight CORS desde origin `http://localhost:4300` devuelve `Access-Control-Allow-Origin` correcto.
+3. **Nota de campo del body**: el endpoint espera `{ "plan": "FREE"|"PRO" }` (no `codigo`); el frontend `admin-api.service.cambiarPlan` ya manda `plan`.
+4. El límite de grupos se evalúa **en vivo** contra billing (`GruposService.asegurarLimiteGrupos` → `resolveEntitlements`), no desde el JWT: tras pasar a PRO, la org puede crear grupos sin que el tutor tenga que re-loguearse.
+
+### Qué falta / verificar (deuda restante del ítem #5)
+1. `suspender/reactivar` no se re-verificó en esta sesión (solo cambio de plan); el flujo de suspensión sigue como en la implementación original.
+2. Agregar `PLATFORM_ADMIN_*` a `.env.production.example` y READMEs de despliegue; sumar `admin-web` como target Vercel en el runbook (fase-13).
+3. (Hecho) Fila puerto 4300 agregada a la tabla de `CLAUDE.md` (proyecto + global).
+
+## Ítem: Diferenciación de roles ORG_ADMIN/TUTOR + grupos múltiples + puntos iniciales visibles
+- **Estado**: EN_PROGRESO (frontend hecho, build+lint de app-web limpios; falta verificación E2E en navegador y el cambio de plan del piloto a PRO)
+- **Fecha**: 2026-07-24 / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+
+### Origen (pedido de José 2026-07-23)
+Tres mejoras sobre el MVP: (1) poder crear más de un grupo; (2) diferenciar la pantalla/experiencia de ORG_ADMIN vs TUTOR; (3) que los puntos iniciales se guarden por grupo y se vean configurados. Decisiones tomadas con él: piloto a **PRO** (grupos ilimitados, no subir el tope de FREE); diferenciar en las **tres** dimensiones (visual, secciones exclusivas, inicio distinto); **facturación fuera** del panel del admin por ahora.
+
+### Diagnóstico previo (lo que ya existía)
+- **Límite de grupos**: no es bug — plan FREE `limiteGrupos: 1` (`billing-service/src/prisma/seed-planes.ts`), enforcement en `identity GruposService.asegurarLimiteGrupos`. PRO ya es `null` (ilimitado). El cambio de plan ya es operable vía el panel PLATFORM_ADMIN (`billing SuscripcionesService.cambiarPlan`), pero ese panel aún no se verificó contra DB real (ver ítem #5).
+- **Puntos iniciales**: **ya estaban por grupo** (`scoring ConfiguracionScoringGrupo.puntosIniciales`, GET/PUT `/scoring/grupos/:grupoId/configuracion`) y editables en la pantalla Zonas (`umbrales.page.ts`). El pedido (3) era sobre todo de visibilidad.
+- **Roles en la UI**: ORG_ADMIN y TUTOR compartían exactamente la misma área. El menú ya ocultaba "Tutores" a no-admin (`shell.component.html`, flag `soloAdmin` + `auth.esOrgAdmin()`), pero no había nada visual ni de inicio que los distinguiera.
+
+### Frontend ejecutado (`apps/app-web`)
+- **Inicio distinto por rol**: nuevo guard `solo-org-admin.guard.ts`; nueva página `paginas/admin/panel-organizacion.page.ts` (grid de todos los grupos de la org + "Nuevo grupo", sin facturación); ruta `/organizacion` gateada; `inicio-usuario.guard.ts` ahora manda ORG_ADMIN → `/organizacion` (o `/onboarding` con 0 grupos) y deja al TUTOR con el flujo previo (grupo directo / selector).
+- **Grupos múltiples (UI)**: botón "+ Nuevo grupo" en `selector-grupo.page.ts` y en el panel de organización (link a `/onboarding`); copy del onboarding vuelto genérico ("Nuevo grupo" en vez de "tu primer Grupo"). Backend sin cambios (el tope lo maneja billing; PRO = ilimitado).
+- **Diferenciación visual**: badge "Administrador" (ámbar) / "Tutor" (teal) en la topbar (`shell.component.html`), y link "Organización" en el sidebar del grupo solo para ORG_ADMIN (vuelta al panel).
+- **Puntos iniciales visibles**: chip "Puntos iniciales: N" en el resumen del grupo (`resumen-grupo.page.ts`, link a Zonas), leído de `scoring.obtenerConfiguracion`.
+
+### Qué falta / verificar
+1. ~~**Pasar el piloto a PRO**~~ **HECHO (2026-07-24)**: se pasó "Familia Rodriguez" a PRO vía el panel de plataforma (ver ítem #5, verificación). Ya no está topado en 1 grupo.
+2. E2E en navegador: login ORG_ADMIN → `/organizacion` → crear 2º grupo → badge de rol → puntos iniciales en resumen. Login TUTOR → verificar que NO ve el panel ni el badge de admin.
+3. Sin tests unitarios nuevos de los componentes/guard (build+lint cubren typecheck de plantillas) — deuda.
+
+## Ítem: Usuario/tutor multi-grupo con la misma cuenta (revisión de ADR-00 §1)
+- **Estado**: COMPLETADA_CON_DESVIACIONES (backend + frontend hechos; E2E real 9/10 verde + el 10º bloqueado de forma más estricta, ver abajo)
+- **Fecha**: 2026-07-24 / **Commit**: — (branch `fase-14-roles-grupos-multiples`) / **Revisión de arquitectura**: addendum en `docs/architecture/ADR-00-decisiones-fundacionales.md` §1
+
+### Origen (pedido de José 2026-07-23)
+"Cada que me invitan como usuario o participante me piden datos nuevos; debería poder unirme a otro grupo con la MISMA cuenta." Decidido con él: aplicar a **participantes Y tutores**; reutilización **solo dentro de la misma organización** (cross-org rompería el aislamiento tenant); se mantiene `Usuario.grupoId` como grupo de origen. Revisa deliberadamente ADR-00 §1 (documentado como addendum, no editado en silencio).
+
+### Backend (identity) — verificado E2E real contra el stack
+- **Schema + migración** `20260724023842_usuario_multigrupo`: tabla `UsuarioGrupo` (espejo de `TutorGrupo`, `@@unique([usuarioId, grupoId])`) + **backfill** de la membresía de todo usuario existente desde su `grupoId` (aplicada con `prisma migrate deploy`; 1 usuario → 1 membresía, verificado).
+- **JWT del usuario** (`AuthService.emitirSesionUsuario`): `grupoIds` sale de `UsuarioGrupo` (N grupos), con fallback al grupo de origen.
+- **Canje**: un usuario NUEVO también crea su fila en `UsuarioGrupo`. Nuevo endpoint **autenticado** `POST /identity/invitaciones/:codigo/aceptar` (controller `InvitacionesAceptarController`, solo `TenantContextGuard`): vincula la cuenta logueada (tutor→`TutorGrupo`, usuario→`UsuarioGrupo`), marca la invitación canjeada, publica `InvitacionCanjeada` (+ `UsuarioUnido` para usuarios) y devuelve sesión nueva con el grupo sumado.
+- **Listados por UsuarioGrupo**: interno `GET /internal/identity/grupos/:grupoId/usuarios` y admin `listarPorGrupo` (para que el grupo recién sumado "vea" al participante); `usuarioADto(u, grupoIdContexto)` refleja el grupo del listado. `asegurarPuedeGestionar` del tutor vale si comparte ALGÚN grupo con el usuario.
+- **`GET /identity/mis-grupos`** (`MisGruposController`, cualquier principal autenticado): grupos del participante para el selector.
+
+### Frontend (app-web)
+- `AuthService`: `gruposUsuario` (todos), `grupoUsuario` ahora es el **grupo ACTIVO** (elegido o el primero) + `seleccionarGrupoUsuario`. Con 1 grupo se comporta igual que antes.
+- **Selector de grupo del participante** (`SelectorGrupoUsuarioComponent`): chip en la topbar (diseño elegido por José entre 2 mockups); abre una hoja para cambiar; solo aparece con 2+ grupos. Las 4 pantallas del usuario reaccionan al grupo activo vía `effect` (se recargan al cambiar).
+- **Página de invitación**: botón "Unirme con mi cuenta" cuando hay sesión y el tipo coincide (`aceptarInvitacion`); si no, el form de cuenta nueva de siempre.
+
+### Verificación E2E real (scripts en scratchpad, contra el stack local)
+`nx build/lint` de app-web + `nx test identity-service` (34/34) OK. Dos scripts de flujo por API vía Gateway:
+- **Participante (10/10 verde)**: registrar org → PRO → 2 grupos → canje usuario en A (cuenta nueva, 1 grupo) → **aceptar B con la misma cuenta** (mismo `sub`, JWT con 2 grupos) → `mis-grupos`=2 → grupo B lista al participante → re-aceptar invitación usada = 410.
+- **Tutor + bordes (3/4, el 4º más estricto)**: tutor reusa cuenta en 2 grupos ✅; tutor no puede aceptar invitación de usuario = 400 `TIPO_INVITACION_NO_COINCIDE` ✅; **cross-org**: da 404 `INVITACION_NO_ENCONTRADA` (el filtro tenant-scoped sobre `Invitacion` oculta la invitación de otra org **antes** del chequeo explícito de org) en vez del 409 esperado — el rechazo es correcto e incluso más estricto (el usuario ni ve que existe). El chequeo `INVITACION_OTRA_ORG` queda como defensa en profundidad.
+
+### Deuda / a verificar
+- **Reinicio de identity en la sesión**: el `nx serve identity-service` original se cayó; se relevantó para el E2E. Sin impacto en código.
+- **Sin tests unitarios nuevos** del endpoint `aceptar` ni del selector (cubiertos por E2E real + build/lint). Deuda: specs de `aceptarComoTutor/Usuario` y del componente.
+- **UX cross-org**: un usuario logueado en org A que abra un invite de org B verá "invitación no encontrada" (no "es de otra organización"). Irrelevante para el piloto (una sola organización); si algún día importa, saltar el filtro tenant en `obtenerCanjeable` del path `aceptar` para dar el 409 con mensaje claro.
+- **E2E en navegador** del selector de grupo y del botón "unirme con mi cuenta": pendiente (verificado por API, no por click).
 
 ## Ítem: Reevaluación de infraestructura (Kubernetes u otra)
 - **Estado**: PENDIENTE
@@ -63,6 +122,40 @@ App Angular 22 nueva (zoneless, standalone, signal-first), aislada de app-web. E
 ## Ítem: Propuesta de actividad por Usuario (condicional a confirmación de José)
 - **Estado**: PENDIENTE — confirmar con José si sigue siendo un requisito antes de diseñarlo.
 - **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
+
+## Ítem: Equipos de trabajo (jefe de equipo + tareas colectivas)
+- **Estado**: PENDIENTE — **spec redactada y aprobada por José** (`docs/phases/fase-14-09-equipos-de-trabajo.md`, 2026-07-24); falta implementar.
+- **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
+- **Nota de la aprobación (2026-07-24)**: José confirmó los defaults (incl. decisión 10: reparto = valor completo a cada miembro, no dividir) y precisó que el reporte del jefe es sobre una **conducta MALA concreta del catálogo** (no un reporte libre) — ya reflejado en la spec (`conductaId` requerido en `ReporteMiembro`, aprobar sin body).
+
+## Ítem: Contenido creado por los integrantes (gated por config del Grupo)
+- **Estado**: PENDIENTE — idea de José (2026-07-24), registrada como ítem 10 en `docs/phases/fase-14-post-mvp.md`; falta redactar spec.
+- **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
+- **Origen**: que un Grupo pueda configurar si sus integrantes crean su propio contenido (opcionales, conductas buenas/malas). Punto aparte del ítem 9 (equipos). A acotar: moderación/aprobación del Tutor y el riesgo de que un integrante fabrique conductas MALA.
+
+### Origen (idea de José 2026-07-24)
+Dentro de un Grupo, agrupar participantes en **equipos** con un **jefe de equipo** que impulsa al resto a cumplir **tareas colectivas** y ganar puntos en conjunto. Reglas de gobernanza pedidas: si el equipo no cumple, se **sustituye al jefe** (el reemplazo queda sujeto a evaluación, mismo ciclo); si un integrante no coopera / no le hace caso al jefe, éste lo **reporta** para que se le bajen puntos **solo a ese integrante**, sin eximir al equipo de cumplir la tarea.
+
+### Decisiones tomadas con José (fijadas, no reabrir sin motivo)
+1. **Puntos del equipo = ledger del equipo + reparto**: cada tarea de equipo genera eventos que al liquidar se reparten a cada miembro como `EventoPuntos` propio (filas nuevas, nunca update — reglas 1 y 6), etiquetados con `equipoId`. El "puntaje del equipo" es una **vista derivada** (suma por `equipoId`), cero campos mutables; los puntajes/zonas individuales siguen coherentes.
+2. **Reporte del jefe = reporta → Tutor aprueba**: el jefe crea un `ReporteMiembro` `PENDIENTE`; el descuento se aplica **solo si el Tutor lo aprueba**, y se registra como conducta negativa **generada por el Tutor** (mecanismo actual — ningún participante genera eventos de puntos directo). Respeta el modelo de permisos y evita abuso/revancha.
+3. **El jefe NO es un rol de plataforma**: sigue siendo un Usuario/participante; "jefe" es un atributo del `EquipoMiembro` (`rol = JEFE | MIEMBRO`), no un `PrincipalType` ni permisos de Tutor. No toca auth/JWT.
+
+### Defaults acordados para las decisiones secundarias
+- **Sustitución del jefe**: **manual por el Tutor** al cerrar un período incumplido (piloto). Automática = futuro (requiere definir con precisión "período de evaluación" y "meta cumplida").
+- **Membresía**: un usuario en **un solo equipo por grupo** al arranque (multi-equipo se abre después, como se hizo con multi-grupo).
+- **Reparto**: **igual entre miembros + bono configurable al jefe** (default 0).
+- **"Cumplió el equipo"**: atado a la Sección/cierre, reusando el ciclo de `session-service`.
+
+### Boceto de arquitectura (transversal — 4 servicios)
+- **identity-service**: `Equipo` (`organizacionId` + `grupoId`), `EquipoMiembro` (`rol`); endpoints crear/gestionar miembros, designar/sustituir jefe.
+- **activity-service**: Actividad con destinatario = equipo; al completarse publica evento de dominio nuevo (ej. `TareaEquipoCompletada`) con `equipoId` + meta.
+- **scoring-service**: consume el evento → genera un `EventoPuntos` por miembro (reparto + bono de jefe), etiquetados con `equipoId`; expone la vista derivada del puntaje de equipo.
+- **notification-service**: avisa al Tutor cuando hay un `ReporteMiembro` para revisar.
+
+### Pendiente antes de ejecutar
+- Redactar `docs/phases/fase-14-XX-equipos-de-trabajo.md` (schema Prisma de cada servicio, endpoints, catálogo de eventos nuevos, criterios de aceptación) — **no editar** una vez escrita (protocolo de specs).
+- Definir la routing key y el payload del evento `TareaEquipoCompletada` en `docs/architecture/event-catalog.md`.
 
 ## Ítem 8: Confirmación de obligatorias por el usuario + estado de hoy (barrita de repeticiones)
 - **Estado**: COMPLETADA_CON_DESVIACIONES
