@@ -21,12 +21,18 @@ export class UsuariosService {
   async listarPorGrupo(tenant: TenantContext, grupoId: string): Promise<UsuarioDto[]> {
     await this.accesoGrupo.asegurarAcceso(tenant, grupoId);
 
-    const usuarios = await this.prisma.client.usuario.findMany({
+    // Membresía por UsuarioGrupo (fase-14, usuario multi-grupo).
+    const membresias = await this.prisma.client.usuarioGrupo.findMany({
       where: { grupoId },
       orderBy: { createdAt: 'asc' },
     });
 
-    return usuarios.map(usuarioADto);
+    const usuarios = await this.prisma.client.usuario.findMany({
+      where: { id: { in: membresias.map((m) => m.usuarioId) } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return usuarios.map((u) => usuarioADto(u, grupoId));
   }
 
   /**
@@ -115,13 +121,19 @@ export class UsuariosService {
       throw new ForbiddenException('Un usuario solo puede editar su propio perfil');
     }
 
-    // TUTOR: debe estar asignado al grupo del usuario (fuente de verdad: la base).
+    // TUTOR: alcanza con estar asignado a ALGUNO de los grupos del usuario
+    // (fase-14, usuario multi-grupo). Fuente de verdad: la base.
+    const membresias = await this.prisma.client.usuarioGrupo.findMany({
+      where: { usuarioId: usuario.id },
+    });
+    const gruposDelUsuario = membresias.map((m) => m.grupoId);
+
     const asignacion = await this.prisma.client.tutorGrupo.findFirst({
-      where: { tutorId: tenant.principalId, grupoId: usuario.grupoId },
+      where: { tutorId: tenant.principalId, grupoId: { in: gruposDelUsuario } },
     });
 
     if (!asignacion) {
-      throw new ForbiddenException('No estás asignado al grupo de este usuario');
+      throw new ForbiddenException('No estás asignado a ningún grupo de este usuario');
     }
   }
 }

@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 
 import {
+  AlcanceActividad,
   ComportamientoAlCierre,
   EstadoCatalogo,
   TipoLimiteTiempo,
@@ -73,6 +74,17 @@ export class CrearActividadRequest {
   @IsOptional()
   @IsEnum(ComportamientoAlCierre)
   comportamientoAlCierre?: ComportamientoAlCierre;
+
+  // fase-14-09: alcance de equipo. EQUIPO exige OPCIONAL (validado en el service).
+  @IsOptional()
+  @IsEnum(AlcanceActividad)
+  alcance?: AlcanceActividad;
+
+  // Puntos extra al jefe; >0 solo con alcance=EQUIPO (validado en el service).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  bonoJefePuntos?: number;
 }
 
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
@@ -125,6 +137,15 @@ export class EditarActividadRequest {
   @IsOptional()
   @IsEnum(ComportamientoAlCierre)
   comportamientoAlCierre?: ComportamientoAlCierre;
+
+  @IsOptional()
+  @IsEnum(AlcanceActividad)
+  alcance?: AlcanceActividad;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  bonoJefePuntos?: number;
 }
 
 // GET /activity/grupos/:grupoId/actividades?estado= — solo tutores; para

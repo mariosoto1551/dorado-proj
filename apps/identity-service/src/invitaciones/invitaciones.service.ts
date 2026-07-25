@@ -8,7 +8,7 @@ import {
   UsuarioUnidoPayload,
 } from '@dorado/shared-events';
 import { DomainException } from '@dorado/shared-auth';
-import { InvitacionDto, TenantContext, TipoInvitado } from '@dorado/shared-types';
+import { InvitacionDto, PrincipalType, TenantContext, TipoInvitado } from '@dorado/shared-types';
 
 import { AuthService, SesionEmitida } from '../auth/auth.service';
 import { BillingClientService } from '../billing/billing-client.service';
@@ -167,6 +167,118 @@ export class InvitacionesService {
   }
 
   /**
+   * Aceptar una invitación CON LA CUENTA YA AUTENTICADA (fase-14, revisión de
+   * ADR-00 §1): en vez de crear una cuenta nueva, vincula al principal actual al
+   * grupo de la invitación. Solo dentro de la MISMA organización — reutilizar
+   * identidad entre organizaciones rompería el aislamiento multi-tenant.
+   * Devuelve una sesión nueva (el JWT trae el grupo recién sumado).
+   */
+  async aceptar(tenant: TenantContext, codigo: string): Promise<SesionEmitida> {
+    const invitacion = await this.obtenerCanjeable(codigo);
+
+    if (invitacion.organizacionId !== tenant.organizacionId) {
+      throw new DomainException(
+        'INVITACION_OTRA_ORG',
+        'Esta invitación es de otra organización — para unirte tenés que crear una cuenta nueva',
+        409
+      );
+    }
+
+    const esInvitacionTutor = invitacion.tipoInvitado === TipoInvitadoPrisma.TUTOR;
+
+    if (esInvitacionTutor) {
+      if (tenant.principalType !== PrincipalType.TUTOR) {
+        throw new DomainException(
+          'TIPO_INVITACION_NO_COINCIDE',
+          'Esta invitación es para un tutor; iniciá sesión con una cuenta de tutor',
+          400
+        );
+      }
+
+      return await this.aceptarComoTutor(invitacion, tenant.principalId);
+    }
+
+    if (tenant.principalType !== PrincipalType.USUARIO) {
+      throw new DomainException(
+        'TIPO_INVITACION_NO_COINCIDE',
+        'Esta invitación es para un participante; iniciá sesión con una cuenta de participante',
+        400
+      );
+    }
+
+    return await this.aceptarComoUsuario(invitacion, tenant.principalId);
+  }
+
+  private async aceptarComoTutor(
+    invitacion: Invitacion,
+    tutorId: string
+  ): Promise<SesionEmitida> {
+    const yaMiembro = await this.prisma.client.tutorGrupo.findFirst({
+      where: { tutorId, grupoId: invitacion.grupoId },
+    });
+
+    if (yaMiembro) {
+      throw new DomainException('YA_EN_GRUPO', 'Ya administrás este grupo', 409);
+    }
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.tutorGrupo.create({
+        data: { tutorId, grupoId: invitacion.grupoId },
+      });
+
+      await this.marcarCanjeada(tx, invitacion.id, tutorId);
+    });
+
+    await this.publicarInvitacionCanjeada(invitacion, tutorId);
+
+    const tutor = await this.prisma.client.tutor.findFirstOrThrow({ where: { id: tutorId } });
+
+    return await this.auth.emitirSesionTutor(tutor);
+  }
+
+  private async aceptarComoUsuario(
+    invitacion: Invitacion,
+    usuarioId: string
+  ): Promise<SesionEmitida> {
+    const yaMiembro = await this.prisma.client.usuarioGrupo.findFirst({
+      where: { usuarioId, grupoId: invitacion.grupoId },
+    });
+
+    if (yaMiembro) {
+      throw new DomainException('YA_EN_GRUPO', 'Ya sos parte de este grupo', 409);
+    }
+
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.usuarioGrupo.create({
+        data: { usuarioId, grupoId: invitacion.grupoId },
+      });
+
+      await this.marcarCanjeada(tx, invitacion.id, usuarioId);
+    });
+
+    await this.publicarInvitacionCanjeada(invitacion, usuarioId);
+
+    const usuario = await this.prisma.client.usuario.findFirstOrThrow({ where: { id: usuarioId } });
+
+    // Aviso a los demás servicios de que el participante ya está en este grupo.
+    await this.eventos.publicar<UsuarioUnidoPayload>({
+      eventType: 'UsuarioUnido',
+      routingKey: ROUTING_KEYS.USUARIO_UNIDO,
+      organizacionId: invitacion.organizacionId,
+      grupoId: invitacion.grupoId,
+      payload: {
+        usuarioId: usuario.id,
+        organizacionId: invitacion.organizacionId,
+        grupoId: invitacion.grupoId,
+        nombre: usuario.nombre,
+        invitacionId: invitacion.id,
+      },
+    });
+
+    return await this.auth.emitirSesionUsuario(usuario);
+  }
+
+  /**
    * Regla obligatoria de la spec: una invitación vencida no se canjea aunque
    * siga PENDIENTE en la base — se chequea la fecha en tiempo real y, si
    * venció, se actualiza a EXPIRADA en el mismo request antes de devolver 410.
@@ -266,6 +378,12 @@ export class InvitacionesService {
             nombre: datos.nombre,
             avatarId: AVATAR_DEFAULT,
           },
+        });
+
+        // Membresía inicial (fase-14, usuario multi-grupo): UsuarioGrupo es la
+        // fuente de verdad; el grupoId de arriba queda como grupo de origen.
+        await tx.usuarioGrupo.create({
+          data: { usuarioId: nuevoUsuario.id, grupoId: invitacion.grupoId },
         });
 
         await this.marcarCanjeada(tx, invitacion.id, nuevoUsuario.id);

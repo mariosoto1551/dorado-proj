@@ -15,6 +15,8 @@
 | `ConductaRegistrada` | `activity.conducta_registrada` | Activity Catalog | Scoring, Notification | MÍNIMO |
 | `ConductaRegistroEliminado` | `activity.conducta_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
 | `ActividadRegistroEliminado` | `activity.actividad_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
+| `TareaEquipoCompletada` | `activity.tarea_equipo_completada` | Activity Catalog | Scoring, Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
+| `ReporteMiembroCreado` | `activity.reporte_miembro_creado` | Activity Catalog | Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
 | `SesionAbierta` | `session.sesion_abierta` | Session/Section | Notification | EXTENSIÓN |
 | `SesionCerrada` | `session.sesion_cerrada` | Session/Section | Scoring (si `evaluarUmbralesEn = CADA_SESION`), Notification | EXTENSIÓN |
 | `SeccionAbierta` | `session.seccion_abierta` | Session/Section | Notification | EXTENSIÓN |
@@ -108,6 +110,34 @@ interface ActividadRegistroEliminadoPayload {
   registroId: string;
   usuarioId: string;
   eliminadoPorTutorId: string;
+}
+
+// fase-14-09: el jefe completó una tarea de equipo; scoring reparte creando un
+// EventoPuntos por asignación, etiquetado con equipoId (asignaciones ya trae el
+// valor resuelto: base + bono del jefe).
+interface TareaEquipoCompletadaPayload {
+  registroTareaEquipoId: string;
+  actividadId: string;
+  equipoId: string;
+  organizacionId: string;
+  grupoId: string;
+  sesionId: string;
+  seccionId: string;
+  completadaPorId: string;
+  completadaPorTipo: 'USUARIO' | 'TUTOR';
+  asignaciones: Array<{ usuarioId: string; puntos: number; esJefe: boolean }>;
+}
+
+// fase-14-09: el jefe reportó a un integrante por una conducta MALA concreta.
+// Solo notifica al Tutor; el descuento se aplica al aprobar (vía ConductaRegistrada).
+interface ReporteMiembroCreadoPayload {
+  reporteId: string;
+  organizacionId: string;
+  grupoId: string;
+  equipoId: string;
+  reportadoUsuarioId: string;
+  jefeUsuarioId: string;
+  conductaId: string;
 }
 
 interface SesionEventoPayload {

@@ -32,6 +32,11 @@ enum TipoInvitado {
   USUARIO
 }
 
+enum RolEquipoMiembro {
+  JEFE
+  MIEMBRO
+}
+
 enum EstadoInvitacion {
   PENDIENTE
   CANJEADA
@@ -75,7 +80,9 @@ model Grupo {
   updatedAt      DateTime     @updatedAt
   tutorGrupos    TutorGrupo[]
   usuarios       Usuario[]
+  usuarioGrupos  UsuarioGrupo[]
   invitaciones   Invitacion[]
+  equipos        Equipo[]
 
   @@index([organizacionId])
 }
@@ -111,20 +118,83 @@ model TutorGrupo {
 model Usuario {
   id             String       @id @default(uuid())
   organizacionId String
+  // Grupo de ORIGEN (el primero al que se unió). La pertenencia REAL —que puede
+  // ser a varios grupos de la misma organización (fase-14, revisión de ADR-00 §1)—
+  // vive en UsuarioGrupo. Se conserva esta columna para no romper el código que
+  // ya la leía; nunca se usa como única fuente de membresía.
   grupoId        String
   grupo          Grupo        @relation(fields: [grupoId], references: [id])
   // Único a nivel PLATAFORMA — mismo motivo que Tutor.email.
-  username       String       @unique
+  username       String        @unique
   passwordHash   String
   nombre         String
   // Identificador de avatar predefinido, no archivo de imagen.
   avatarId       String
-  estado         EstadoCuenta @default(ACTIVO)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  estado         EstadoCuenta  @default(ACTIVO)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  usuarioGrupos  UsuarioGrupo[]
 
   @@index([organizacionId])
   @@index([grupoId])
+}
+
+// Pertenencia muchos-a-muchos de un Usuario a Grupos de su organización
+// (fase-14, revisión de ADR-00 §1: un participante puede estar en varios grupos
+// con la MISMA cuenta). Espejo de TutorGrupo. El aislamiento multi-tenant se
+// mantiene: solo se vincula a grupos de la organización del propio usuario.
+model UsuarioGrupo {
+  id        String   @id @default(uuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  grupoId   String
+  grupo     Grupo    @relation(fields: [grupoId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([usuarioId, grupoId])
+  @@index([grupoId])
+}
+
+// Equipo de trabajo dentro de un Grupo (fase-14-09): agrupa participantes con un
+// jefe que impulsa tareas colectivas. Espejo conceptual de la relación Grupo↔Usuario,
+// pero un nivel más abajo. El "jefe" NO es un rol de plataforma — es el rol JEFE
+// de su fila EquipoMiembro, sigue siendo un Usuario/participante común.
+model Equipo {
+  id             String          @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  grupo          Grupo           @relation(fields: [grupoId], references: [id])
+  nombre         String
+  // reusa EstadoCuenta (ACTIVO/INACTIVO); INACTIVO = archivado.
+  estado         EstadoCuenta    @default(ACTIVO)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  miembros       EquipoMiembro[]
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+// Pertenencia de un Usuario a un Equipo con su rol. Un solo JEFE por equipo
+// (invariante garantizado por lógica del service, no expresable como @@unique
+// parcial en Prisma). @@unique([grupoId, usuarioId]) fuerza la regla "un usuario
+// en un solo equipo por grupo" (decisión 5 de la spec).
+model EquipoMiembro {
+  id             String           @id @default(uuid())
+  organizacionId String
+  // denormalizado del Equipo, necesario para el @@unique de un-equipo-por-grupo.
+  grupoId        String
+  equipoId       String
+  equipo         Equipo           @relation(fields: [equipoId], references: [id])
+  usuarioId      String
+  rol            RolEquipoMiembro @default(MIEMBRO)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([equipoId, usuarioId])
+  @@unique([grupoId, usuarioId])
+  @@index([organizacionId])
+  @@index([usuarioId])
 }
 
 model Invitacion {

@@ -28,6 +28,16 @@ export enum ComportamientoAlCierre {
   REQUIERE_CONFIRMACION = 'REQUIERE_CONFIRMACION',
 }
 
+/**
+ * Alcance de una actividad (fase-14-09). INDIVIDUAL = clásico (cada usuario la
+ * completa para sí). EQUIPO = la completa el jefe una vez y scoring reparte a
+ * los miembros. Las de equipo son siempre OPCIONAL en esta fase.
+ */
+export enum AlcanceActividad {
+  INDIVIDUAL = 'INDIVIDUAL',
+  EQUIPO = 'EQUIPO',
+}
+
 export interface ActividadDto {
   id: string;
   organizacionId: string;
@@ -42,6 +52,9 @@ export interface ActividadDto {
   repeticionesMaximasSesion: number;
   repeticionesMaximasSeccion: number | null;
   comportamientoAlCierre: ComportamientoAlCierre;
+  alcance: AlcanceActividad;
+  /** Puntos extra al jefe sobre el valor base; solo relevante si alcance = EQUIPO. */
+  bonoJefePuntos: number;
   estado: 'ACTIVA' | 'ARCHIVADA';
 }
 
@@ -125,4 +138,53 @@ export interface CompletadaOpcionalDto {
   valorPuntos: number;
   /** Ordenadas por createdAt asc; para "quitar una" se elimina la última. */
   registros: RegistroCompletadaDto[];
+}
+
+// --- Tareas de equipo y reportes del jefe (fase-14-09) ---
+
+export enum EstadoReporte {
+  PENDIENTE = 'PENDIENTE',
+  APROBADO = 'APROBADO',
+  RECHAZADO = 'RECHAZADO',
+}
+
+/** Reparto resuelto de una tarea de equipo (una entrada por miembro). */
+export interface AsignacionPuntosEquipoDto {
+  usuarioId: string;
+  /** valor base + bono del jefe si corresponde. */
+  puntos: number;
+  esJefe: boolean;
+}
+
+export interface CompletarTareaEquipoResponse {
+  registroTareaEquipoId: string;
+  equipoId: string;
+  actividadId: string;
+  asignaciones: AsignacionPuntosEquipoDto[];
+}
+
+/**
+ * Reporte del jefe de equipo contra un integrante por una conducta MALA concreta
+ * del catálogo (fase-14-09). El descuento se aplica solo si el Tutor lo aprueba.
+ */
+export interface ReporteMiembroDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  equipoId: string;
+  reportadoUsuarioId: string;
+  jefeUsuarioId: string;
+  conductaId: string;
+  motivo: string | null;
+  estado: EstadoReporte;
+  resueltoPorTutorId: string | null;
+  registroConductaId: string | null;
+  createdAt: string;
+}
+
+export interface CrearReporteMiembroRequest {
+  reportadoUsuarioId: string;
+  /** conducta MALA ACTIVA del grupo. */
+  conductaId: string;
+  motivo?: string;
 }

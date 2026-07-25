@@ -1,7 +1,7 @@
 # Registro de ejecución — Fase 13: Piloto y despliegue inicial
 
-- **Estado**: EN_PROGRESO (infra-as-code deploy-ready lista; deploy real y alta del tenant pendientes de datos + cuentas de José)
-- **Fecha de actualización**: 2026-07-21
+- **Estado**: COMPLETADA_CON_DESVIACIONES (infra-as-code deploy-ready lista y estable; **José la dio por estable el 2026-07-24** → desbloquea Fase 14). El deploy real y el alta del tenant quedan como **operación pendiente** (datos + cuentas de José), no como código faltante — no bloquean seguir construyendo.
+- **Fecha de actualización**: 2026-07-24
 - **Commit/rama**: `master` — commit `fase-13: infra deploy-ready (docker/render/vercel/ci/runbook)`
 
 ## Alcance de esta sesión (decidido con José)

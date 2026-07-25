@@ -17,6 +17,8 @@ enum Rol {
 
 `ORG_ADMIN` y `TUTOR` son la misma entidad de base de datos (`Tutor`, ver Fase 2), diferenciados por el campo `rol`. Un `ORG_ADMIN` tiene implícitamente acceso a todos los `Grupo` de su `Organizacion` sin necesidad de fila explícita en `TutorGrupo`; un `TUTOR` solo tiene acceso a los `Grupo` donde exista una fila en `TutorGrupo`.
 
+> **Addendum (Fase 14, 2026-07-24) — revisión deliberada de "USUARIO pertenece exactamente a un Grupo".** A pedido de José, un `USUARIO` ahora puede pertenecer a **varios `Grupo` de su misma `Organizacion`** con la MISMA cuenta (antes, unirse a otro grupo obligaba a crear una cuenta nueva). La membresía pasa a modelarse en una tabla `UsuarioGrupo` (espejo de `TutorGrupo`); la columna `Usuario.grupoId` se conserva como "grupo de origen" y ya no es la única fuente de membresía. El `grupoIds` del JWT de un usuario puede tener N elementos. **El aislamiento multi-tenant NO cambia**: la reutilización de cuenta es solo dentro de la misma organización — no existe identidad de usuario que cruce organizaciones (lo garantiza, además del chequeo explícito, el filtro tenant-scoped sobre `Invitacion`). Detalle de ejecución y verificación E2E en `docs/progreso/fase-14-post-mvp.md`.
+
 ## 2. Multi-tenancy: partición por fila, no por schema
 
 Decisión: **cada microservicio tiene su propia base de datos Postgres** (ya definido en la arquitectura base), y dentro de esa base **no hay un schema por tenant**. El aislamiento es a nivel de fila: toda tabla que contenga datos de negocio incluye las columnas `organizacionId` y, cuando aplica, `grupoId`, ambas indexadas.

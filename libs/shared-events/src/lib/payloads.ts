@@ -94,6 +94,41 @@ export interface ActividadRegistroEliminadoPayload {
   eliminadoPorTutorId: string;
 }
 
+/**
+ * Una tarea de equipo (Actividad alcance=EQUIPO) fue completada por el jefe
+ * (fase-14-09). scoring reparte creando un EventoPuntos por cada asignación,
+ * etiquetado con equipoId. `asignaciones` ya trae el signo/valor resuelto
+ * (base + bono del jefe) para que scoring no recalcule.
+ */
+export interface TareaEquipoCompletadaPayload {
+  /** id del RegistroTareaEquipo en Activity Catalog. */
+  registroTareaEquipoId: string;
+  actividadId: string;
+  equipoId: string;
+  organizacionId: string;
+  grupoId: string;
+  sesionId: string;
+  seccionId: string;
+  completadaPorId: string;
+  completadaPorTipo: 'USUARIO' | 'TUTOR';
+  asignaciones: Array<{ usuarioId: string; puntos: number; esJefe: boolean }>;
+}
+
+/**
+ * El jefe de un equipo reportó a un integrante por una conducta MALA concreta
+ * (fase-14-09). Solo informa a notification; el descuento se aplica cuando el
+ * Tutor aprueba (que reutiliza ConductaRegistrada).
+ */
+export interface ReporteMiembroCreadoPayload {
+  reporteId: string;
+  organizacionId: string;
+  grupoId: string;
+  equipoId: string;
+  reportadoUsuarioId: string;
+  jefeUsuarioId: string;
+  conductaId: string;
+}
+
 export interface SesionEventoPayload {
   sesionId: string;
   seccionId: string;

@@ -8,13 +8,21 @@ import {
 import { ActividadDto, Rol, TenantContext } from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
-import { LimitePlanAlcanzadoException } from '../comun/excepciones';
+import {
+  LimitePlanAlcanzadoException,
+  TareaEquipoDebeSerOpcionalException,
+} from '../comun/excepciones';
 import { validarCamposLimiteTiempo } from '../comun/limite-tiempo';
 import { actividadADto } from '../comun/mapeadores';
 import { BillingClientService } from '../clientes/billing-client.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
-import { ComportamientoAlCierre, EstadoCatalogo, TipoPuntaje } from '../generated/prisma/enums';
+import {
+  AlcanceActividad,
+  ComportamientoAlCierre,
+  EstadoCatalogo,
+  TipoPuntaje,
+} from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CrearActividadRequest,
@@ -48,6 +56,12 @@ export class ActividadesService {
       datos.duracionCronometroMinutos ?? null
     );
 
+    const equipo = this.resolverAlcance(
+      datos.tipoPuntaje,
+      datos.alcance,
+      datos.bonoJefePuntos
+    );
+
     await this.asegurarLimiteActividades(tenant.organizacionId, grupoId);
 
     const actividad = await this.prisma.client.actividad.create({
@@ -70,6 +84,8 @@ export class ActividadesService {
           datos.tipoPuntaje,
           datos.comportamientoAlCierre
         ),
+        alcance: equipo.alcance,
+        bonoJefePuntos: equipo.bonoJefePuntos,
         creadaPorTutorId: tenant.principalId,
       },
     });
@@ -148,6 +164,14 @@ export class ActividadesService {
       existente.comportamientoAlCierre as ComportamientoAlCierre
     );
 
+    // Alcance efectivo (fase-14-09): mismo criterio que el comportamiento — se
+    // revalida contra el tipoPuntaje efectivo, tomando lo pedido o lo existente.
+    const equipo = this.resolverAlcance(
+      tipoPuntajeEfectivo,
+      datos.alcance ?? (existente.alcance as AlcanceActividad),
+      datos.bonoJefePuntos ?? existente.bonoJefePuntos
+    );
+
     // updateMany (no update): pasa por el filtro automático de tenant.
     await this.prisma.client.actividad.updateMany({
       where: { id },
@@ -166,6 +190,8 @@ export class ActividadesService {
           repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion,
         }),
         comportamientoAlCierre: comportamientoEfectivo,
+        alcance: equipo.alcance,
+        bonoJefePuntos: equipo.bonoJefePuntos,
       },
     });
 
@@ -222,6 +248,30 @@ export class ActividadesService {
     }
 
     return pedido ?? fallback;
+  }
+
+  /**
+   * Alcance + bono al jefe efectivos (fase-14-09). Una tarea de EQUIPO debe ser
+   * OPCIONAL (decisión 11 de la spec — el castigo colectivo queda fuera de
+   * alcance); el bono al jefe solo tiene sentido con alcance EQUIPO, para
+   * INDIVIDUAL se fuerza a 0.
+   */
+  private resolverAlcance(
+    tipoPuntaje: TipoPuntaje,
+    alcance: AlcanceActividad | undefined,
+    bonoJefePuntos: number | undefined
+  ): { alcance: AlcanceActividad; bonoJefePuntos: number } {
+    const alcanceEfectivo = alcance ?? AlcanceActividad.INDIVIDUAL;
+
+    if (alcanceEfectivo === AlcanceActividad.EQUIPO && tipoPuntaje !== TipoPuntaje.OPCIONAL) {
+      throw new TareaEquipoDebeSerOpcionalException();
+    }
+
+    if (alcanceEfectivo === AlcanceActividad.INDIVIDUAL) {
+      return { alcance: alcanceEfectivo, bonoJefePuntos: 0 };
+    }
+
+    return { alcance: alcanceEfectivo, bonoJefePuntos: bonoJefePuntos ?? 0 };
   }
 
   /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */

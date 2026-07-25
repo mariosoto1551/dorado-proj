@@ -54,6 +54,7 @@ export class NotificacionesConsumer {
       ROUTING_KEYS.ZONA_ALCANZADA,
       ROUTING_KEYS.USUARIO_DESCALIFICADO,
       ROUTING_KEYS.RECOMPENSA_CANJEADA,
+      ROUTING_KEYS.REPORTE_MIEMBRO_CREADO,
     ],
     queue: 'notification.q.eventos-dominio',
     queueOptions: {

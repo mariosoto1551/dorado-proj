@@ -7,6 +7,7 @@ import type {
   InvitacionGeneradaPayload,
   NoHizoRegistradoPayload,
   RecompensaCanjeadaPayload,
+  ReporteMiembroCreadoPayload,
   SeccionEventoPayload,
   UsuarioDescalificadoPayload,
   UsuarioUnidoPayload,
@@ -64,6 +65,10 @@ export class PlantillasService {
         return await this.usuarioDescalificado(envelope as EventEnvelope<UsuarioDescalificadoPayload>);
       case 'RecompensaCanjeada':
         return await this.recompensaCanjeada(envelope as EventEnvelope<RecompensaCanjeadaPayload>);
+      case 'ReporteMiembroCreado':
+        return await this.reporteMiembroCreado(
+          envelope as EventEnvelope<ReporteMiembroCreadoPayload>
+        );
       default:
         throw new Error(`eventType inesperado en cola de notification: ${envelope.eventType}`);
     }
@@ -255,6 +260,27 @@ export class PlantillasService {
       destinatarioTipo: 'TUTOR' as const,
       tipo: 'RECOMPENSA_CANJEADA',
       mensaje: `${nombreUsuario} canjeó una recompensa, pendiente de entrega.`,
+    }));
+  }
+
+  /** El jefe reportó a un integrante (fase-14-09): notifica a los tutores del grupo. */
+  private async reporteMiembroCreado(
+    envelope: EventEnvelope<ReporteMiembroCreadoPayload>
+  ): Promise<NotificacionAPersistir[]> {
+    const { grupoId, reportadoUsuarioId } = envelope.payload;
+    const [reportado, tutores] = await Promise.all([
+      this.identity.obtenerUsuario(reportadoUsuarioId),
+      this.identity.tutoresDelGrupo(grupoId),
+    ]);
+    const nombre = reportado?.nombre ?? 'un integrante';
+
+    return tutores.map((tutor) => ({
+      organizacionId: envelope.organizacionId,
+      grupoId,
+      destinatarioId: tutor.id,
+      destinatarioTipo: 'TUTOR' as const,
+      tipo: 'REPORTE_MIEMBRO_CREADO',
+      mensaje: `El jefe de equipo reportó a ${nombre} — revisá el reporte para aprobarlo o rechazarlo.`,
     }));
   }
 

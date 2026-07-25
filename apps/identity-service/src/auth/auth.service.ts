@@ -205,12 +205,22 @@ export class AuthService {
 
     const plan = await this.billing.resolvePlan(usuario.organizacionId);
 
+    // USUARIO multi-grupo (fase-14, revisión de ADR-00 §1): sus grupos salen de
+    // UsuarioGrupo (la fuente de verdad de membresía), no de la columna de
+    // origen. Fallback al grupo de origen por si algún dato viejo no tuviera
+    // fila de membresía (no debería tras el backfill).
+    const membresias = await this.prisma.client.usuarioGrupo.findMany({
+      where: { usuarioId: usuario.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    const grupoIds =
+      membresias.length > 0 ? membresias.map((m) => m.grupoId) : [usuario.grupoId];
+
     const accessToken = await this.tokens.emitirAccessToken({
       principalId: usuario.id,
       principalType: PrincipalType.USUARIO,
       organizacionId: usuario.organizacionId,
-      // USUARIO: exactamente 1 grupo (ADR-00 §3).
-      grupoIds: [usuario.grupoId],
+      grupoIds,
       rol: Rol.USUARIO,
       plan,
     });

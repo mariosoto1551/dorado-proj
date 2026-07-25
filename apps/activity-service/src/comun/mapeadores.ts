@@ -1,10 +1,13 @@
 import type {
   ActividadDto,
+  AlcanceActividad,
   ComportamientoAlCierre,
   ConductaDto,
+  EstadoReporte,
   PrincipalType,
   RegistroActividadDto,
   RegistroConductaDto,
+  ReporteMiembroDto,
   TipoConducta,
   TipoLimiteTiempo,
   TipoPuntaje,
@@ -15,6 +18,7 @@ import type {
   Conducta,
   RegistroActividad,
   RegistroConducta,
+  ReporteMiembro,
 } from '../generated/prisma/client';
 
 // Mapeadores modelo Prisma -> DTO público (docs/architecture/shared-types.md).
@@ -36,7 +40,26 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
     repeticionesMaximasSeccion: actividad.repeticionesMaximasSeccion,
     comportamientoAlCierre: actividad.comportamientoAlCierre as ComportamientoAlCierre,
+    alcance: actividad.alcance as AlcanceActividad,
+    bonoJefePuntos: actividad.bonoJefePuntos,
     estado: actividad.estado,
+  };
+}
+
+export function reporteMiembroADto(reporte: ReporteMiembro): ReporteMiembroDto {
+  return {
+    id: reporte.id,
+    organizacionId: reporte.organizacionId,
+    grupoId: reporte.grupoId,
+    equipoId: reporte.equipoId,
+    reportadoUsuarioId: reporte.reportadoUsuarioId,
+    jefeUsuarioId: reporte.jefeUsuarioId,
+    conductaId: reporte.conductaId,
+    motivo: reporte.motivo,
+    estado: reporte.estado as EstadoReporte,
+    resueltoPorTutorId: reporte.resueltoPorTutorId,
+    registroConductaId: reporte.registroConductaId,
+    createdAt: reporte.createdAt.toISOString(),
   };
 }
 

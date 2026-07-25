@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
-import { GrupoDto, Rol, TenantContext } from '@dorado/shared-types';
+import { GrupoDto, PrincipalType, Rol, TenantContext } from '@dorado/shared-types';
 
 import { BillingClientService } from '../billing/billing-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
@@ -41,6 +41,34 @@ export class GruposService {
     });
 
     return grupos.map(grupoADto);
+  }
+
+  /**
+   * Grupos del principal autenticado, sirva quien sirva (fase-14): un USUARIO
+   * multi-grupo recibe los suyos vía UsuarioGrupo (para el selector de grupo de
+   * su app); un tutor/admin reusa `listar`.
+   */
+  async misGrupos(tenant: TenantContext): Promise<GrupoDto[]> {
+    if (tenant.principalType !== PrincipalType.USUARIO) {
+      return await this.listar(tenant);
+    }
+
+    const membresias = await this.prisma.client.usuarioGrupo.findMany({
+      where: { usuarioId: tenant.principalId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const grupos = await this.prisma.client.grupo.findMany({
+      where: { id: { in: membresias.map((m) => m.grupoId) } },
+    });
+
+    // Respeta el orden de unión (createdAt de la membresía).
+    const porId = new Map(grupos.map((g) => [g.id, g]));
+
+    return membresias
+      .map((m) => porId.get(m.grupoId))
+      .filter((g): g is (typeof grupos)[number] => g !== undefined)
+      .map(grupoADto);
   }
 
   async crear(tenant: TenantContext, datos: CrearGrupoRequest): Promise<GrupoDto> {

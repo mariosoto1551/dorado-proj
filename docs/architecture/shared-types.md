@@ -47,6 +47,16 @@ export interface GrupoDto { id: string; organizacionId: string; nombre: string; 
 export interface TutorDto { id: string; organizacionId: string; email: string; nombre: string; rol: Rol.ORG_ADMIN | Rol.TUTOR; grupoIds: string[]; estado: 'ACTIVO' | 'INACTIVO'; createdAt: string; }
 export interface UsuarioDto { id: string; organizacionId: string; grupoId: string; username: string; nombre: string; avatarId: string; estado: 'ACTIVO' | 'INACTIVO'; createdAt: string; }
 export interface InvitacionDto { id: string; organizacionId: string; grupoId: string; tipoInvitado: TipoInvitado; codigo: string; estado: EstadoInvitacion; expiraEn: string; creadoPorTutorId: string; }
+// Equipos de trabajo (fase-14-09)
+export enum RolEquipoMiembro { JEFE = 'JEFE', MIEMBRO = 'MIEMBRO' }
+export interface EquipoMiembroDto { usuarioId: string; nombre: string; avatarId: string; rol: RolEquipoMiembro; }
+export interface EquipoDto { id: string; organizacionId: string; grupoId: string; nombre: string; estado: 'ACTIVO' | 'INACTIVO'; jefeUsuarioId: string; miembros: EquipoMiembroDto[]; createdAt: string; }
+export interface MiEquipoDto extends EquipoDto { esJefe: boolean; }
+export interface EquipoInternoDto { equipoId: string; organizacionId: string; grupoId: string; nombre: string; estado: 'ACTIVO' | 'INACTIVO'; jefeUsuarioId: string; miembros: Array<{ usuarioId: string; rol: RolEquipoMiembro }>; }
+export interface CrearEquipoRequest { nombre: string; jefeUsuarioId: string; miembrosIds: string[]; }
+export interface EditarEquipoRequest { nombre?: string; estado?: 'ACTIVO' | 'INACTIVO'; }
+export interface AgregarMiembroEquipoRequest { usuarioId: string; }
+export interface SustituirJefeEquipoRequest { nuevoJefeUsuarioId: string; }
 
 // ---------- Billing ----------
 export interface PlanDto { id: string; codigo: CodigoPlan; nombre: string; limiteTutores: number | null; limiteUsuarios: number | null; limiteGrupos: number | null; limiteActividadesPorGrupo: number | null; whiteLabel: boolean; reportesAvanzados: boolean; }
@@ -54,7 +64,14 @@ export interface SuscripcionDto { id: string; organizacionId: string; planId: st
 export interface EntitlementsDto { plan: CodigoPlan; limites: { tutores: number | null; usuarios: number | null; grupos: number | null; actividadesPorGrupo: number | null; }; features: { whiteLabel: boolean; reportesAvanzados: boolean; }; }
 
 // ---------- Activity Catalog ----------
-export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; estado: 'ACTIVA' | 'ARCHIVADA'; }
+export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; estado: 'ACTIVA' | 'ARCHIVADA'; }
+// Tareas de equipo y reportes del jefe (fase-14-09)
+export enum AlcanceActividad { INDIVIDUAL = 'INDIVIDUAL', EQUIPO = 'EQUIPO' }
+export enum EstadoReporte { PENDIENTE = 'PENDIENTE', APROBADO = 'APROBADO', RECHAZADO = 'RECHAZADO' }
+export interface AsignacionPuntosEquipoDto { usuarioId: string; puntos: number; esJefe: boolean; }
+export interface CompletarTareaEquipoResponse { registroTareaEquipoId: string; equipoId: string; actividadId: string; asignaciones: AsignacionPuntosEquipoDto[]; }
+export interface ReporteMiembroDto { id: string; organizacionId: string; grupoId: string; equipoId: string; reportadoUsuarioId: string; jefeUsuarioId: string; conductaId: string; motivo: string | null; estado: EstadoReporte; resueltoPorTutorId: string | null; registroConductaId: string | null; createdAt: string; }
+export interface CrearReporteMiembroRequest { reportadoUsuarioId: string; conductaId: string; motivo?: string; }
 export interface ConductaDto { id: string; organizacionId: string; grupoId: string; nombre: string; tipo: TipoConducta; valorPuntos: number; permiteAutoreporte: boolean; estado: 'ACTIVA' | 'ARCHIVADA'; }
 export interface RegistroActividadDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; actividadId: string; sesionId: string; seccionId: string; tipo: 'COMPLETADA' | 'NO_HIZO'; valorPuntosSnapshot: number; registradoPorId: string; registradoPorTipo: PrincipalType; createdAt: string; }
 export interface RegistroConductaDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; conductaId: string; sesionId: string; seccionId: string; valorPuntosSnapshot: number; registradoPorId: string; registradoPorTipo: PrincipalType; eliminado: boolean; createdAt: string; }
@@ -68,6 +85,7 @@ export interface SesionDto { id: string; seccionId: string; organizacionId: stri
 export interface EventoPuntosDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; seccionId: string; sesionId: string; tipoOrigen: TipoOrigenPuntos; origenId: string; puntosSnapshot: number; registradoPorId: string; registradoPorTipo: PrincipalType; corregidoDeId: string | null; createdAt: string; }
 export interface UmbralZonaDto { id: string; organizacionId: string; grupoId: string; nombreZona: string; orden: number; puntosMin: number; puntosMax: number | null; colorHex: string; }
 export interface PuntajeUsuarioDto { usuarioId: string; seccionId: string; puntajeTotal: number; zona: UmbralZonaDto | null; descalificado: boolean; }
+export interface PuntajeEquipoDto { equipoId: string; seccionId: string | null; puntajeTotal: number; porMiembro: Array<{ usuarioId: string; puntos: number }>; } // fase-14-09
 export interface DescalificacionDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; seccionId: string; motivo: string; registradaPorTutorId: string; createdAt: string; }
 
 // ---------- Rewards ----------

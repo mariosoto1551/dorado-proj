@@ -61,3 +61,15 @@ export interface DescalificacionDto {
   registradaPorTutorId: string;
   createdAt: string;
 }
+
+/**
+ * Puntaje derivado de un Equipo (fase-14-09): suma de los EventoPuntos con ese
+ * equipoId. Vista de solo lectura del ledger — nunca un acumulado guardado.
+ */
+export interface PuntajeEquipoDto {
+  equipoId: string;
+  /** null = todas las secciones; si viene, solo esa. */
+  seccionId: string | null;
+  puntajeTotal: number;
+  porMiembro: Array<{ usuarioId: string; puntos: number }>;
+}

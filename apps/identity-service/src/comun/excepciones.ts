@@ -89,3 +89,35 @@ export class LimitePlanAlcanzadoException extends DomainException {
     });
   }
 }
+
+// --- Equipos de trabajo (fase-14-09) ---
+
+export class EquipoNoEncontradoException extends DomainException {
+  constructor() {
+    super('EQUIPO_NO_ENCONTRADO', 'El equipo no existe', 404);
+  }
+}
+
+export class UsuarioNoEnGrupoException extends DomainException {
+  constructor() {
+    super('USUARIO_NO_EN_GRUPO', 'Alguno de los usuarios no pertenece a este grupo', 400);
+  }
+}
+
+export class UsuarioYaEnEquipoException extends DomainException {
+  constructor() {
+    super('USUARIO_YA_EN_EQUIPO', 'Un usuario solo puede estar en un equipo por grupo', 409);
+  }
+}
+
+export class NoSePuedeQuitarJefeException extends DomainException {
+  constructor() {
+    super('NO_SE_PUEDE_QUITAR_JEFE', 'Sustituí al jefe antes de quitarlo del equipo', 409);
+  }
+}
+
+export class JefeNoEsMiembroException extends DomainException {
+  constructor() {
+    super('JEFE_NO_ES_MIEMBRO', 'El nuevo jefe debe ser un integrante del equipo', 400);
+  }
+}

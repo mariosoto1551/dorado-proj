@@ -26,6 +26,7 @@ import {
   CronometroNoIniciadoException,
   CronometroVencidoException,
   DeadlineVencidoException,
+  EsTareaDeEquipoException,
   LimiteRepeticionesAlcanzadoException,
   NoHaySesionAbiertaException,
   ObligatoriaNoSeCompletaException,
@@ -124,6 +125,12 @@ export class RegistroService {
     datos: CompletarActividadRequest
   ): Promise<RegistroActividadDto> {
     const actividad = await this.buscarActividadActiva(actividadId);
+
+    // fase-14-09: una tarea de EQUIPO no se completa por la ruta individual —
+    // va por POST /activity/equipos/:equipoId/tareas/:actividadId/completar.
+    if (actividad.alcance === 'EQUIPO') {
+      throw new EsTareaDeEquipoException();
+    }
 
     // fase-14-08: una OBLIGATORIA con ASUME_HECHA sigue sin completarse — no
     // hacer nada es su estado esperado de "cumplida" (spec fase-07, validación

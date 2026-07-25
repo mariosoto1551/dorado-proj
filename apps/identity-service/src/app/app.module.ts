@@ -5,6 +5,7 @@ import { SharedLoggingModule } from '@dorado/shared-logging';
 
 import { AuthModule } from '../auth/auth.module';
 import { validarEnv } from '../config/env.schema';
+import { EquiposModule } from '../equipos/equipos.module';
 import { EventosModule } from '../eventos/eventos.module';
 import { GruposModule } from '../grupos/grupos.module';
 import { InternalModule } from '../internal/internal.module';
@@ -30,6 +31,7 @@ import { UsuariosModule } from '../usuarios/usuarios.module';
     AuthModule,
     InvitacionesModule,
     GruposModule,
+    EquiposModule,
     UsuariosModule,
     TutoresModule,
     MeModule,

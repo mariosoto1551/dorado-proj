@@ -32,6 +32,19 @@ enum TipoLimiteTiempo {
   SIN_LIMITE
 }
 
+// Alcance de una actividad (fase-14-09). INDIVIDUAL = clásico. EQUIPO = la
+// completa el jefe una vez y scoring reparte a los miembros (siempre OPCIONAL).
+enum AlcanceActividad {
+  INDIVIDUAL
+  EQUIPO
+}
+
+enum EstadoReporte {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
 enum TipoConducta {
   BUENA
   MALA
@@ -63,6 +76,10 @@ model Actividad {
   // fase-14-08: default garantiza que toda actividad preexistente conserva el
   // comportamiento actual tras la migración (cambio retro-compatible).
   comportamientoAlCierre     ComportamientoAlCierre @default(ASUME_HECHA)
+  // fase-14-09: alcance de equipo + bono al jefe. Default INDIVIDUAL/0 mantiene
+  // el comportamiento previo (migración retro-compatible).
+  alcance                    AlcanceActividad @default(INDIVIDUAL)
+  bonoJefePuntos             Int              @default(0)
   estado                     EstadoCatalogo   @default(ACTIVA)
   creadaPorTutorId           String
   createdAt                  DateTime         @default(now())
@@ -143,6 +160,58 @@ model CronometroActivo {
   iniciadoEn  DateTime @default(now())
 
   @@unique([usuarioId, actividadId, sesionId])
+}
+
+// Registro inmutable de una tarea de equipo completada (fase-14-09). Snapshot de
+// la membresía y el reparto al momento de completar; el detalle por miembro viaja
+// además en TareaEquipoCompletada hacia scoring. Sin updatedAt: inmutable, igual
+// que RegistroActividad.
+model RegistroTareaEquipo {
+  id                    String   @id @default(uuid())
+  organizacionId        String
+  grupoId               String
+  equipoId              String
+  actividadId           String
+  sesionId              String
+  seccionId             String
+  valorPuntosSnapshot   Int
+  bonoJefeSnapshot      Int
+  jefeUsuarioIdSnapshot String
+  // [{ usuarioId, esJefe, puntos }] resuelto al completar.
+  miembrosSnapshot      Json
+  completadaPorId       String
+  // 'USUARIO' (jefe) | 'TUTOR'
+  completadaPorTipo     String
+  createdAt             DateTime @default(now())
+
+  @@index([organizacionId])
+  @@index([equipoId, sesionId])
+}
+
+// Reporte del jefe de equipo contra un integrante por una conducta MALA concreta
+// (fase-14-09). Objeto de WORKFLOW mutable (cambia de estado) — NO es el ledger:
+// el asiento real lo crea RegistroConducta al aprobar el Tutor.
+model ReporteMiembro {
+  id                 String        @id @default(uuid())
+  organizacionId     String
+  grupoId            String
+  equipoId           String
+  reportadoUsuarioId String
+  jefeUsuarioId      String
+  // conducta MALA concreta reportada (requerida): el reporte no es libre.
+  conductaId         String
+  motivo             String?
+  estado             EstadoReporte @default(PENDIENTE)
+  resueltoPorTutorId String?
+  // RegistroConducta creado al aprobar (traza el asiento aplicado).
+  registroConductaId String?
+  resueltoEn         DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId, estado])
+  @@index([equipoId])
 }
 
 model Conducta {

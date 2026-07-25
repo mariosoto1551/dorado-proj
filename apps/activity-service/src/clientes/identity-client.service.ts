@@ -2,7 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 
 import { getCorrelationId } from '@dorado/shared-logging';
-import { GrupoDto, UsuarioDto } from '@dorado/shared-types';
+import { EquipoInternoDto, GrupoDto, UsuarioDto } from '@dorado/shared-types';
 
 const TIMEOUT_MS = 2000;
 
@@ -44,6 +44,15 @@ export class IdentityClientService {
   /** Usuario por id, o `null` si identity responde 404. Misma semántica. */
   async obtenerUsuario(usuarioId: string): Promise<UsuarioDto | null> {
     return await this.obtener<UsuarioDto>(`/internal/identity/usuarios/${usuarioId}`);
+  }
+
+  /**
+   * Equipo por id con su membresía y jefe (fase-14-09), o `null` si 404. Lo usa
+   * el completar de tarea de equipo y el reporte del jefe para autorizar y
+   * armar el reparto.
+   */
+  async obtenerEquipo(equipoId: string): Promise<EquipoInternoDto | null> {
+    return await this.obtener<EquipoInternoDto>(`/internal/identity/equipos/${equipoId}`);
   }
 
   /**

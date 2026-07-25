@@ -41,12 +41,16 @@ model EventoPuntos {
   // referencia a otro EventoPuntos si esto es una corrección explícita
   corregidoDeId    String?
   motivoCorreccion String?
+  // no null solo cuando el asiento viene de una tarea de equipo (fase-14-09);
+  // permite derivar el puntaje del equipo sumando por equipoId.
+  equipoId         String?
   createdAt        DateTime @default(now())
   // SIN updatedAt: este modelo nunca se edita, solo se agregan filas nuevas.
 
   @@index([organizacionId])
   @@index([usuarioId, seccionId])
   @@index([origenId])
+  @@index([equipoId])
 }
 
 model UmbralZona {

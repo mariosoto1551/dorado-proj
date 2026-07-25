@@ -55,6 +55,7 @@ function crearPrismaMock(
     tutor: { create: vi.fn().mockResolvedValue({ id: 'tutor-nuevo' }) },
     tutorGrupo: { create: vi.fn().mockResolvedValue({}) },
     usuario: { create: vi.fn().mockResolvedValue({ id: 'usuario-nuevo', nombre: 'Ana' }) },
+    usuarioGrupo: { create: vi.fn().mockResolvedValue({}) },
     invitacion: { updateMany },
   };
 

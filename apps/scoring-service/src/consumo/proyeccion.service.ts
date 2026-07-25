@@ -7,6 +7,7 @@ import type {
   ConductaRegistroEliminadoPayload,
   EventEnvelope,
   NoHizoRegistradoPayload,
+  TareaEquipoCompletadaPayload,
 } from '@dorado/shared-events';
 
 import { TipoOrigenPuntos } from '../generated/prisma/enums';
@@ -79,6 +80,42 @@ export class ProyeccionService {
       puntosSnapshot: envelope.payload.valorPuntosSnapshot,
       registradoPorId: envelope.payload.registradoPorId,
       registradoPorTipo: envelope.payload.registradoPorTipo,
+    });
+  }
+
+  /**
+   * Reparto de una tarea de equipo (fase-14-09): crea un EventoPuntos por cada
+   * asignación (miembro), etiquetado con `equipoId`. `asignaciones` ya trae el
+   * valor resuelto (base + bono del jefe) — scoring no recalcula. Todas las
+   * filas + la marca de procesado van en UNA transacción idempotente.
+   */
+  async procesarTareaEquipoCompletada(
+    envelope: EventEnvelope<TareaEquipoCompletadaPayload>
+  ): Promise<void> {
+    if (await this.yaProcesado(envelope.eventId)) {
+      return;
+    }
+
+    const payload = envelope.payload;
+
+    await this.enTransaccionIdempotente(envelope.eventId, async (tx) => {
+      for (const asignacion of payload.asignaciones) {
+        await tx.eventoPuntos.create({
+          data: {
+            organizacionId: payload.organizacionId,
+            grupoId: payload.grupoId,
+            usuarioId: asignacion.usuarioId,
+            seccionId: payload.seccionId,
+            sesionId: payload.sesionId,
+            tipoOrigen: TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
+            origenId: payload.registroTareaEquipoId,
+            puntosSnapshot: asignacion.puntos,
+            registradoPorId: payload.completadaPorId,
+            registradoPorTipo: 'SYSTEM',
+            equipoId: payload.equipoId,
+          },
+        });
+      }
     });
   }
 

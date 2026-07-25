@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import {
+  PuntajeEquipoDto,
   PuntajeUsuarioDto,
   Rol,
   TenantContext,
@@ -119,6 +120,38 @@ export class PuntajesService {
 
     // De mayor a menor puntaje (spec): base del panel de evaluación (Fase 10).
     return puntajes.sort((a, b) => b.puntajeTotal - a.puntajeTotal);
+  }
+
+  /**
+   * GET /scoring/equipos/:equipoId/puntaje?seccionId= — puntaje DERIVADO del
+   * equipo (fase-14-09): suma de los EventoPuntos etiquetados con ese equipoId.
+   * Vista de solo lectura del ledger, nunca un acumulado guardado (regla 1). El
+   * filtro de tenant (organizacionId + grupoId IN grupoIds) ya acota el alcance.
+   */
+  async puntajeDeEquipo(
+    tenant: TenantContext,
+    equipoId: string,
+    seccionId?: string
+  ): Promise<PuntajeEquipoDto> {
+    const porMiembroRaw = await this.prisma.client.eventoPuntos.groupBy({
+      by: ['usuarioId'],
+      where: { equipoId, ...(seccionId && { seccionId }) },
+      _sum: { puntosSnapshot: true },
+    });
+
+    const porMiembro = porMiembroRaw.map((fila) => ({
+      usuarioId: fila.usuarioId,
+      puntos: fila._sum.puntosSnapshot ?? 0,
+    }));
+
+    const puntajeTotal = porMiembro.reduce((acc, miembro) => acc + miembro.puntos, 0);
+
+    return {
+      equipoId,
+      seccionId: seccionId ?? null,
+      puntajeTotal,
+      porMiembro,
+    };
   }
 
   /** Vista preview desde el ledger (Sección sin ResultadoSeccion todavía). */

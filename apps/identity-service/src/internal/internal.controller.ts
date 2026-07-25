@@ -1,7 +1,13 @@
 import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
-import { GrupoDto, TutorDto, UsuarioDto } from '@dorado/shared-types';
+import {
+  EquipoInternoDto,
+  GrupoDto,
+  RolEquipoMiembro,
+  TutorDto,
+  UsuarioDto,
+} from '@dorado/shared-types';
 
 import { grupoADto, tutorADto, usuarioADto } from '../comun/mapeadores';
 import { EstadoCuenta, RolTutor } from '../generated/prisma/enums';
@@ -30,13 +36,23 @@ export class InternalController {
 
   @Get('grupos/:grupoId/usuarios')
   async usuariosDelGrupo(@Param('grupoId') grupoId: string): Promise<UsuarioDto[]> {
-    // Solo ACTIVO (spec fase-02, tabla de endpoints internos).
-    const usuarios = await this.prisma.client.usuario.findMany({
-      where: { grupoId, estado: EstadoCuenta.ACTIVO },
+    // Membresía por UsuarioGrupo (fase-14, usuario multi-grupo): incluye a los
+    // que se unieron con una cuenta que ya existía en otro grupo. Solo ACTIVO
+    // (spec fase-02, tabla de endpoints internos).
+    const membresias = await this.prisma.client.usuarioGrupo.findMany({
+      where: { grupoId },
       orderBy: { createdAt: 'asc' },
     });
 
-    return usuarios.map(usuarioADto);
+    const usuarios = await this.prisma.client.usuario.findMany({
+      where: {
+        id: { in: membresias.map((m) => m.usuarioId) },
+        estado: EstadoCuenta.ACTIVO,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return usuarios.map((u) => usuarioADto(u, grupoId));
   }
 
   /**
@@ -80,6 +96,38 @@ export class InternalController {
           .map((asignacion) => asignacion.grupoId)
       )
     );
+  }
+
+  /**
+   * Membresía y jefe de un Equipo (fase-14-09) — la consumen activity (completar
+   * tarea de equipo / reporte del jefe) y scoring. Sin contexto de tenant: el
+   * llamador interno es confiable y trabaja con el id explícito.
+   */
+  @Get('equipos/:equipoId')
+  async equipo(@Param('equipoId') equipoId: string): Promise<EquipoInternoDto> {
+    const equipo = await this.prisma.client.equipo.findFirst({
+      where: { id: equipoId },
+      include: { miembros: true },
+    });
+
+    if (!equipo) {
+      throw new NotFoundException('Equipo no encontrado');
+    }
+
+    const jefe = equipo.miembros.find((miembro) => miembro.rol === 'JEFE');
+
+    return {
+      equipoId: equipo.id,
+      organizacionId: equipo.organizacionId,
+      grupoId: equipo.grupoId,
+      nombre: equipo.nombre,
+      estado: equipo.estado as EquipoInternoDto['estado'],
+      jefeUsuarioId: jefe?.usuarioId ?? '',
+      miembros: equipo.miembros.map((miembro) => ({
+        usuarioId: miembro.usuarioId,
+        rol: miembro.rol as RolEquipoMiembro,
+      })),
+    };
   }
 
   @Get('usuarios/:id')

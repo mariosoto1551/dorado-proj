@@ -63,11 +63,16 @@ export function tutorADto(tutor: Tutor, grupoIds: string[]): TutorDto {
   };
 }
 
-export function usuarioADto(usuario: Usuario): UsuarioDto {
+/**
+ * `grupoIdContexto` (fase-14, usuario multi-grupo): cuando el usuario se lista
+ * dentro de un grupo puntual, el DTO refleja ESE grupo, no necesariamente el de
+ * origen. Sin contexto cae al grupo de origen (compat con llamadas por id).
+ */
+export function usuarioADto(usuario: Usuario, grupoIdContexto?: string): UsuarioDto {
   return {
     id: usuario.id,
     organizacionId: usuario.organizacionId,
-    grupoId: usuario.grupoId,
+    grupoId: grupoIdContexto ?? usuario.grupoId,
     username: usuario.username,
     nombre: usuario.nombre,
     avatarId: usuario.avatarId,

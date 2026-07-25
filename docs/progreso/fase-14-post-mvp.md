@@ -124,9 +124,22 @@ Tres mejoras sobre el MVP: (1) poder crear más de un grupo; (2) diferenciar la 
 - **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
 
 ## Ítem: Equipos de trabajo (jefe de equipo + tareas colectivas)
-- **Estado**: PENDIENTE — **spec redactada y aprobada por José** (`docs/phases/fase-14-09-equipos-de-trabajo.md`, 2026-07-24); falta implementar.
-- **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
-- **Nota de la aprobación (2026-07-24)**: José confirmó los defaults (incl. decisión 10: reparto = valor completo a cada miembro, no dividir) y precisó que el reporte del jefe es sobre una **conducta MALA concreta del catálogo** (no un reporte libre) — ya reflejado en la spec (`conductaId` requerido en `ReporteMiembro`, aprobar sin body).
+- **Estado**: EN_PROGRESO — **backend completo** (identity/activity/scoring/notification; compila, tests existentes verdes, lint limpio, migraciones aplicadas contra DB real). **Falta**: frontend app-web + tests unitarios nuevos + E2E real.
+- **Fecha**: 2026-07-25 / **Spec**: `docs/phases/fase-14-09-equipos-de-trabajo.md` (aprobada por José 2026-07-24) / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Nota de la aprobación (2026-07-24)**: José confirmó los defaults (incl. decisión 10: reparto = valor completo a cada miembro, no dividir) y precisó que el reporte del jefe es sobre una **conducta MALA concreta del catálogo** (no un reporte libre) — reflejado en la spec (`conductaId` requerido en `ReporteMiembro`, aprobar sin body).
+
+### Backend ejecutado (compila + tests existentes verdes: identity 34 / activity 87 / scoring 45; lint limpio)
+- **Contratos** (`shared-types` + `shared-events`): enums `RolEquipoMiembro`, `AlcanceActividad`, `EstadoReporte`; DTOs `EquipoDto`/`EquipoMiembroDto`/`MiEquipoDto`/`EquipoInternoDto`, requests de equipo, `ReporteMiembroDto`/`CrearReporteMiembroRequest`, `CompletarTareaEquipoResponse`/`AsignacionPuntosEquipoDto`, `PuntajeEquipoDto`; `ActividadDto` sumó `alcance`+`bonoJefePuntos`. Eventos nuevos `TareaEquipoCompletada` (`activity.tarea_equipo_completada`) y `ReporteMiembroCreado` (`activity.reporte_miembro_creado`) en routing-keys/payloads + `event-catalog.md`.
+- **identity**: modelos `Equipo` + `EquipoMiembro` (`@@unique([grupoId, usuarioId])` = un equipo por grupo; un solo JEFE por lógica de service) + migración `20260725002652_equipos_fase14`. Módulo `equipos` (service, `EquiposController` TUTOR/ORG_ADMIN: crear/listar/detalle/editar/miembros/sustituir jefe; `MisEquiposController` USUARIO: `GET /identity/mis-equipos`) + interno `GET /internal/identity/equipos/:equipoId`. Excepciones tipadas (`USUARIO_YA_EN_EQUIPO`, `NO_SE_PUEDE_QUITAR_JEFE`, etc.).
+- **activity**: `Actividad.alcance`+`bonoJefePuntos` (validación EQUIPO⇒OPCIONAL, bono solo con EQUIPO); modelos `RegistroTareaEquipo` (snapshot inmutable + `miembrosSnapshot` Json) y `ReporteMiembro` (workflow) + enum `EstadoReporte` + migración `20260725003333_equipos_fase14`. Módulo `equipos`: `TareasEquipoService.completar` (jefe/tutor; reparto base + bono al jefe; publica `TareaEquipoCompletada`), `ReportesService` (crear/listar/aprobar/rechazar; aprobar registra `RegistroConducta` MALA por el Tutor → `ConductaRegistrada`; publica `ReporteMiembroCreado`). El completar individual rechaza tareas de equipo (`ES_TAREA_DE_EQUIPO`). Cliente identity `obtenerEquipo`.
+- **scoring**: `EventoPuntos.equipoId?` + índice + migración `20260725004309_equipo_id_evento_puntos_fase14`. Consumidor `TareaEquipoCompletada` (`scoring.q.registros-actividad`): un `EventoPuntos` por asignación etiquetado con `equipoId`, idempotente. Endpoint `GET /scoring/equipos/:equipoId/puntaje?seccionId=` (suma derivada, sin campo mutable).
+- **notification**: consumidor de `ReporteMiembroCreado` → notifica a los tutores del grupo. `TareaEquipoCompletada` a usuarios quedó fuera (era opcional/EXTENSIÓN).
+- **gateway**: sin cambios (ruteo por prefijo `/api/identity|activity|scoring`).
+
+### Qué falta / verificar
+1. **Frontend app-web**: gestión de equipos (tutor), form de actividad con alcance/bono, bandeja de reportes, vista "Mi equipo" + completar tarea / reportar (jefe).
+2. **Tests unitarios nuevos** de los services (reparto con bono, aprobación de reporte, un-equipo-por-grupo, sustitución de jefe) — deuda.
+3. **E2E real** por API vía Gateway: crear equipo → tarea de equipo → completar (jefe) → ver reparto en scoring/puntaje de equipo → reporte → aprobar (tutor) → descuento solo al reportado.
 
 ## Ítem: Contenido creado por los integrantes (gated por config del Grupo)
 - **Estado**: PENDIENTE — idea de José (2026-07-24), registrada como ítem 10 en `docs/phases/fase-14-post-mvp.md`; falta redactar spec.

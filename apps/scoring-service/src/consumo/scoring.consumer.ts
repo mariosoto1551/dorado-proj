@@ -10,6 +10,7 @@ import type {
   NoHizoRegistradoPayload,
   SeccionEventoPayload,
   SesionEventoPayload,
+  TareaEquipoCompletadaPayload,
 } from '@dorado/shared-events';
 import {
   EXCHANGE_DORADO_EVENTS,
@@ -73,6 +74,7 @@ export class ScoringConsumer {
       ROUTING_KEYS.CONDUCTA_REGISTRADA,
       ROUTING_KEYS.CONDUCTA_REGISTRO_ELIMINADO,
       ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
+      ROUTING_KEYS.TAREA_EQUIPO_COMPLETADA,
     ],
     queue: 'scoring.q.registros-actividad',
     queueOptions: OPCIONES_COLA,
@@ -106,6 +108,11 @@ export class ScoringConsumer {
         case 'ActividadRegistroEliminado':
           await this.proyeccion.procesarActividadRegistroEliminado(
             envelope as EventEnvelope<ActividadRegistroEliminadoPayload>
+          );
+          break;
+        case 'TareaEquipoCompletada':
+          await this.proyeccion.procesarTareaEquipoCompletada(
+            envelope as EventEnvelope<TareaEquipoCompletadaPayload>
           );
           break;
         default:

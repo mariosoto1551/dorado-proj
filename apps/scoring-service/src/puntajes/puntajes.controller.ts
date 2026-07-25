@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 
 import {
   CurrentTenant,
@@ -6,7 +6,12 @@ import {
   RolesGuard,
   TenantContextGuard,
 } from '@dorado/shared-auth';
-import { PuntajeUsuarioDto, Rol, TenantContext } from '@dorado/shared-types';
+import {
+  PuntajeEquipoDto,
+  PuntajeUsuarioDto,
+  Rol,
+  TenantContext,
+} from '@dorado/shared-types';
 
 import { PuntajesService } from './puntajes.service';
 
@@ -33,5 +38,16 @@ export class PuntajesController {
     @Param('seccionId') seccionId: string
   ): Promise<PuntajeUsuarioDto[]> {
     return await this.puntajes.puntajesDeGrupo(tenant, grupoId, seccionId);
+  }
+
+  /** Puntaje derivado del equipo (fase-14-09). seccionId opcional. */
+  @Get('equipos/:equipoId/puntaje')
+  @Roles(Rol.USUARIO, Rol.TUTOR, Rol.ORG_ADMIN)
+  async puntajeDeEquipo(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('equipoId') equipoId: string,
+    @Query('seccionId') seccionId?: string
+  ): Promise<PuntajeEquipoDto> {
+    return await this.puntajes.puntajeDeEquipo(tenant, equipoId, seccionId);
   }
 }
