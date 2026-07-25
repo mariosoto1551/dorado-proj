@@ -142,11 +142,18 @@ Tres mejoras sobre el MVP: (1) poder crear más de un grupo; (2) diferenciar la 
 - **Participante**: `mi-equipo.page.ts` (puntaje del equipo, tareas de equipo con "Marcar como hecha" para el jefe, integrantes con "Reportar" para el jefe; modal de reporte con conducta MALA + nota). Reacciona al grupo activo (multi-grupo).
 - **Navegación**: shell — "Equipos" y "Reportes" en el menú del tutor (grupo "Gente"); "Equipo" en el bottom-nav del participante (5 ítems). Rutas `grupos/:grupoId/equipos`, `.../reportes`, y `/mi-equipo`.
 
+### Verificación E2E real (2026-07-25) — 23/23 verde contra el stack local
+Script `e2e-equipos.mjs` (scratchpad, Node fetch vía Gateway :3000). Levantados identity/activity/scoring/notification (los otros ya estaban). Cubre el ciclo completo:
+- Setup: registrar org → grupo → config sesión MANUAL → iniciar Sección+Sesión → 3 usuarios por canje → conducta MALA (−5) → actividad de EQUIPO (10 c/u, bono jefe 3).
+- Equipos: crear con jefe+2 integrantes; **un-equipo-por-grupo** rechazado (409 `USUARIO_YA_EN_EQUIPO`).
+- Reparto: no-jefe no completa (403 `SOLO_JEFE_COMPLETA_TAREA_EQUIPO`); el jefe completa → asignaciones jefe **13** (10+3), integrantes **10**; **puntaje de equipo derivado = 33** (scoring consumió `TareaEquipoCompletada`).
+- Reporte: jefe reporta a Alejandra (conducta MALA concreta); auto-reporte rechazado (400 `REPORTADO_NO_ES_MIEMBRO`); bandeja del tutor = 1 pendiente; **aprobar** → re-aprobar da 409 `REPORTE_YA_RESUELTO`; **Alejandra 10−5=5, Diego (no reportado) sigue 10** (descuento solo al reportado, vía `ConductaRegistrada`).
+- Sustituir jefe: Diego pasa a JEFE, Luciana a MIEMBRO.
+
 ### Qué falta / verificar
-1. **Tests unitarios nuevos** de los services (reparto con bono, aprobación de reporte, un-equipo-por-grupo, sustitución de jefe) — deuda.
-2. **E2E real** por API vía Gateway: crear equipo → tarea de equipo → completar (jefe) → ver reparto en scoring/puntaje de equipo → reporte → aprobar (tutor) → descuento solo al reportado.
-3. **E2E en navegador** de las pantallas nuevas (verificado por build/lint, no por click).
-4. **Deuda UI menor**: `mi-equipo` no marca "tarea de equipo ya hecha hoy" (el backend igual corta por `repeticionesMaximasSesion`); el puntaje de equipo se muestra total (no por sección) — decisión de arranque.
+1. **Tests unitarios nuevos** de los services (Vitest) — deuda; el E2E real cubre el comportamiento pero conviene fijar casos unitarios.
+2. **E2E en navegador** de las pantallas nuevas (el flujo por API está verde; falta verificación por click).
+3. **Deuda UI menor**: `mi-equipo` no marca "tarea de equipo ya hecha hoy" (el backend igual corta por `repeticionesMaximasSesion`); el puntaje de equipo se muestra total (no por sección) — decisión de arranque.
 
 ## Ítem: Contenido creado por los integrantes (gated por config del Grupo)
 - **Estado**: PENDIENTE — idea de José (2026-07-24), registrada como ítem 10 en `docs/phases/fase-14-post-mvp.md`; falta redactar spec.
