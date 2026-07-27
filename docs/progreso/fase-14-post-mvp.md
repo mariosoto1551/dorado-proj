@@ -359,4 +359,134 @@ Secuencia verificada por test con una actividad de 5 puntos: completar `+5` → 
 2. **E2E por API del ciclo completo de puntos**, que es lo único que los tests unitarios no prueban de punta a punta: completar 3 veces una opcional de 5 pts → puntaje 15 → el tutor quita una → puntaje 10 → deshacer → puntaje 15. Verificar en `EventoPuntos` que son filas nuevas encadenadas por `corregidoDeId` y que **ninguna fila vieja cambió**.
 3. **Verificar el binding nuevo de la cola `scoring.q.registros-actividad`** con la routing key `activity.actividad_registro_revertido`: la cola ya existía, así que hay que confirmar que el binding se declara al arrancar y no quedan mensajes sin rutear.
 4. **E2E en navegador**: la barrita con el segmento rojo rayado y la tarjeta denegada en la pantalla del integrante; el bloque «Marcas de hoy» con Deshacer en el panel del tutor.
-5. Cuando se haga la **implementación completa de notificaciones a usuarios**, engancharle el aviso de marca roja (pendiente declarado, no olvidado). Ídem las **tareas de equipo**.
+5. Cuando se haga la **implementación completa de notificaciones a usuarios**, engancharle el aviso de marca roja (pendiente declarado, no olvidado). Las **tareas de equipo** se cerraron en el ítem 13.
+
+## Ítem 13: Anular una tarea de equipo (marcas rojas, parte 2)
+- **Estado**: EN_PROGRESO — **backend + frontend completos y verificados** (148/148 activity, 57/57 scoring, lint de los 18 proyectos y build de los 17 verdes, **0 warnings**). **Falta**: aplicar la migración contra la DB real y el E2E.
+- **Fecha**: 2026-07-26 / **Spec**: `docs/phases/fase-14-13-anular-tareas-de-equipo.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-26), inmediatamente después del ítem 12: *"quiero que ahora se pueda anular también las tareas de grupo, por el tutor, que sea posible con la misma lógica"*. Cierra lo que el ítem 12 había declarado fuera de alcance.
+
+### Decisiones propias de equipos (las 5 del ítem 12 se aplicaron tal cual)
+1. **Se anula la completada entera, no por miembro**: la tarea se hizo o no se hizo.
+2. **El bono del jefe también se pierde** — era el bono *por esa tarea*. Es la pregunta que el ítem 12 había dejado abierta.
+3. **Se compensa a quien recibió puntos, no a quien es miembro hoy**: quien salió del equipo igual pierde lo que ganó. Sale gratis porque scoring compensa por `origenId` y no consulta la membresía.
+4. **El jefe no anula**: completa, pero corregir es del Tutor. Misma asimetría que el ítem 12 y que la aprobación de reportes del ítem 9.
+5. **No hay "no hizo" de equipo**: una tarea de equipo es siempre OPCIONAL, así que la única marca posible es la completada anulada.
+
+### El bug que estuvo a punto de pasar desapercibido
+El puntaje del equipo es **derivado sumando `EventoPuntos` por `equipoId`**. La función de compensación del ítem 12 no copiaba ese campo (no hacía falta: en las individuales es `null`). Si se dejaba así, anular una tarea de equipo bajaba los puntajes **individuales** de los tres miembros y dejaba el puntaje **del equipo** intacto en 33 — sin que ningún test existente se pusiera rojo. Ahora `FilaEventoPuntos` incluye `equipoId` y la compensación lo arrastra; hay un test dedicado (`la compensación arrastra el equipoId: el puntaje DERIVADO del equipo cae a 0`).
+
+### Backend ejecutado
+- **Schema + migración** `20260726210000_anular_tareas_equipo_fase14`: `RegistroTareaEquipo` suma `eliminado`, `eliminadoPorTutorId`, `eliminadoEn`, `motivoTutor`, `revertidoPorTutorId`, `revertidoEn` (escrita a mano; retro-compatible: toda completada previa queda `eliminado = false`).
+- **Nombres espejados**: se usó `eliminado`/`eliminadoPorTutorId`/`eliminadoEn`, igual que `RegistroActividad` y `RegistroConducta`, aunque el botón se llame "Anular". Tres modelos con el mismo concepto y tres nombres distintos era peor que la disonancia campo/botón.
+- **`TareasEquipoService`** suma `tareasDeHoy` (lectura del estado), `anular` y `revertirAnulacion`; el conteo de `completar` sigue **sin filtrar** los anulados, así que el intento del día queda quemado igual que en las individuales (ahora documentado y expuesto como `topeEfectivo`).
+- **Rutas nuevas**: `GET /activity/equipos/:equipoId/tareas-de-hoy` (miembros + Tutores), `DELETE /activity/registros-tarea-equipo/:id?motivo=` y `POST /activity/registros-tarea-equipo/:id/revertir` (solo Tutor/ORG_ADMIN).
+- **`registros` viaja vacío para el USUARIO**: el equipo ve el estado agregado (hechas, anuladas, motivo), no los ids con los que se opera. Mismo criterio que `MarcaRojaDto` en el ítem 12.
+- **Leer el estado lo puede hacer cualquier miembro, no solo el jefe**: la anulación le costó puntos a todos.
+- **Dos eventos nuevos** (`TareaEquipoAnulada` / `TareaEquipoRevertida`, mismo payload) sobre la cola `scoring.q.registros-actividad` que ya existía.
+
+### scoring: `compensarCadena` → `compensarCadenas`
+El reparto son **N asientos con el mismo `origenId`**, uno por miembro. La función del ítem 12 usaba `findFirst`, así que habría compensado a un solo integrante **en silencio**. Ahora usa `findMany`, camina la cadena de cada uno y crea las N compensaciones en **una** transacción idempotente. El caso individual es el caso N = 1, así que las cuatro operaciones (quitar, restaurar, anular, deshacer) comparten una sola función. Anular y deshacer son literalmente la misma operación: solo cambia el `motivoCorreccion`.
+
+### Tests nuevos (13 en activity, 7 en scoring)
+- **`tareas-equipo.service.spec.ts` (13, archivo nuevo)**: no existía ningún test de tareas de equipo — **cierra parte de la deuda del ítem 9**. Cubre anular con motivo + evento, el intento quemado, deshacer conservando el rastro, doble anulación 409, revertir lo no anulado 409, el 404 cross-tenant, el 409 de otra Sesión, y los 6 casos de `tareasDeHoy` (contadores, tope efectivo, `registros` vacío para el USUARIO, lectura por un miembro no jefe, sin Sesión abierta, y que no devuelva las individuales).
+- **`proyeccion.service.spec.ts` (7)**: las 3 compensaciones y no una, el bono del jefe en −13, **el `equipoId` arrastrado y el puntaje derivado en 0**, la secuencia anular → deshacer → anular, el miembro que ya salió del equipo, la idempotencia y el error → DLQ.
+
+### Frontend ejecutado (`apps/app-web`)
+- **`mi-equipo.page.ts`** — cierra la otra mitad de la deuda del ítem 9: la página **no mostraba ningún estado** de las tareas. Ahora cada tarea trae su estado de hoy desde el endpoint nuevo (barrita de repeticiones con segmentos rojos rayados, contador "1 de 2 · 1 anulada", tachado y borde verde cuando está completa de verdad, borde rojo cuando el tutor le quemó el cupo, aviso "El tutor anuló esta tarea — el equipo perdió esos puntos" + motivo). El botón del jefe se deshabilita contra el **tope efectivo**. Lo ven todos los miembros, no solo el jefe.
+- **De paso se simplificó**: la página traía el catálogo completo con `listarActividades` y lo filtraba por `alcance = EQUIPO` en el cliente; ahora el endpoint del equipo ya devuelve lo que corresponde con su estado.
+- **`equipos.page.ts` (tutor)**: botón "Tareas de hoy" que despliega las completadas de la Sesión abierta, campo de motivo opcional, **Anular** en las vivas y **Deshacer** en las anuladas, con refresco del puntaje del equipo después de cada acción.
+- **Arreglo de paso**: `puntajes` pasó a `Record<string, number | undefined>`, que era el único warning `NG8102` del build (el mapa se llena de a uno, así que el `?? '·'` del template no era redundante — el tipo estaba mal, no la plantilla).
+
+### Desviaciones / decisiones de implementación
+- **Migración escrita a mano** (sin Postgres levantado). Ya son **cuatro** migraciones de activity sin aplicar contra una DB real (ítems 10, 11, 12 y 13).
+- **`anular` usa `ConflictException` genérica** para "ya estaba anulada", no una excepción tipada con code propio: el caso solo se alcanza haciendo doble click o por carrera, y el mensaje alcanza. Revertir sí usa `MARCA_NO_REVERSIBLE` (reusada del ítem 12).
+- **`tareasDeHoy` no lanza sin Sesión abierta**: es una lectura, devuelve los contadores en 0. Para eso se agregó `buscarSesionAbierta` (variante no-lanzadora de `resolverSesionAbierta`, que las escrituras siguen usando).
+
+### Qué falta / verificar la próxima sesión
+1. **Aplicar las cuatro migraciones pendientes de activity** contra la DB real y confirmar que el servicio arranca.
+2. **E2E por API del ciclo de equipo** (es lo que los unitarios no prueban de punta a punta): equipo de 3 con tarea de 10 pts y bono 3 → el jefe completa → puntaje de equipo 33, jefe 13, miembros 10 → el Tutor anula → **equipo 0 y los tres individuales en 0** → deshacer → 33 otra vez. Mirar en `EventoPuntos` que las compensaciones son **3 filas nuevas por acción**, con `corregidoDeId` y con `equipoId` seteado.
+3. **Verificar los dos bindings nuevos** de `scoring.q.registros-actividad` (`activity.tarea_equipo_anulada` y `...revertida`) en el Management UI: la cola ya existía, así que hay que confirmar que se declaran al arrancar.
+4. **Probar que el jefe recibe 403** al llamar el `DELETE` con su token (el test unitario no pasa por el `RolesGuard`).
+5. **E2E en navegador**: barrita y aviso rojo en `mi-equipo` (con un usuario no jefe también), y el bloque "Tareas de hoy" con Anular/Deshacer en la pantalla de equipos del tutor.
+6. Sigue pendiente **notificar** al equipo cuando se anula (espera la implementación completa de notificaciones a usuarios) y **anular un reporte de miembro ya aprobado** (otro objeto, otra conversación).
+
+### Deuda del ítem 9 que este ítem cerró
+- `mi-equipo` ya muestra si la tarea se hizo hoy (era el primer punto de "Deuda UI menor" del ítem 9).
+- Existe el primer archivo de tests de `TareasEquipoService` (era el punto 1 de "Qué falta" del ítem 9). Sigue sin tests `ReportesService`.
+
+## Ítem 14: Prioridad visual de la lista del integrante
+- **Estado**: EN_PROGRESO — **backend + frontend completos y verificados** (157/157 activity, 17/17 app-web, lint y build de los proyectos tocados verdes, 0 warnings). **Falta**: E2E en navegador (el orden y la cuenta regresiva son puro comportamiento visual).
+- **Fecha**: 2026-07-26 / **Spec**: `docs/phases/fase-14-14-prioridad-visual-de-la-lista.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-26): *"en el panel de usuario, las tareas obligatorias son de mayor importancia, así que siempre van más arriba, si hay hora límite, entonces esos van más arriba… ¿puedes hacer un excelente UI/UX para esto?"*.
+
+### Decisiones tomadas con José
+1. **El tipo manda sobre la hora**: las obligatorias siempre arriba; la hora límite ordena **dentro** de cada grupo. Una opcional que vence a las 18:00 queda debajo de una obligatoria sin hora.
+2. **Lo accionable arriba**: lo que ya no requiere acción baja a un tramo atenuado al final, detrás de un separador.
+3. **El tratamiento visual lo eligió Claude a pedido de José** ("¿puedes ver qué es lo más recomendado? hazlo"): **peso visual sin encabezados de tramo**. Razón registrada en la spec — la lista de un día son unas pocas tarjetas, y tres encabezados sobre cuatro ítems agregan más cromo que contenido; la decisión 2 ya obliga a un separador, y con eso más el acento ámbar en las obligatorias la jerarquía se lee sin texto extra. Si la lista crece a 15 ítems, los encabezados se suman sin rehacer nada: el orden ya está calculado.
+
+### El problema de timezone que apareció al implementar
+Para mostrar "vence en 1 h 20 m" hace falta el **instante absoluto** del deadline, y `deadlineHora` es `"HH:mm"` en la timezone del **Grupo** — que el navegador no conoce. Calcularlo con la hora local del dispositivo funciona en el piloto (la familia y el Grupo comparten timezone) y **rompe en silencio** el día que no sea así, además de violar ADR-00 §6. Por eso `mi-estado-hoy` devuelve `deadlineEn` (instante ISO) y el cliente solo resta.
+
+`comun/deadline.ts` evitaba deliberadamente construir el instante absoluto ("estable ante DST"). Esa función —`deadlineVencido`, la que **valida**— no se tocó: la nueva `instanteDeDeadline` es solo para presentación y convive con ella, con eso escrito en su docstring.
+
+### La mentira de UI que se arregló de paso
+Una opcional con el **deadline vencido** mostraba «Completar» habilitado y devolvía 409 `DEADLINE_VENCIDO` al tocarlo. Mismo tipo de problema que el del ítem 12 (la UI prometiendo lo que el servidor rechaza), y se arregla con el mismo dato: ahora el botón se reemplaza por un chip "Venció" y la tarjeta baja al tramo de terminadas.
+
+### Backend ejecutado
+- **`comun/deadline.ts`**: `instanteDeDeadline` + los helpers privados de resolución de offset **en dos pasadas** (el offset depende del instante buscado — el huevo y la gallina del DST: la primera pasada lo estima leyendo la hora local como UTC, la segunda lo corrige con el offset real de esa fecha).
+- **`MiEstadoActividadHoyDto.deadlineEn`**: instante ISO, o `null` si la actividad no es DEADLINE o si no se resolvió la timezone.
+- **La timezone se sigue pidiendo UNA vez por request**, y ahora también si hay alguna actividad con DEADLINE (antes solo si había programadas). El caso sin deadlines ni programación no paga ninguna llamada.
+- **Degradación**: sin timezone, `deadlineEn` es `null` y la pantalla cae al texto de siempre (`hasta 14:00`), sin cuenta regresiva y sin deshabilitar nada — mismo criterio que `disponibleHoy` en el ítem 11.
+
+### Frontend ejecutado (`apps/app-web`)
+- **`core/prioridad-actividades.ts` nuevo**: el comparador, extraído del componente **para poder testear el orden exacto** que pide el criterio de aceptación sin montar la pantalla. Recibe `venceEn` como función, así no depende de señales.
+- **`home-usuario.page.ts`**: `armarBloque` ordena y parte cada bloque en pendientes/terminadas, y expone `corte` (índice donde arranca el tramo terminado) para que la plantilla inserte el separador **sin duplicar el template de la tarjeta** — el markup de la tarjeta es largo y tenerlo dos veces se desincroniza solo.
+- **Cuenta regresiva**: un `signal` de "ahora" que tickea cada 30 s, con `clearInterval` registrado en `DestroyRef`. Al cambiar, se recalculan las clases de urgencia **y el orden**: una actividad que vence se hunde sola al tramo de terminadas.
+- **Colores por urgencia**: neutro (> 3 h, muestra la hora) → ámbar (≤ 3 h) → rojo (≤ 1 h) → gris tachado (venció).
+- **Peso visual**: acento ámbar a la izquierda (`border-l-4`) en las obligatorias; las opcionales con borde neutro. Convive con el rojo de denegada (ítem 12) y el verde de completa.
+- **Arreglo de paso**: la hora límite ahora se muestra también en las **obligatorias**. Antes solo aparecía en las opcionales, lo cual era absurdo justo en este ítem: la hora de una obligatoria es lo que más apura y era el único dato que no se veía.
+- **Chip con la cuenta de pendientes** en el encabezado de cada bloque.
+
+### Tests nuevos (6 en activity, 6 en app-web)
+- `deadline.spec.ts` (6): el instante en La Paz (UTC−4), el día de inicio de Sesión y no el día UTC, consistencia con `deadlineVencido` (un minuto antes/después), **DST real** (New York en enero vs. julio da 19:00Z vs. 18:00Z), el día del salto de hora, y medianoche / 23:59 sin correrse de día.
+- `registro.service.spec.ts` (3): `deadlineEn` correcto, `null` sin DEADLINE, y `null` con identity caído sin romper `disponibleHoy`.
+- `prioridad-actividades.spec.ts` (6, archivo nuevo): el criterio de aceptación completo con las 6 actividades desordenadas, el tipo mandando sobre la hora, el orden por hora, el cronómetro en el medio, la estabilidad del sort, y **el caso `Infinity − Infinity = NaN`** que rompería el comparador si se hubiera usado `Infinity` en vez de `MAX_SAFE_INTEGER`.
+
+### Desviaciones de la spec
+- **Una obligatoria `ASUME_HECHA` con el deadline vencido SÍ baja al tramo de terminadas.** La spec dice, sin matizar, que una `ASUME_HECHA` "no se considera terminada" porque es un recordatorio del día; al implementar quedó claro que eso vale para el caso "no tiene botón", no para "ya pasó la hora". El código chequea vencida/denegada/no-disponible **antes** de la excepción de `ASUME_HECHA`. Se deja anotado acá y no se edita la spec (protocolo de `CLAUDE.md`); si José prefiere que nunca baje, es mover una línea.
+- **El comparador se extrajo a `core/` ahora**, no "si otra pantalla lo necesita" como decía la nota de la spec. El motivo fue la testeabilidad, que la spec no había previsto.
+
+### Qué falta / verificar la próxima sesión
+1. **E2E en navegador** con una Sesión abierta y varias actividades: que el orden sea el de la tabla, que al completar una la tarjeta baje al tramo de abajo y el chip de pendientes decremente, y que la cuenta regresiva cambie de color al acercarse la hora.
+2. **Verificar `deadlineEn` contra la DB real** una vez aplicadas las migraciones pendientes: crear una obligatoria con `deadlineHora` y confirmar el instante que devuelve `mi-estado-hoy` para la timezone del grupo piloto.
+3. **Mirar el caso de la Sesión nocturna en la UI**: una Sesión que arranca 22:00 local con un deadline de "23:30" — el instante cae el mismo día local pero el día UTC siguiente. El test unitario lo cubre; conviene verlo en pantalla una vez.
+4. Si José quiere los **encabezados de tramo** ("Primero esto" / "Cuando puedas") en vez del separador único, el orden ya está calculado: es solo partir el `@for` por tramos.
+
+## Ítem 15: Las tareas de equipo, visibles pero no marcables en la lista del integrante
+- **Estado**: EN_PROGRESO — **completo y verificado** (build y lint de app-web verdes, 0 warnings). **Falta**: E2E en navegador. Sin tests unitarios nuevos (ver deuda abajo).
+- **Fecha**: 2026-07-26 / **Spec**: `docs/phases/fase-14-15-tareas-de-equipo-visibles-en-la-lista.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-26): *"se debería poder ver en la lista qué tareas son de grupo y no se puede marcar directamente ahí, solo visual, que sepa el usuario"*.
+
+### El bug que había detrás del pedido
+Ni `mi-estado-hoy` ni la home filtraban por `alcance`, así que una tarea de equipo **aparecía en la lista individual con el botón «Completar»** — y ese botón **siempre** devolvía 400 `ES_TAREA_DE_EQUIPO`, porque las de equipo van por `POST /activity/equipos/:id/tareas/:id/completar`. Se verificó leyendo el filtro de `miEstadoHoy` (no tiene `alcance`) y la guarda de `completar` (`registro.service.ts`, primera validación).
+
+**Es el tercer caso de la misma familia** que arreglamos en esta sesión: la pantalla ofreciendo lo que el servidor rechaza. Los otros dos fueron el cupo quemado (#12) y el deadline vencido (#14). Los cuatro codes involucrados —`ES_TAREA_DE_EQUIPO`, `LIMITE_REPETICIONES_ALCANZADO`, `DEADLINE_VENCIDO`, `ACTIVIDAD_DENEGADA_POR_TUTOR`— vienen de la misma causa: el cliente no sabía lo que el servidor sí. Queda anotado en la spec que, si aparece un cuarto, conviene auditar de una vez **todas** las validaciones de `completar` contra lo que la home habilita.
+
+### Decisión de José
+**Bloque propio «De tu equipo»**, elegido entre tres opciones (bloque propio / mezcladas arriba sin botón / abajo con lo no accionable). Va después de «Actividades de hoy» y antes de «Mis metas», y no cuentan en el chip de pendientes propios.
+
+### Decisiones de implementación
+- **Acento teal, no ámbar**: el ámbar ya significa "obligatoria" en esta lista (#14) y reusarlo haría leer como urgente algo que el usuario no puede tocar. **Nota de inconsistencia asumida**: `mi-equipo` usa ámbar para sus tarjetas de tarea, así que el color de "equipo" no coincide entre las dos pantallas — se priorizó que dentro de la lista el ámbar signifique una sola cosa.
+- **"+N c/u" y no "+N pts"**: en una tarea de equipo el valor es por integrante (#9, decisión 10: no se divide).
+- **Sin barrita de repeticiones**: las completadas de equipo viven en `RegistroTareaEquipo`, así que el `vecesHechas` de `mi-estado-hoy` es siempre 0 para ellas y la barrita se vería vacía aunque el jefe ya la hubiera marcado. El estado real está en «Mi equipo» (#13).
+- **Leyenda neutra** ("La marca el jefe desde «Mi equipo»"): la home no sabe si este usuario es el jefe (eso vive en `misEquipos`), así que el texto sirve para los dos casos y el enlace resuelve el resto.
+- **El orden y los tramos del #14 se aplican dentro del bloque**: una de equipo programada para otro día o con deadline vencido baja al tramo de terminadas de su propio bloque.
+
+### Fuera de alcance (declarado)
+**Mostrar en la home si el jefe ya la marcó hoy.** Requeriría resolver el equipo del integrante y llamar a `tareas-de-hoy` (#13) desde la pantalla más caliente de la app, por un dato que está a un toque en «Mi equipo». Si José lo pide: agregar ese fetch y reusar `TareaEquipoDeHoyDto`.
+
+### Qué falta / verificar
+1. **E2E en navegador**: con una tarea de equipo activa, ver el bloque «De tu equipo» separado, sin botón, y que el enlace lleve a `/mi-equipo`. Confirmar que el contador de «Actividades de hoy» no la cuenta.
+2. **Sin tests unitarios nuevos**: la lógica es el filtro por `alcance` dentro de `bloques()`, que es un computed del componente y app-web no tiene tests de componentes. El comparador del #14 sí quedó testeado porque se extrajo a `core/`; acá no había nada puro que valiera extraer. Deuda menor, cubierta por build + lint (typecheck de plantillas).
+3. Si algún día la lista deja de mostrar las de equipo por decisión de producto, el filtro está en un solo lugar (`bloques()`), no en el backend.

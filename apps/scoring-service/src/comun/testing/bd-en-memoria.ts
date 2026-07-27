@@ -191,6 +191,8 @@ export function crearBdEnMemoria(datos: {
       id: randomUUID(),
       corregidoDeId: null,
       motivoCorreccion: null,
+      // fase-14-09: null salvo en el reparto de una tarea de equipo.
+      equipoId: null,
       createdAt: new Date(),
     })),
     umbralZona: crearDelegado<UmbralZona>(
@@ -302,6 +304,7 @@ export function eventoPuntosDePrueba(sobrescribir: Partial<EventoPuntos> = {}): 
     registradoPorTipo: 'TUTOR',
     corregidoDeId: null,
     motivoCorreccion: null,
+    equipoId: null,
     createdAt: new Date(),
     ...sobrescribir,
   } as EventoPuntos;

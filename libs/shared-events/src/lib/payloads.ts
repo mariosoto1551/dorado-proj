@@ -129,6 +129,22 @@ export interface TareaEquipoCompletadaPayload {
 }
 
 /**
+ * El Tutor anuló una tarea de equipo completada (`TareaEquipoAnulada`) o
+ * deshizo esa anulación (`TareaEquipoRevertida`) — fase-14-13. Mismo payload
+ * para los dos: scoring hace la MISMA operación en ambos casos (negar el
+ * último eslabón de cada cadena), solo cambia el motivo que registra.
+ *
+ * Ojo: el reparto son **N asientos con el mismo `origenId`**, uno por miembro
+ * que recibió puntos. Compensar uno solo dejaría el puntaje mal en silencio.
+ */
+export interface TareaEquipoMarcaPayload {
+  registroTareaEquipoId: string;
+  equipoId: string;
+  /** El Tutor/ORG_ADMIN que anuló o deshizo (el jefe no puede). */
+  tutorId: string;
+}
+
+/**
  * El jefe de un equipo reportó a un integrante por una conducta MALA concreta
  * (fase-14-09). Solo informa a notification; el descuento se aplica cuando el
  * Tutor aprueba (que reutiliza ConductaRegistrada).

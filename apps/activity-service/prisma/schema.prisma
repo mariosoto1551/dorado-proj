@@ -276,6 +276,17 @@ model RegistroTareaEquipo {
   completadaPorId       String
   // 'USUARIO' (jefe) | 'TUTOR'
   completadaPorTipo     String
+  // fase-14-13: el Tutor anuló la completada del equipo — todos los que
+  // recibieron puntos por ella los pierden (incluido el bono del jefe).
+  // Mismos nombres que el soft-delete de RegistroActividad/RegistroConducta:
+  // tres modelos con el mismo concepto y tres nombres distintos sería peor que
+  // la disonancia entre el campo (`eliminado`) y el botón ("Anular").
+  eliminado             Boolean   @default(false)
+  eliminadoPorTutorId   String?
+  eliminadoEn           DateTime?
+  motivoTutor           String?
+  revertidoPorTutorId   String?
+  revertidoEn           DateTime?
   createdAt             DateTime @default(now())
 
   @@index([organizacionId])

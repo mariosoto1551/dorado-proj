@@ -61,7 +61,28 @@ Fase 13 completa y estable.
 - Quedan **fuera de alcance a propósito**: notificar al integrante (espera la implementación completa de notificaciones a usuarios) y las tareas de equipo del ítem 9.
 - Depende de: registro + ledger (Fase 7), `mi-estado-hoy` y el soft-delete de completadas (ítem 8) — todos existen.
 
-> Los ítems 11 y 12 **no existían** en la redacción original de este archivo: se sumaron al índice el 2026-07-26 cuando José los pidió, con su nota de fecha para que quede claro que es alcance nuevo y no una reescritura de lo ya decidido.
+### 13. Anular una tarea de equipo (marcas rojas, parte 2) — *agregado el 2026-07-26 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-13-anular-tareas-de-equipo.md`.
+- Cierra lo que el ítem 12 había dejado **fuera de alcance a propósito**: el Tutor/ORG_ADMIN puede **anular** una tarea de equipo completada y **deshacer** esa anulación, con la misma mecánica de marca roja, motivo opcional, intento quemado y compensación en el ledger. Se pierde el reparto entero, **incluido el bono del jefe**, y se le saca a quien recibió puntos (no a quien es miembro hoy). El jefe completa pero **no** anula.
+- De paso cierra la deuda del ítem 9: `mi-equipo` no mostraba si la tarea ya se había hecho hoy — sin ese estado, una anulación sería invisible para el equipo.
+- No hay "no hizo" de equipo: una tarea de equipo es siempre OPCIONAL, así que la única marca posible es la completada anulada.
+- Depende de: equipos (#9) y marcas rojas del tutor (#12) — los dos existen.
+
+### 14. Prioridad visual de la lista del integrante — *agregado el 2026-07-26 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-14-prioridad-visual-de-la-lista.md`.
+- La lista de hoy venía ordenada por `createdAt` — el orden en que el tutor creó las actividades, que no significa nada para quien la mira. Ahora: **las obligatorias siempre arriba**, y dentro de cada grupo primero las de hora límite (la más temprana primero), después cronómetro, después sin límite. Lo que ya no requiere acción (hecho, denegado, cupo quemado, deadline vencido, "otro día") baja a un tramo atenuado al final.
+- Jerarquía por **peso visual** (sin encabezados de tramo) + **cuenta regresiva viva** con color por urgencia en las de hora límite.
+- Arregla de paso una mentira de la UI del mismo tipo que el ítem 12: una opcional con deadline vencido mostraba «Completar» habilitado y devolvía 409.
+- `mi-estado-hoy` suma `deadlineEn` (instante absoluto): el navegador no conoce la timezone del Grupo, así que el instante lo manda el servidor. La validación de `completar` no cambia.
+- Depende de: `mi-estado-hoy` (#8), actividades programadas (#11) y marcas rojas (#12) — los tres existen.
+
+### 15. Las tareas de equipo, visibles pero no marcables en la lista del integrante — *agregado el 2026-07-26 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-15-tareas-de-equipo-visibles-en-la-lista.md`.
+- Arregla un bug: una tarea de equipo aparecía en la lista individual **con botón «Completar»**, y ese botón siempre devolvía 400 `ES_TAREA_DE_EQUIPO`. Ahora van en un bloque propio **«De tu equipo»**, sin botón, con chip «Equipo», acento teal, los puntos como "+N c/u" y enlace a «Mi equipo». No cuentan en los pendientes propios.
+- Ítem chico: solo frontend, sin schema, sin endpoints y sin eventos (`ActividadDto.alcance` ya viajaba desde el ítem 9).
+- Depende de: equipos (#9), estado de tareas de equipo (#13) y orden de la lista (#14) — los tres existen.
+
+> Los ítems 11, 12, 13, 14 y 15 **no existían** en la redacción original de este archivo: se sumaron al índice el 2026-07-26 cuando José los pidió, con su nota de fecha para que quede claro que es alcance nuevo y no una reescritura de lo ya decidido.
 
 ## Nota para Claude Code
 

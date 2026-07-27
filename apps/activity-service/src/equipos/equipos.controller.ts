@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import {
   CurrentTenant,
@@ -8,12 +8,15 @@ import {
 } from '@dorado/shared-auth';
 import {
   CompletarTareaEquipoResponse,
+  RegistroTareaEquipoDto,
   ReporteMiembroDto,
   Rol,
+  TareaEquipoDeHoyDto,
   TenantContext,
 } from '@dorado/shared-types';
 
 import {
+  AnularTareaEquipoQuery,
   CrearReporteMiembroRequest,
   ListarReportesQuery,
   RechazarReporteRequest,
@@ -39,6 +42,41 @@ export class EquiposController {
     @Param('actividadId') actividadId: string
   ): Promise<CompletarTareaEquipoResponse> {
     return await this.tareas.completar(tenant, equipoId, actividadId);
+  }
+
+  /** Estado de las tareas del equipo en la sesión abierta (fase-14-13). */
+  @Get('equipos/:equipoId/tareas-de-hoy')
+  @Roles(Rol.USUARIO, Rol.TUTOR, Rol.ORG_ADMIN)
+  async tareasDeHoy(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('equipoId') equipoId: string
+  ): Promise<TareaEquipoDeHoyDto[]> {
+    return await this.tareas.tareasDeHoy(tenant, equipoId);
+  }
+
+  /**
+   * El Tutor anula una tarea de equipo completada: todos los que recibieron
+   * puntos por ella los pierden, bono del jefe incluido (fase-14-13). El jefe
+   * completa pero NO anula (decisión 4).
+   */
+  @Delete('registros-tarea-equipo/:id')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async anularTarea(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') registroId: string,
+    @Query() query: AnularTareaEquipoQuery
+  ): Promise<RegistroTareaEquipoDto> {
+    return await this.tareas.anular(tenant, registroId, query.motivo);
+  }
+
+  /** El Tutor deshace su propia anulación y le devuelve el reparto al equipo. */
+  @Post('registros-tarea-equipo/:id/revertir')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async revertirAnulacionTarea(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') registroId: string
+  ): Promise<RegistroTareaEquipoDto> {
+    return await this.tareas.revertirAnulacion(tenant, registroId);
   }
 
   /** El jefe reporta a un integrante por una conducta MALA concreta. */

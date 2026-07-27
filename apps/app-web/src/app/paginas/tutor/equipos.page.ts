@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -9,11 +10,18 @@ import {
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 
-import { RolEquipoMiembro, type EquipoDto, type UsuarioDto } from '@dorado/shared-types';
+import {
+  RolEquipoMiembro,
+  type EquipoDto,
+  type RegistroTareaEquipoDto,
+  type TareaEquipoDeHoyDto,
+  type UsuarioDto,
+} from '@dorado/shared-types';
 import { ConfirmDialogComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
+import { ActivityApiService } from '../../core/api/activity-api.service';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { mensajeDeError } from '../../core/api/errores';
@@ -85,8 +93,82 @@ import { mensajeDeError } from '../../core/api/errores';
                 <div class="mt-3 flex flex-wrap gap-2">
                   <button type="button" (click)="abrirJefe(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Sustituir jefe</button>
                   <button type="button" (click)="abrirMiembros(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Integrantes</button>
+                  <button type="button" (click)="alternarTareas(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+                    {{ equipoAbierto() === e.id ? 'Ocultar tareas' : 'Tareas de hoy' }}
+                  </button>
                   <button type="button" (click)="aArchivar.set(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-slate-700 dark:hover:bg-red-500/10">Archivar</button>
                 </div>
+
+                <!-- Tareas de hoy: anular una completada o deshacer la anulación (fase-14-13) -->
+                @if (equipoAbierto() === e.id) {
+                  <div class="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                    @if (cargandoTareas()) {
+                      <p class="text-center text-xs text-slate-400 dark:text-slate-500">Cargando…</p>
+                    } @else {
+                      <p class="text-xs text-slate-500 dark:text-slate-400">
+                        Anular le saca los puntos a todo el equipo, bono del jefe incluido, y le quema
+                        el intento del día. Solo vos podés devolverlo.
+                      </p>
+                      <input
+                        type="text"
+                        [(ngModel)]="motivoAnular"
+                        maxlength="200"
+                        placeholder="Motivo (opcional) — lo ve el equipo"
+                        class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                      />
+
+                      @if (completadasDeHoy().length === 0) {
+                        <p class="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          Este equipo no marcó ninguna tarea en la sesión abierta.
+                        </p>
+                      } @else {
+                        <ul class="mt-2 space-y-2">
+                          @for (fila of completadasDeHoy(); track fila.registro.registroTareaEquipoId) {
+                            <li
+                              class="flex items-center gap-3 rounded-xl border p-3"
+                              [class]="fila.registro.eliminado
+                                ? 'border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20'
+                                : 'border-slate-200 dark:border-slate-800'"
+                            >
+                              <div class="min-w-0 flex-1">
+                                <p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                  {{ fila.nombre }}
+                                </p>
+                                <p class="text-xs" [class]="fila.registro.eliminado ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400'">
+                                  {{ fila.registro.eliminado ? 'Anulada' : '+' + fila.valorPuntos + ' c/u' }}
+                                </p>
+                                @if (fila.registro.motivoTutor) {
+                                  <p class="truncate text-xs italic text-slate-500 dark:text-slate-400">
+                                    «{{ fila.registro.motivoTutor }}»
+                                  </p>
+                                }
+                              </div>
+                              @if (fila.registro.eliminado) {
+                                <button
+                                  type="button"
+                                  (click)="deshacer(e, fila.registro)"
+                                  [disabled]="procesando()"
+                                  class="flex-none rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                >
+                                  Deshacer
+                                </button>
+                              } @else {
+                                <button
+                                  type="button"
+                                  (click)="anular(e, fila.registro)"
+                                  [disabled]="procesando()"
+                                  class="flex-none rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
+                                >
+                                  Anular
+                                </button>
+                              }
+                            </li>
+                          }
+                        </ul>
+                      }
+                    }
+                  </div>
+                }
               </li>
             }
           </ul>
@@ -203,6 +285,8 @@ export class EquiposPage {
 
   private readonly identity = inject(IdentityApiService);
 
+  private readonly activity = inject(ActivityApiService);
+
   private readonly scoring = inject(ScoringApiService);
 
   private readonly toasts = inject(ToastService);
@@ -213,7 +297,10 @@ export class EquiposPage {
 
   protected readonly usuarios = signal<UsuarioDto[]>([]);
 
-  protected readonly puntajes = signal<Record<string, number>>({});
+  // El mapa es disperso mientras los puntajes van llegando de a uno, así que el
+  // tipo lo dice: `puntajes()[id]` puede no estar todavía (el `?? '·'` del
+  // template es real, no redundante — NG8102).
+  protected readonly puntajes = signal<Record<string, number | undefined>>({});
 
   protected readonly guardando = signal(false);
 
@@ -240,10 +327,101 @@ export class EquiposPage {
   /** Participantes activos del grupo que no están en ningún equipo. */
   protected readonly disponibles = signal<UsuarioDto[]>([]);
 
+  // --- Anular tareas de equipo (fase-14-13) ---
+
+  /** Equipo cuyo bloque "Tareas de hoy" está desplegado; null = ninguno. */
+  protected readonly equipoAbierto = signal<string | null>(null);
+
+  protected readonly cargandoTareas = signal(false);
+
+  protected readonly procesando = signal(false);
+
+  protected motivoAnular = '';
+
+  private readonly tareasDeHoy = signal<TareaEquipoDeHoyDto[]>([]);
+
+  /**
+   * Las completadas del equipo en la sesión abierta, aplanadas: el Tutor opera
+   * sobre filas, no sobre actividades. Vivas primero, anuladas después.
+   */
+  protected readonly completadasDeHoy = computed(() =>
+    this.tareasDeHoy()
+      .flatMap((tarea) =>
+        tarea.registros.map((registro) => ({
+          nombre: tarea.nombre,
+          valorPuntos: tarea.valorPuntos,
+          registro,
+        }))
+      )
+      .sort((a, b) => Number(a.registro.eliminado) - Number(b.registro.eliminado))
+  );
+
   constructor() {
     effect(() => {
       const g = this.grupoId();
       this.cargar(g);
+    });
+  }
+
+  /** Despliega (o cierra) el bloque de tareas de hoy de un equipo. */
+  protected alternarTareas(e: EquipoDto): void {
+    if (this.equipoAbierto() === e.id) {
+      this.equipoAbierto.set(null);
+
+      return;
+    }
+
+    this.equipoAbierto.set(e.id);
+    this.motivoAnular = '';
+    this.tareasDeHoy.set([]);
+    this.cargarTareasDeHoy(e.id);
+  }
+
+  protected anular(e: EquipoDto, registro: RegistroTareaEquipoDto): void {
+    this.procesando.set(true);
+    this.activity
+      .anularTareaEquipo(registro.registroTareaEquipoId, this.motivoAnular || undefined)
+      .subscribe({
+        next: () => {
+          this.toasts.exito('Tarea anulada: el equipo perdió esos puntos.');
+          this.procesando.set(false);
+          this.cargarTareasDeHoy(e.id);
+          this.cargarPuntajes(this.equipos());
+        },
+        error: (err) => {
+          this.toasts.error(mensajeDeError(err));
+          this.procesando.set(false);
+        },
+      });
+  }
+
+  protected deshacer(e: EquipoDto, registro: RegistroTareaEquipoDto): void {
+    this.procesando.set(true);
+    this.activity.revertirTareaEquipo(registro.registroTareaEquipoId).subscribe({
+      next: () => {
+        this.toasts.exito('Anulación deshecha: se devolvieron los puntos.');
+        this.procesando.set(false);
+        this.cargarTareasDeHoy(e.id);
+        this.cargarPuntajes(this.equipos());
+      },
+      error: (err) => {
+        this.toasts.error(mensajeDeError(err));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  private cargarTareasDeHoy(equipoId: string): void {
+    this.cargandoTareas.set(true);
+    this.activity.tareasDeHoyDelEquipo(equipoId).subscribe({
+      next: (tareas) => {
+        this.tareasDeHoy.set(tareas);
+        this.cargandoTareas.set(false);
+      },
+      error: (err) => {
+        this.toasts.error(mensajeDeError(err));
+        this.cargandoTareas.set(false);
+      },
     });
   }
 

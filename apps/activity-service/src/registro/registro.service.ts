@@ -27,7 +27,7 @@ import {
 
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
-import { deadlineVencido } from '../comun/deadline';
+import { deadlineVencido, instanteDeDeadline } from '../comun/deadline';
 import {
   ActividadDenegadaPorTutorException,
   ActividadNoDisponibleHoyException,
@@ -352,10 +352,15 @@ export class RegistroService {
     );
     const marcasPorActividad = agruparMarcasPorActividad(marcas);
 
-    // fase-14-11: la timezone del Grupo se pide UNA vez, y solo si hay alguna
-    // actividad programada (el caso normal no paga la llamada).
-    const hayProgramadas = actividades.some((actividad) => actividad.diasSemana.length > 0);
-    const timezone = hayProgramadas
+    // La timezone del Grupo se pide UNA vez por request, y solo si hace falta:
+    // para evaluar actividades programadas (fase-14-11) o para resolver el
+    // instante del deadline (fase-14-14). Sin ninguna de las dos no se paga.
+    const necesitaTimezone = actividades.some(
+      (actividad) =>
+        actividad.diasSemana.length > 0 ||
+        actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE
+    );
+    const timezone = necesitaTimezone
       ? (await this.identity.obtenerGrupo(grupoId))?.timezone
       : undefined;
     const inicioSesion = new Date(sesionAbierta.fechaInicio);
@@ -387,6 +392,15 @@ export class RegistroService {
           (marca) => marca.tipo === TipoRegistroActividad.NO_HIZO
         ),
         motivoTutor: ultimoMotivo(marcasDeLaActividad),
+        // fase-14-14: instante absoluto para la cuenta regresiva del cliente.
+        // Sin timezone resuelta queda null y la pantalla cae al texto de
+        // siempre (`deadlineHora`), sin deshabilitar nada.
+        deadlineEn:
+          timezone &&
+          actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE &&
+          actividad.deadlineHora
+            ? instanteDeDeadline(inicioSesion, actividad.deadlineHora, timezone).toISOString()
+            : null,
         // Sin timezone resuelta (identity no respondió) se asume disponible: es
         // el servidor el que decide de verdad al registrar, y una pantalla que
         // apaga botones por una falla ajena es peor que una que los deja.

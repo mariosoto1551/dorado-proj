@@ -155,6 +155,13 @@ export interface MiEstadoActividadHoyDto {
   /** fase-14-12: nota del tutor de la marca roja más reciente; null si no dejó. */
   motivoTutor: string | null;
   /**
+   * fase-14-14: instante absoluto (ISO) en que vence el deadline de HOY. null si
+   * la actividad no es DEADLINE, o si no se pudo resolver la timezone del Grupo.
+   * Lo calcula el servidor: `deadlineHora` es hora local del Grupo y el navegador
+   * no conoce esa timezone (ADR-00 §6). El cliente solo resta contra "ahora".
+   */
+  deadlineEn: string | null;
+  /**
    * fase-14-11: false si la actividad está programada y el día de la Sesión
    * actual no es uno de sus días. La calcula el servidor (es el que conoce la
    * timezone del Grupo) — el cliente no re-deriva el día.
@@ -239,6 +246,44 @@ export interface CompletarTareaEquipoResponse {
   equipoId: string;
   actividadId: string;
   asignaciones: AsignacionPuntosEquipoDto[];
+}
+
+/**
+ * Una completada de tarea de equipo, viva o anulada (fase-14-13). Solo viaja
+ * para el Tutor: es con lo que anula o deshace.
+ */
+export interface RegistroTareaEquipoDto {
+  registroTareaEquipoId: string;
+  /** true = el Tutor la anuló (el equipo perdió el reparto). */
+  eliminado: boolean;
+  motivoTutor: string | null;
+  completadaEn: string;
+}
+
+/**
+ * Estado de una tarea de equipo en la Sesión abierta (fase-14-13). Cierra
+ * además la deuda del ítem 9: `mi-equipo` no sabía si la tarea ya se había
+ * hecho hoy.
+ */
+export interface TareaEquipoDeHoyDto {
+  actividadId: string;
+  nombre: string;
+  valorPuntos: number;
+  bonoJefePuntos: number;
+  repeticionesMaximasSesion: number;
+  /** Completadas vivas del equipo en la Sesión (las barritas verdes). */
+  vecesHechas: number;
+  /** Completadas que el Tutor anuló: intentos quemados (barritas rojas). */
+  vecesAnuladas: number;
+  /** `repeticionesMaximasSesion − vecesAnuladas`. */
+  topeEfectivo: number;
+  /** Motivo de la anulación más reciente; null si el Tutor no dejó ninguno. */
+  motivoTutor: string | null;
+  /** fase-14-11: false si está programada y hoy no es uno de sus días. */
+  disponibleHoy: boolean;
+  diasSemana: number[];
+  /** Filas con las que opera el Tutor; **vacío** cuando lo pide un USUARIO. */
+  registros: RegistroTareaEquipoDto[];
 }
 
 /**

@@ -17,6 +17,8 @@
 | `ActividadRegistroEliminado` | `activity.actividad_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
 | `ActividadRegistroRevertido` | `activity.actividad_registro_revertido` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-12 (marcas rojas del tutor) |
 | `TareaEquipoCompletada` | `activity.tarea_equipo_completada` | Activity Catalog | Scoring, Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
+| `TareaEquipoAnulada` | `activity.tarea_equipo_anulada` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-13 (anular tareas de equipo) |
+| `TareaEquipoRevertida` | `activity.tarea_equipo_revertida` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-13 (anular tareas de equipo) |
 | `ReporteMiembroCreado` | `activity.reporte_miembro_creado` | Activity Catalog | Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
 | `ActividadPropuestaCreada` | `activity.actividad_propuesta_creada` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
 | `ActividadPropuestaResuelta` | `activity.actividad_propuesta_resuelta` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
@@ -124,6 +126,19 @@ interface ActividadRegistroRevertidoPayload {
   usuarioId: string;
   revertidoPorTutorId: string;
   tipoRegistro: 'COMPLETADA' | 'NO_HIZO';
+}
+
+// fase-14-13: el Tutor anuló una tarea de equipo (`TareaEquipoAnulada`) o
+// deshizo la anulación (`TareaEquipoRevertida`). Mismo payload y MISMA
+// operación en scoring: negar el último eslabón de cada cadena. Ojo — el
+// reparto son N asientos con el mismo origenId (uno por miembro que recibió
+// puntos, con el bono ya sumado en el del jefe): compensar uno solo dejaría el
+// puntaje del resto mal. La fila de compensación arrastra `equipoId`, porque el
+// puntaje de equipo se deriva sumando por ese campo.
+interface TareaEquipoMarcaPayload {
+  registroTareaEquipoId: string;
+  equipoId: string;
+  tutorId: string;
 }
 
 // fase-14-09: el jefe completó una tarea de equipo; scoring reparte creando un

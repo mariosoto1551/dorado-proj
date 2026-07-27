@@ -6,7 +6,9 @@ import type { EventEnvelope } from '@dorado/shared-events';
 import {
   crearBdEnMemoria,
   eventoPuntosDePrueba,
+  type BdEnMemoria,
 } from '../comun/testing/bd-en-memoria';
+import type { EventoPuntos } from '../generated/prisma/client';
 import { ProyeccionService } from './proyeccion.service';
 
 function envelopeDePrueba<T>(payload: T, sobrescribir: Partial<EventEnvelope<T>> = {}): EventEnvelope<T> {
@@ -303,5 +305,150 @@ describe('ProyeccionService — marcas rojas del tutor (fase-14-12)', () => {
     const servicio = new ProyeccionService(bd.prisma);
 
     await expect(revertir(servicio, 'COMPLETADA')).rejects.toThrow(/compensar/);
+  });
+});
+
+describe('ProyeccionService — anular una tarea de equipo (fase-14-13)', () => {
+  /**
+   * El reparto tal como lo deja `procesarTareaEquipoCompletada`: N asientos con
+   * el MISMO origenId, etiquetados con equipoId, y el bono ya sumado al jefe.
+   */
+  function repartoDePrueba(): EventoPuntos[] {
+    return [
+      eventoPuntosDePrueba({
+        usuarioId: 'jefe',
+        origenId: 'registro-equipo-1',
+        puntosSnapshot: 13,
+        equipoId: 'equipo-1',
+      }),
+      eventoPuntosDePrueba({
+        usuarioId: 'miembro-a',
+        origenId: 'registro-equipo-1',
+        puntosSnapshot: 10,
+        equipoId: 'equipo-1',
+      }),
+      eventoPuntosDePrueba({
+        usuarioId: 'miembro-b',
+        origenId: 'registro-equipo-1',
+        puntosSnapshot: 10,
+        equipoId: 'equipo-1',
+      }),
+    ];
+  }
+
+  const totalDe = (bd: BdEnMemoria, usuarioId: string): number =>
+    bd.eventosPuntos
+      .filter((fila) => fila.usuarioId === usuarioId)
+      .reduce((total, fila) => total + fila.puntosSnapshot, 0);
+
+  /** Puntaje del equipo tal como lo deriva `puntajeDeEquipo`: suma por equipoId. */
+  const totalDelEquipo = (bd: BdEnMemoria): number =>
+    bd.eventosPuntos
+      .filter((fila) => fila.equipoId === 'equipo-1')
+      .reduce((total, fila) => total + fila.puntosSnapshot, 0);
+
+  function marcar(servicio: ProyeccionService, anulada: boolean): Promise<void> {
+    return servicio.procesarTareaEquipoMarca(
+      envelopeDePrueba(
+        {
+          registroTareaEquipoId: 'registro-equipo-1',
+          equipoId: 'equipo-1',
+          tutorId: 'tutor-1',
+        },
+        { eventType: anulada ? 'TareaEquipoAnulada' : 'TareaEquipoRevertida' }
+      ),
+      anulada
+    );
+  }
+
+  it('anular compensa TODOS los asientos del reparto, no solo uno', async () => {
+    const bd = crearBdEnMemoria({ eventosPuntos: repartoDePrueba() });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await marcar(servicio, true);
+
+    // 3 originales + 3 compensaciones: el error clásico sería crear una sola.
+    expect(bd.eventosPuntos).toHaveLength(6);
+    expect(totalDe(bd, 'jefe')).toBe(0);
+    expect(totalDe(bd, 'miembro-a')).toBe(0);
+    expect(totalDe(bd, 'miembro-b')).toBe(0);
+  });
+
+  it('el bono del jefe también se pierde (decisión 2): su compensación es −13', async () => {
+    const bd = crearBdEnMemoria({ eventosPuntos: repartoDePrueba() });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await marcar(servicio, true);
+
+    const delJefe = bd.eventosPuntos.filter(
+      (fila) => fila.usuarioId === 'jefe' && fila.tipoOrigen === 'CORRECCION'
+    );
+    expect(delJefe).toHaveLength(1);
+    expect(delJefe[0].puntosSnapshot).toBe(-13);
+  });
+
+  it('la compensación arrastra el equipoId: el puntaje DERIVADO del equipo cae a 0', async () => {
+    const bd = crearBdEnMemoria({ eventosPuntos: repartoDePrueba() });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    expect(totalDelEquipo(bd)).toBe(33);
+
+    await marcar(servicio, true);
+
+    // Sin propagar equipoId, los individuales quedarían en 0 y el equipo en 33.
+    expect(totalDelEquipo(bd)).toBe(0);
+  });
+
+  it('completar → anular → deshacer → anular alterna 33/0 y cada miembro vuelve a lo suyo', async () => {
+    const bd = crearBdEnMemoria({ eventosPuntos: repartoDePrueba() });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await marcar(servicio, true);
+    expect(totalDelEquipo(bd)).toBe(0);
+
+    await marcar(servicio, false);
+    expect(totalDelEquipo(bd)).toBe(33);
+    expect(totalDe(bd, 'jefe')).toBe(13);
+    expect(totalDe(bd, 'miembro-a')).toBe(10);
+
+    await marcar(servicio, true);
+    expect(totalDelEquipo(bd)).toBe(0);
+  });
+
+  it('un miembro que ya salió del equipo igual pierde lo que había ganado (decisión 3)', async () => {
+    // El que se fue tiene su asiento igual: se compensa por origenId, no por
+    // la membresía de hoy (que scoring ni consulta).
+    const bd = crearBdEnMemoria({ eventosPuntos: repartoDePrueba() });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await marcar(servicio, true);
+
+    expect(totalDe(bd, 'miembro-b')).toBe(0);
+  });
+
+  it('la reentrega de la anulación no duplica las compensaciones', async () => {
+    const bd = crearBdEnMemoria({ eventosPuntos: repartoDePrueba() });
+    const servicio = new ProyeccionService(bd.prisma);
+    const envelope = envelopeDePrueba(
+      {
+        registroTareaEquipoId: 'registro-equipo-1',
+        equipoId: 'equipo-1',
+        tutorId: 'tutor-1',
+      },
+      { eventType: 'TareaEquipoAnulada' }
+    );
+
+    await servicio.procesarTareaEquipoMarca(envelope, true);
+    await servicio.procesarTareaEquipoMarca(envelope, true);
+
+    expect(bd.eventosPuntos).toHaveLength(6);
+    expect(totalDelEquipo(bd)).toBe(0);
+  });
+
+  it('si el reparto no llegó todavía, lanza (reintento → DLQ)', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await expect(marcar(servicio, true)).rejects.toThrow(/compensar/);
   });
 });

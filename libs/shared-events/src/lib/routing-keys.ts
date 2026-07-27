@@ -19,6 +19,8 @@ export const ROUTING_KEYS = {
   ACTIVIDAD_REGISTRO_ELIMINADO: 'activity.actividad_registro_eliminado',
   ACTIVIDAD_REGISTRO_REVERTIDO: 'activity.actividad_registro_revertido',
   TAREA_EQUIPO_COMPLETADA: 'activity.tarea_equipo_completada',
+  TAREA_EQUIPO_ANULADA: 'activity.tarea_equipo_anulada',
+  TAREA_EQUIPO_REVERTIDA: 'activity.tarea_equipo_revertida',
   REPORTE_MIEMBRO_CREADO: 'activity.reporte_miembro_creado',
   ACTIVIDAD_PROPUESTA_CREADA: 'activity.actividad_propuesta_creada',
   ACTIVIDAD_PROPUESTA_RESUELTA: 'activity.actividad_propuesta_resuelta',

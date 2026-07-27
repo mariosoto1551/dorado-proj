@@ -1,29 +1,79 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { ROUTING_KEYS, TareaEquipoCompletadaPayload } from '@dorado/shared-events';
+import {
+  ROUTING_KEYS,
+  TareaEquipoCompletadaPayload,
+  TareaEquipoMarcaPayload,
+} from '@dorado/shared-events';
 import {
   AsignacionPuntosEquipoDto,
   CompletarTareaEquipoResponse,
   EquipoInternoDto,
+  EstadoSeccion,
+  EstadoSesion,
+  RegistroTareaEquipoDto,
   Rol,
+  TareaEquipoDeHoyDto,
   TenantContext,
 } from '@dorado/shared-types';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
+import type { SeccionActualInterna } from '../clientes/session-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import {
   ActividadNoDisponibleHoyException,
   EquipoNoEncontradoException,
   LimiteRepeticionesAlcanzadoException,
+  MarcaNoReversibleException,
   NoEsTareaDeEquipoException,
+  NoHaySesionAbiertaException,
   SoloJefeCompletaTareaEquipoException,
 } from '../comun/excepciones';
 import { estaDisponibleEn } from '../comun/programacion';
 import { resolverSesionAbierta } from '../comun/sesion-abierta';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
-import type { Actividad } from '../generated/prisma/client';
+import type { Actividad, RegistroTareaEquipo } from '../generated/prisma/client';
 import { AlcanceActividad, EstadoCatalogo } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * La Sesión abierta si la hay, sin lanzar. `tareasDeHoy` es una LECTURA: sin
+ * Sesión abierta devuelve los contadores en 0, no un 409 (mismo criterio que
+ * `mi-estado-hoy`). Las escrituras siguen usando `resolverSesionAbierta`.
+ */
+function buscarSesionAbierta(
+  seccion: SeccionActualInterna | null
+): { sesionId: string; fechaInicioSesion: Date } | null {
+  if (seccion?.estado !== EstadoSeccion.ABIERTA) {
+    return null;
+  }
+
+  const abierta = seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA);
+
+  return abierta
+    ? { sesionId: abierta.id, fechaInicioSesion: new Date(abierta.fechaInicio) }
+    : null;
+}
+
+function registroTareaEquipoADto(registro: RegistroTareaEquipo): RegistroTareaEquipoDto {
+  return {
+    registroTareaEquipoId: registro.id,
+    eliminado: registro.eliminado,
+    motivoTutor: registro.motivoTutor,
+    completadaEn: registro.createdAt.toISOString(),
+  };
+}
+
+/** El motivo de la anulación más reciente que tenga uno (fase-14-13). */
+function ultimoMotivoDeAnulacion(anulados: RegistroTareaEquipo[]): string | null {
+  const conMotivo = anulados
+    .filter((registro) => registro.motivoTutor !== null)
+    .sort(
+      (a, b) => (b.eliminadoEn?.getTime() ?? 0) - (a.eliminadoEn?.getTime() ?? 0)
+    );
+
+  return conMotivo[0]?.motivoTutor ?? null;
+}
 
 @Injectable()
 export class TareasEquipoService {
@@ -64,11 +114,15 @@ export class TareasEquipoService {
       }
     }
 
-    const hechas = await this.prisma.client.registroTareaEquipo.count({
+    // Sin `eliminado: false` a propósito (fase-14-13, decisión 5): una
+    // completada que el Tutor anuló es un intento GASTADO del equipo, no un
+    // intento devuelto. `tareasDeHoy` expone el mismo número como `topeEfectivo`
+    // para que el botón del jefe no prometa algo que el servidor va a rechazar.
+    const intentosUsados = await this.prisma.client.registroTareaEquipo.count({
       where: { equipoId, actividadId, sesionId: sesion.sesionId },
     });
 
-    if (hechas >= actividad.repeticionesMaximasSesion) {
+    if (intentosUsados >= actividad.repeticionesMaximasSesion) {
       throw new LimiteRepeticionesAlcanzadoException();
     }
 
@@ -127,6 +181,202 @@ export class TareasEquipoService {
     };
   }
 
+  /**
+   * GET /activity/equipos/:equipoId/tareas-de-hoy — miembros del equipo y
+   * Tutores. Estado de cada tarea de equipo ACTIVA del grupo en la Sesión
+   * abierta (fase-14-13): cuántas hechas, cuántas anuladas y el tope real.
+   * Sin Sesión abierta devuelve las tareas con los contadores en 0 — no es un
+   * error (mismo criterio que `mi-estado-hoy`).
+   */
+  async tareasDeHoy(
+    tenant: TenantContext,
+    equipoId: string
+  ): Promise<TareaEquipoDeHoyDto[]> {
+    const equipo = await this.resolverEquipo(tenant, equipoId);
+
+    this.asegurarPuedeVer(tenant, equipo);
+
+    const tareas = await this.prisma.client.actividad.findMany({
+      where: {
+        grupoId: equipo.grupoId,
+        estado: EstadoCatalogo.ACTIVA,
+        alcance: AlcanceActividad.EQUIPO,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (tareas.length === 0) {
+      return [];
+    }
+
+    const seccion = await this.session.obtenerSeccionActual(equipo.grupoId);
+    const sesion = buscarSesionAbierta(seccion);
+    const registros = sesion
+      ? await this.prisma.client.registroTareaEquipo.findMany({
+          where: { equipoId, sesionId: sesion.sesionId },
+        })
+      : [];
+
+    // fase-14-11: la timezone se pide UNA vez y solo si hay alguna programada.
+    const hayProgramadas = tareas.some((tarea) => tarea.diasSemana.length > 0);
+    const timezone =
+      hayProgramadas && sesion
+        ? (await this.identity.obtenerGrupo(equipo.grupoId))?.timezone
+        : undefined;
+
+    // El USUARIO ve el estado agregado, no los ids con los que se anula: esas
+    // filas son la herramienta del Tutor (mismo criterio que `MarcaRojaDto`).
+    const esTutor = tenant.rol === Rol.TUTOR || tenant.rol === Rol.ORG_ADMIN;
+
+    return tareas.map((tarea) => {
+      const suyos = registros.filter((registro) => registro.actividadId === tarea.id);
+      const anulados = suyos.filter((registro) => registro.eliminado);
+
+      return {
+        actividadId: tarea.id,
+        nombre: tarea.nombre,
+        valorPuntos: tarea.valorPuntos,
+        bonoJefePuntos: tarea.bonoJefePuntos,
+        repeticionesMaximasSesion: tarea.repeticionesMaximasSesion,
+        vecesHechas: suyos.length - anulados.length,
+        vecesAnuladas: anulados.length,
+        topeEfectivo: Math.max(0, tarea.repeticionesMaximasSesion - anulados.length),
+        motivoTutor: ultimoMotivoDeAnulacion(anulados),
+        disponibleHoy:
+          timezone && sesion
+            ? estaDisponibleEn(tarea.diasSemana, sesion.fechaInicioSesion, timezone)
+            : true,
+        diasSemana: tarea.diasSemana,
+        registros: esTutor ? suyos.map(registroTareaEquipoADto) : [],
+      };
+    });
+  }
+
+  /**
+   * DELETE /activity/registros-tarea-equipo/:id — Tutor. Anula la completada:
+   * todos los que recibieron puntos por ella los pierden, bono del jefe
+   * incluido (fase-14-13, decisiones 1 y 2). scoring compensa vía evento.
+   */
+  async anular(
+    tenant: TenantContext,
+    registroId: string,
+    motivo?: string
+  ): Promise<RegistroTareaEquipoDto> {
+    const registro = await this.buscarRegistroDeLaSesion(tenant, registroId);
+
+    if (registro.eliminado) {
+      throw new ConflictException('La tarea de equipo ya fue anulada');
+    }
+
+    const ahora = new Date();
+    const cambios = {
+      eliminado: true,
+      eliminadoPorTutorId: tenant.principalId,
+      eliminadoEn: ahora,
+      motivoTutor: motivo ?? null,
+    };
+
+    await this.prisma.client.registroTareaEquipo.updateMany({
+      where: { id: registroId },
+      data: cambios,
+    });
+
+    await this.publicarMarca(
+      'TareaEquipoAnulada',
+      ROUTING_KEYS.TAREA_EQUIPO_ANULADA,
+      registro,
+      tenant.principalId
+    );
+
+    return registroTareaEquipoADto({ ...registro, ...cambios });
+  }
+
+  /**
+   * POST /activity/registros-tarea-equipo/:id/revertir — Tutor. Deshace la
+   * anulación y le devuelve el reparto completo al equipo. Igual que en el
+   * ítem 12, NO se limpian `eliminadoPorTutorId`/`eliminadoEn`: la fila
+   * conserva la historia entera.
+   */
+  async revertirAnulacion(
+    tenant: TenantContext,
+    registroId: string
+  ): Promise<RegistroTareaEquipoDto> {
+    const registro = await this.buscarRegistroDeLaSesion(tenant, registroId);
+
+    if (!registro.eliminado) {
+      throw new MarcaNoReversibleException();
+    }
+
+    const ahora = new Date();
+    const cambios = {
+      eliminado: false,
+      revertidoPorTutorId: tenant.principalId,
+      revertidoEn: ahora,
+    };
+
+    await this.prisma.client.registroTareaEquipo.updateMany({
+      where: { id: registroId },
+      data: cambios,
+    });
+
+    await this.publicarMarca(
+      'TareaEquipoRevertida',
+      ROUTING_KEYS.TAREA_EQUIPO_REVERTIDA,
+      registro,
+      tenant.principalId
+    );
+
+    return registroTareaEquipoADto({ ...registro, ...cambios });
+  }
+
+  /**
+   * La completada sobre la que opera el Tutor: de su organización y de la
+   * Sesión abierta. La marca vive dentro de su Sesión (fase-14-12, decisión 4):
+   * una vez cerrada, lo registrado queda como quedó.
+   */
+  private async buscarRegistroDeLaSesion(
+    tenant: TenantContext,
+    registroId: string
+  ): Promise<RegistroTareaEquipo> {
+    const registro = await this.prisma.client.registroTareaEquipo.findFirst({
+      where: { id: registroId },
+    });
+
+    // Mismo 404 para inexistente y para "de otra organización": no revela nada.
+    if (!registro || registro.organizacionId !== tenant.organizacionId) {
+      throw new NotFoundException('Tarea de equipo no encontrada');
+    }
+
+    const seccion = await this.session.obtenerSeccionActual(registro.grupoId);
+    const sesion = resolverSesionAbierta(seccion);
+
+    if (registro.sesionId !== sesion.sesionId) {
+      throw new NoHaySesionAbiertaException();
+    }
+
+    return registro;
+  }
+
+  /** Anular y deshacer publican el mismo payload; scoring hace lo mismo con los dos. */
+  private async publicarMarca(
+    eventType: string,
+    routingKey: string,
+    registro: RegistroTareaEquipo,
+    tutorId: string
+  ): Promise<void> {
+    await this.eventos.publicar<TareaEquipoMarcaPayload>({
+      eventType,
+      routingKey,
+      organizacionId: registro.organizacionId,
+      grupoId: registro.grupoId,
+      payload: {
+        registroTareaEquipoId: registro.id,
+        equipoId: registro.equipoId,
+        tutorId,
+      },
+    });
+  }
+
   /** Equipo del tenant (misma organización), resuelto vía identity. */
   private async resolverEquipo(
     tenant: TenantContext,
@@ -148,6 +398,25 @@ export class TareasEquipoService {
 
     if (!esTutor && !esJefe) {
       throw new SoloJefeCompletaTareaEquipoException();
+    }
+  }
+
+  /**
+   * Leer el estado de hoy lo puede hacer cualquier miembro (no solo el jefe):
+   * la anulación le costó puntos a todo el equipo, así que todos tienen que
+   * poder verla (fase-14-13, Parte C).
+   */
+  private asegurarPuedeVer(tenant: TenantContext, equipo: EquipoInternoDto): void {
+    if (tenant.rol === Rol.TUTOR || tenant.rol === Rol.ORG_ADMIN) {
+      return;
+    }
+
+    const esMiembro = equipo.miembros.some(
+      (miembro) => miembro.usuarioId === tenant.principalId
+    );
+
+    if (!esMiembro) {
+      throw new EquipoNoEncontradoException();
     }
   }
 

@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   effect,
   inject,
   signal,
@@ -11,6 +12,7 @@ import { forkJoin, of } from 'rxjs';
 
 import {
   type ActividadDto,
+  AlcanceActividad,
   type MiEstadoActividadHoyDto,
   type MiEstadoHoyDto,
   ModoCreacionContenidoUsuario,
@@ -28,6 +30,7 @@ import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { describirDias } from '../../core/dias-semana';
+import { compararPrioridad } from '../../core/prioridad-actividades';
 
 interface CronometroActivo {
   actividadId: string;
@@ -39,6 +42,25 @@ interface CronometroActivo {
  * un intento que el tutor quemó y que el integrante no recupera.
  */
 type EstadoSegmento = 'hecho' | 'libre' | 'perdido';
+
+/** Un bloque de la lista de hoy, ya ordenado y partido en tramos (fase-14-14). */
+interface BloqueLista {
+  titulo: string;
+  esPropio: boolean;
+  /** fase-14-15: bloque de tareas de equipo — solo informativo, sin acción. */
+  esEquipo: boolean;
+  /** Pendientes primero, terminadas después; las dos partes ya ordenadas. */
+  items: ActividadDto[];
+  /** Cuántas quedan por hacer (va en el chip del encabezado). */
+  pendientes: number;
+  /** Índice donde arranca el tramo de terminadas; -1 si no hay ninguna. */
+  corte: number;
+}
+
+/** Umbrales de la cuenta regresiva, en minutos (fase-14-14). */
+const MINUTOS_AVISO = 180;
+
+const MINUTOS_URGENTE = 60;
 
 /** Home del USUARIO (fase-10, estado real desde fase-14-08). */
 @Component({
@@ -78,7 +100,14 @@ type EstadoSegmento = 'hecho' | 'libre' | 'perdido';
       } @else {
         @for (bloque of bloques(); track bloque.titulo) {
         <div class="mt-6 mb-3 flex items-center justify-between gap-2">
-          <h2 class="text-sm font-bold text-slate-500 uppercase dark:text-slate-400">{{ bloque.titulo }}</h2>
+          <div class="flex items-baseline gap-2">
+            <h2 class="text-sm font-bold text-slate-500 uppercase dark:text-slate-400">{{ bloque.titulo }}</h2>
+            @if (bloque.pendientes > 0) {
+              <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 tabular-nums dark:bg-slate-800 dark:text-slate-400">
+                {{ bloque.pendientes }}
+              </span>
+            }
+          </div>
           @if (bloque.esPropio) {
             <a
               routerLink="/mis-actividades"
@@ -87,14 +116,33 @@ type EstadoSegmento = 'hecho' | 'libre' | 'perdido';
               <span class="h-3.5 w-3.5"><app-icono nombre="plus" /></span>
               Crear la mía
             </a>
+          } @else if (bloque.esEquipo) {
+            <!-- fase-14-15: acá no se marcan; se marcan en Mi equipo. -->
+            <a
+              routerLink="/mi-equipo"
+              class="rounded-full bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-100 dark:bg-teal-500/15 dark:text-teal-300 dark:hover:bg-teal-500/25"
+            >
+              Ir a Mi equipo →
+            </a>
           }
         </div>
         <ul class="space-y-2.5">
-          @for (a of bloque.items; track a.id) {
+          @for (a of bloque.items; track a.id; let i = $index) {
+            <!-- fase-14-14: frontera entre lo que queda por hacer y lo que ya
+                 no requiere acción. Un solo separador, no encabezados por tramo. -->
+            @if (i === bloque.corte) {
+              <li class="flex items-center gap-2 py-1" aria-hidden="true">
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-800"></span>
+                <span class="text-xs font-semibold text-slate-400 dark:text-slate-500">
+                  {{ bloque.pendientes === 0 ? '¡Todo listo por hoy! 🎉' : 'Ya está' }}
+                </span>
+                <span class="h-px flex-1 bg-slate-200 dark:bg-slate-800"></span>
+              </li>
+            }
             <li
               class="flex items-center gap-3 rounded-2xl border-2 bg-white p-4 shadow-sm transition dark:bg-slate-900"
               [class]="clasesTarjeta(a)"
-              [class.opacity-60]="!disponibleHoy(a)"
+              [class.opacity-60]="terminada(a)"
             >
               <div class="min-w-0 flex-1">
                 <p class="font-semibold text-slate-900 dark:text-white" [class.line-through]="resaltado(a)">
@@ -112,20 +160,32 @@ type EstadoSegmento = 'hecho' | 'libre' | 'perdido';
                       ⛔ Tu tutor marcó que no la hiciste
                     </p>
                   } @else {
+                    <!-- fase-14-14: la hora límite se muestra también en las
+                         obligatorias (antes solo en las opcionales), porque es
+                         justamente lo que decide la prioridad de la lista. -->
                     <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      @if (esConfirmable(a)) {
-                        <span class="font-semibold text-amber-600 dark:text-amber-400">Obligatoria</span> · confirmá que la hiciste
-                      } @else if (esObligatoriaPasiva(a)) {
+                      @if (esDeEquipo(a)) {
+                        <!-- fase-14-15: valorPuntos es POR INTEGRANTE en una
+                             tarea de equipo, así que "c/u" y no "pts". -->
+                        <span class="font-bold text-teal-600 dark:text-teal-400">+{{ a.valorPuntos }} c/u</span>
+                      } @else if (esObligatoria(a)) {
                         <span class="font-semibold text-amber-600 dark:text-amber-400">Obligatoria</span>
                       } @else {
                         <span class="font-bold text-marca-600 dark:text-marca-400">+{{ a.valorPuntos }} pts</span>
-                        @if (a.tipoLimiteTiempo === 'DEADLINE') {
-                          · hasta {{ a.deadlineHora }}
-                        } @else if (a.tipoLimiteTiempo === 'CRONOMETRO') {
-                          · {{ a.duracionCronometroMinutos }} min
-                        }
+                      }
+                      @if (a.tipoLimiteTiempo === 'DEADLINE') {
+                        · <span [class]="claseDeadline(a)">{{ textoDeadline(a) }}</span>
+                      } @else if (a.tipoLimiteTiempo === 'CRONOMETRO') {
+                        · {{ a.duracionCronometroMinutos }} min
+                      } @else if (esConfirmable(a)) {
+                        · confirmá que la hiciste
                       }
                     </p>
+                    @if (esDeEquipo(a)) {
+                      <p class="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+                        La marca el jefe desde «Mi equipo»
+                      </p>
+                    }
                   }
 
                   <!-- Barrita de repeticiones: solo opcional repetible (fase-14-08).
@@ -166,10 +226,22 @@ type EstadoSegmento = 'hecho' | 'libre' | 'perdido';
                 <span class="shrink-0 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
                   Otro día
                 </span>
+              } @else if (esDeEquipo(a)) {
+                <!-- fase-14-15: solo informativa acá. El backend la rechaza por
+                     esta vía (400 ES_TAREA_DE_EQUIPO), así que no hay botón. -->
+                <span class="shrink-0 rounded-full bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">
+                  Equipo
+                </span>
               } @else if (bloqueada(a)) {
                 <!-- fase-14-12: sin botón — solo el tutor puede sacar la marca. -->
                 <span class="shrink-0 animate-pop rounded-full bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-500/15 dark:text-red-300">
                   No hecha
+                </span>
+              } @else if (soloVencida(a)) {
+                <!-- fase-14-14: el servidor ya no la acepta (409 DEADLINE_VENCIDO),
+                     así que la pantalla deja de ofrecer el botón. -->
+                <span class="shrink-0 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  Venció
                 </span>
               } @else if (esObligatoriaPasiva(a)) {
                 <span class="shrink-0 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
@@ -226,6 +298,8 @@ export class HomeUsuarioPage {
 
   private readonly toasts = inject(ToastService);
 
+  private readonly destroyRef = inject(DestroyRef);
+
   protected readonly cargando = signal(true);
 
   protected readonly procesando = signal(false);
@@ -251,6 +325,14 @@ export class HomeUsuarioPage {
 
   private readonly cronometros = signal<CronometroActivo[]>([]);
 
+  /**
+   * "Ahora", para la cuenta regresiva de los deadlines (fase-14-14). Un solo
+   * intervalo para toda la lista; 30 s alcanza porque el texto se muestra en
+   * minutos. Al cambiar, se recalculan las clases de urgencia Y el orden (una
+   * actividad que vence se hunde sola al tramo de terminadas).
+   */
+  private readonly ahora = signal(Date.now());
+
   protected readonly haySesionAbierta = computed(
     () => this.seccion()?.sesiones.some((s) => s.estado === 'ABIERTA') ?? false
   );
@@ -265,17 +347,30 @@ export class HomeUsuarioPage {
    * metas" (las que armó el propio integrante — `origen = USUARIO`; el backend
    * ya garantiza que nunca vienen las de otro). El bloque propio aparece si tiene
    * alguna o si el grupo habilitó que cree, así puede descubrir la función.
+   *
+   * Cada bloque viene ORDENADO por prioridad (fase-14-14) y con `corte`: el
+   * índice donde arrancan las que ya no requieren acción, para que la plantilla
+   * meta ahí el separador sin duplicar el template de la tarjeta.
    */
   protected readonly bloques = computed(() => {
     const todas = this.actividades();
-    const propias = todas.filter((a) => a.origen === OrigenActividad.USUARIO);
-    const delTutor = todas.filter((a) => a.origen !== OrigenActividad.USUARIO);
+    // fase-14-15: las de equipo salen a su propio bloque. No las completa este
+    // usuario (el backend las rechaza con 400 ES_TAREA_DE_EQUIPO), así que
+    // mezcladas con las suyas prometían una acción que no existe.
+    const deEquipo = todas.filter((a) => a.alcance === AlcanceActividad.EQUIPO);
+    const individuales = todas.filter((a) => a.alcance !== AlcanceActividad.EQUIPO);
+    const propias = individuales.filter((a) => a.origen === OrigenActividad.USUARIO);
+    const delTutor = individuales.filter((a) => a.origen !== OrigenActividad.USUARIO);
     const habilitado = this.modoContenido() !== ModoCreacionContenidoUsuario.RESTRICTIVO;
 
-    const bloques = [{ titulo: 'Actividades de hoy', items: delTutor, esPropio: false }];
+    const bloques = [this.armarBloque('Actividades de hoy', delTutor)];
+
+    if (deEquipo.length > 0) {
+      bloques.push(this.armarBloque('De tu equipo', deEquipo, { esEquipo: true }));
+    }
 
     if (propias.length > 0 || habilitado) {
-      bloques.push({ titulo: 'Mis metas', items: propias, esPropio: true });
+      bloques.push(this.armarBloque('Mis metas', propias, { esPropio: true }));
     }
 
     return bloques;
@@ -288,6 +383,142 @@ export class HomeUsuarioPage {
       this.auth.grupoUsuario();
       this.cargar();
     });
+
+    // fase-14-14: reloj de la cuenta regresiva, con su limpieza registrada —
+    // un intervalo colgado sigue despertando la app después de salir.
+    const reloj = setInterval(() => this.ahora.set(Date.now()), 30_000);
+    this.destroyRef.onDestroy(() => clearInterval(reloj));
+  }
+
+  /**
+   * Ordena por prioridad y parte en dos tramos: primero lo que le queda por
+   * hacer, después lo que ya no requiere acción (fase-14-14, decisión 2).
+   */
+  private armarBloque(
+    titulo: string,
+    items: ActividadDto[],
+    tipo: { esPropio?: boolean; esEquipo?: boolean } = {}
+  ): BloqueLista {
+    const pendientes = items
+      .filter((a) => !this.terminada(a))
+      .sort((a, b) => compararPrioridad(a, b, (item) => this.venceEn(item)));
+    const terminadas = items
+      .filter((a) => this.terminada(a))
+      .sort((a, b) => compararPrioridad(a, b, (item) => this.venceEn(item)));
+
+    return {
+      titulo,
+      esPropio: tipo.esPropio ?? false,
+      esEquipo: tipo.esEquipo ?? false,
+      items: [...pendientes, ...terminadas],
+      pendientes: pendientes.length,
+      // -1 = no hay tramo de terminadas, así que el separador nunca coincide.
+      corte: terminadas.length > 0 ? pendientes.length : -1,
+    };
+  }
+
+  /**
+   * Ya no requiere acción hoy: la hizo, el tutor la denegó o le quemó el cupo,
+   * se le venció la hora o está programada para otro día. Una obligatoria
+   * `ASUME_HECHA` NO cuenta: no tiene botón, pero sigue siendo algo que hay que
+   * hacer hoy, así que se queda arriba (fase-14-14).
+   */
+  protected terminada(a: ActividadDto): boolean {
+    if (!this.disponibleHoy(a) || this.bloqueada(a) || this.vencida(a)) {
+      return true;
+    }
+
+    if (this.esObligatoriaPasiva(a)) {
+      return false;
+    }
+
+    return this.topeAlcanzado(a);
+  }
+
+  protected esObligatoria(a: ActividadDto): boolean {
+    return a.tipoPuntaje === 'OBLIGATORIA';
+  }
+
+  /**
+   * fase-14-15: tarea de equipo. Acá es solo informativa — la completa el jefe
+   * desde «Mi equipo» y por esta vía el backend responde 400 ES_TAREA_DE_EQUIPO.
+   */
+  protected esDeEquipo(a: ActividadDto): boolean {
+    return a.alcance === AlcanceActividad.EQUIPO;
+  }
+
+  /** Instante de vencimiento en ms; MAX_SAFE_INTEGER si no tiene hora límite. */
+  private venceEn(a: ActividadDto): number {
+    const iso = this.estadoPorActividad().get(a.id)?.deadlineEn;
+
+    return iso ? Date.parse(iso) : Number.MAX_SAFE_INTEGER;
+  }
+
+  /** La hora límite ya pasó. El servidor rechaza igual (409 DEADLINE_VENCIDO). */
+  protected vencida(a: ActividadDto): boolean {
+    return this.ahora() >= this.venceEn(a);
+  }
+
+  /** Venció y encima no la había hecho: es lo único que amerita el chip "Venció". */
+  protected soloVencida(a: ActividadDto): boolean {
+    return this.vencida(a) && !this.topeAlcanzado(a);
+  }
+
+  /**
+   * Texto de la hora límite. Lejos muestra la hora ("hasta 14:00"); cerca pasa a
+   * cuenta regresiva, que es lo que de verdad apura. Sin `deadlineEn` (identity
+   * no respondió) cae a la hora pelada, como antes de fase-14-14.
+   */
+  protected textoDeadline(a: ActividadDto): string {
+    const vence = this.venceEn(a);
+
+    if (vence === Number.MAX_SAFE_INTEGER) {
+      return a.deadlineHora ? `hasta ${a.deadlineHora}` : '';
+    }
+
+    const minutos = Math.floor((vence - this.ahora()) / 60_000);
+
+    if (minutos < 0) {
+      return `venció ${a.deadlineHora}`;
+    }
+
+    if (minutos > MINUTOS_AVISO) {
+      return `hasta ${a.deadlineHora}`;
+    }
+
+    if (minutos >= 60) {
+      const horas = Math.floor(minutos / 60);
+      const resto = minutos % 60;
+
+      return resto === 0 ? `vence en ${horas} h` : `vence en ${horas} h ${resto} m`;
+    }
+
+    return minutos === 0 ? 'vence en menos de 1 m' : `vence en ${minutos} m`;
+  }
+
+  /** Color por urgencia: neutro → ámbar (≤3 h) → rojo (≤1 h) → gris tachado. */
+  protected claseDeadline(a: ActividadDto): string {
+    const vence = this.venceEn(a);
+
+    if (vence === Number.MAX_SAFE_INTEGER) {
+      return '';
+    }
+
+    const minutos = (vence - this.ahora()) / 60_000;
+
+    if (minutos < 0) {
+      return 'text-slate-400 line-through dark:text-slate-500';
+    }
+
+    if (minutos <= MINUTOS_URGENTE) {
+      return 'font-bold text-red-600 dark:text-red-400';
+    }
+
+    if (minutos <= MINUTOS_AVISO) {
+      return 'font-semibold text-amber-600 dark:text-amber-400';
+    }
+
+    return '';
   }
 
   protected cronometroDe(actividadId: string): CronometroActivo | undefined {
@@ -331,14 +562,28 @@ export class HomeUsuarioPage {
     return this.denegada(a) || (this.vecesPerdidas(a) > 0 && this.topeEfectivo(a) === 0);
   }
 
-  /** Borde de la tarjeta: rojo si está bloqueada, verde si quedó completa. */
+  /**
+   * Borde de la tarjeta: rojo si está bloqueada, verde si quedó completa, y
+   * acento ámbar a la izquierda en las obligatorias (fase-14-14, decisión 3) —
+   * la jerarquía se ve sin leer, sin encabezados de tramo.
+   */
   protected clasesTarjeta(a: ActividadDto): string {
+    // fase-14-15: acento teal, distinto del ámbar de obligatoria, para que no se
+    // lea como "urgente" algo que este usuario no puede tocar.
+    if (this.esDeEquipo(a)) {
+      return 'border-slate-100 border-l-4 border-l-teal-400 dark:border-slate-800 dark:border-l-teal-500';
+    }
+
     if (this.bloqueada(a)) {
       return 'border-red-300 bg-red-50/70 dark:border-red-800 dark:bg-red-950/30';
     }
 
     if (this.resaltado(a)) {
       return 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40';
+    }
+
+    if (this.esObligatoria(a)) {
+      return 'border-slate-100 border-l-4 border-l-amber-400 dark:border-slate-800 dark:border-l-amber-500';
     }
 
     return 'border-slate-100 dark:border-slate-800';
@@ -383,8 +628,15 @@ export class HomeUsuarioPage {
   }
 
   protected esRepetible(a: ActividadDto): boolean {
-    // Solo tiene sentido pintar la barrita para opcionales repetibles.
-    return a.tipoPuntaje === 'OPCIONAL' && a.repeticionesMaximasSesion > 1;
+    // Solo tiene sentido pintar la barrita para opcionales repetibles. Las de
+    // equipo quedan afuera (fase-14-15): sus completadas viven en
+    // RegistroTareaEquipo, así que `vecesHechas` es siempre 0 acá y la barrita
+    // se vería vacía aunque el jefe ya la haya marcado — se ve en «Mi equipo».
+    return (
+      a.tipoPuntaje === 'OPCIONAL' &&
+      a.repeticionesMaximasSesion > 1 &&
+      !this.esDeEquipo(a)
+    );
   }
 
   /**

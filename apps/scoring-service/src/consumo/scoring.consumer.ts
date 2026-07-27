@@ -12,6 +12,7 @@ import type {
   SeccionEventoPayload,
   SesionEventoPayload,
   TareaEquipoCompletadaPayload,
+  TareaEquipoMarcaPayload,
 } from '@dorado/shared-events';
 import {
   EXCHANGE_DORADO_EVENTS,
@@ -77,6 +78,8 @@ export class ScoringConsumer {
       ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
       ROUTING_KEYS.ACTIVIDAD_REGISTRO_REVERTIDO,
       ROUTING_KEYS.TAREA_EQUIPO_COMPLETADA,
+      ROUTING_KEYS.TAREA_EQUIPO_ANULADA,
+      ROUTING_KEYS.TAREA_EQUIPO_REVERTIDA,
     ],
     queue: 'scoring.q.registros-actividad',
     queueOptions: OPCIONES_COLA,
@@ -120,6 +123,20 @@ export class ScoringConsumer {
         case 'TareaEquipoCompletada':
           await this.proyeccion.procesarTareaEquipoCompletada(
             envelope as EventEnvelope<TareaEquipoCompletadaPayload>
+          );
+          break;
+        // fase-14-13: anular y deshacer son la misma operación sobre el ledger
+        // (negar el último eslabón de cada cadena); el flag solo elige el motivo.
+        case 'TareaEquipoAnulada':
+          await this.proyeccion.procesarTareaEquipoMarca(
+            envelope as EventEnvelope<TareaEquipoMarcaPayload>,
+            true
+          );
+          break;
+        case 'TareaEquipoRevertida':
+          await this.proyeccion.procesarTareaEquipoMarca(
+            envelope as EventEnvelope<TareaEquipoMarcaPayload>,
+            false
           );
           break;
         default:

@@ -1108,3 +1108,43 @@ describe('RegistroService — marcas rojas del tutor (fase-14-12)', () => {
     });
   });
 });
+
+describe('RegistroService — deadlineEn para la cuenta regresiva (fase-14-14)', () => {
+  it('resuelve el instante absoluto en la timezone del Grupo (La Paz = UTC−4)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ tipoLimiteTiempo: 'DEADLINE', deadlineHora: '14:00' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    // La Sesión arranca 2026-07-13T04:00:00Z = lunes 00:00 local.
+    expect(estado.actividades[0].deadlineEn).toBe('2026-07-13T18:00:00.000Z');
+  });
+
+  it('null si la actividad no es DEADLINE', async () => {
+    const { servicio } = crearServicio();
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades[0].deadlineEn).toBeNull();
+  });
+
+  it('null si no se pudo resolver la timezone: la pantalla cae al texto de siempre', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ tipoLimiteTiempo: 'DEADLINE', deadlineHora: '14:00' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    // identity caído: mismo criterio que `disponibleHoy` (fase-14-11) — una
+    // falla ajena no apaga botones ni rompe la pantalla.
+    vi.spyOn(
+      (servicio as unknown as { identity: { obtenerGrupo: () => Promise<null> } }).identity,
+      'obtenerGrupo'
+    ).mockResolvedValue(null);
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades[0]).toMatchObject({ deadlineEn: null, disponibleHoy: true });
+  });
+});

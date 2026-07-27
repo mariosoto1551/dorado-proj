@@ -20,7 +20,9 @@ import type {
   PropuestaActividadDto,
   RegistroActividadDto,
   RegistroConductaDto,
+  RegistroTareaEquipoDto,
   ReporteMiembroDto,
+  TareaEquipoDeHoyDto,
 } from '@dorado/shared-types';
 
 import { environment } from '../../../environments/environment';
@@ -163,6 +165,34 @@ export class ActivityApiService {
   }
 
   // ---- Tareas de equipo y reportes del jefe (fase-14-09) ----
+  /** Estado de las tareas del equipo en la sesión abierta (fase-14-13). */
+  tareasDeHoyDelEquipo(equipoId: string): Observable<TareaEquipoDeHoyDto[]> {
+    return this.http.get<TareaEquipoDeHoyDto[]>(
+      `${this.base}/equipos/${equipoId}/tareas-de-hoy`
+    );
+  }
+
+  /** Anula una tarea de equipo completada: el equipo pierde el reparto (fase-14-13). */
+  anularTareaEquipo(
+    registroTareaEquipoId: string,
+    motivo?: string
+  ): Observable<RegistroTareaEquipoDto> {
+    const params = motivo ? new HttpParams().set('motivo', motivo) : undefined;
+
+    return this.http.delete<RegistroTareaEquipoDto>(
+      `${this.base}/registros-tarea-equipo/${registroTareaEquipoId}`,
+      { params }
+    );
+  }
+
+  /** Deshace la anulación y le devuelve el reparto al equipo (fase-14-13). */
+  revertirTareaEquipo(registroTareaEquipoId: string): Observable<RegistroTareaEquipoDto> {
+    return this.http.post<RegistroTareaEquipoDto>(
+      `${this.base}/registros-tarea-equipo/${registroTareaEquipoId}/revertir`,
+      {}
+    );
+  }
+
   completarTareaEquipo(
     equipoId: string,
     actividadId: string

@@ -6,6 +6,7 @@ import type {
   CronometroActivo,
   RegistroActividad,
   RegistroConducta,
+  RegistroTareaEquipo,
 } from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -101,6 +102,8 @@ export interface BdRegistroEnMemoria {
   registrosActividad: RegistroActividad[];
   registrosConducta: RegistroConducta[];
   cronometros: CronometroActivo[];
+  /** fase-14-13: completadas de tareas de equipo (anulables por el Tutor). */
+  registrosTareaEquipo: RegistroTareaEquipo[];
   prisma: PrismaService;
 }
 
@@ -109,12 +112,14 @@ export function crearBdRegistroEnMemoria(datos: {
   conductas?: Conducta[];
   registrosActividad?: RegistroActividad[];
   cronometros?: CronometroActivo[];
+  registrosTareaEquipo?: RegistroTareaEquipo[];
 } = {}): BdRegistroEnMemoria {
   const actividades: Actividad[] = [...(datos.actividades ?? [])];
   const conductas: Conducta[] = [...(datos.conductas ?? [])];
   const registrosActividad: RegistroActividad[] = [...(datos.registrosActividad ?? [])];
   const registrosConducta: RegistroConducta[] = [];
   const cronometros: CronometroActivo[] = [...(datos.cronometros ?? [])];
+  const registrosTareaEquipo: RegistroTareaEquipo[] = [...(datos.registrosTareaEquipo ?? [])];
 
   const buscarCronometro = (clave: ClaveCronometro): CronometroActivo | undefined =>
     cronometros.find(
@@ -143,6 +148,17 @@ export function crearBdRegistroEnMemoria(datos: {
       eliminado: false,
       eliminadoPorTutorId: null,
       eliminadoEn: null,
+      createdAt: new Date(),
+    })),
+    registroTareaEquipo: crearDelegado<RegistroTareaEquipo>(registrosTareaEquipo, () => ({
+      id: randomUUID(),
+      // fase-14-13: metadatos de la anulación del Tutor.
+      eliminado: false,
+      eliminadoPorTutorId: null,
+      eliminadoEn: null,
+      motivoTutor: null,
+      revertidoPorTutorId: null,
+      revertidoEn: null,
       createdAt: new Date(),
     })),
     cronometroActivo: {
@@ -196,6 +212,7 @@ export function crearBdRegistroEnMemoria(datos: {
     registrosActividad,
     registrosConducta,
     cronometros,
+    registrosTareaEquipo,
     prisma: { client } as unknown as PrismaService,
   };
 }

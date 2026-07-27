@@ -9,6 +9,7 @@ import type {
   EventEnvelope,
   NoHizoRegistradoPayload,
   TareaEquipoCompletadaPayload,
+  TareaEquipoMarcaPayload,
 } from '@dorado/shared-events';
 
 import type { EventoPuntos } from '../generated/prisma/client';
@@ -20,10 +21,22 @@ export const CONSUMIDOR = 'scoring-service';
 
 type TxProyeccion = Pick<ClientePrisma, 'eventoPuntos' | 'eventoProcesado'>;
 
-/** Un eslabón de la cadena de correcciones de un registro (fase-14-12). */
+/**
+ * Un eslabón de la cadena de correcciones de un registro (fase-14-12).
+ * `equipoId` es imprescindible desde fase-14-13: el puntaje de equipo se deriva
+ * sumando por ese campo, así que una compensación que no lo copie dejaría los
+ * puntajes individuales bien y el del equipo intacto.
+ */
 type FilaEventoPuntos = Pick<
   EventoPuntos,
-  'id' | 'organizacionId' | 'grupoId' | 'usuarioId' | 'seccionId' | 'sesionId' | 'puntosSnapshot'
+  | 'id'
+  | 'organizacionId'
+  | 'grupoId'
+  | 'usuarioId'
+  | 'seccionId'
+  | 'sesionId'
+  | 'puntosSnapshot'
+  | 'equipoId'
 >;
 
 /**
@@ -177,14 +190,14 @@ export class ProyeccionService {
 
   /**
    * Compensa una completada de actividad que un tutor quitó (fase-14).
-   * Ver `compensarCadena`: se niega el ÚLTIMO asiento de la cadena, no el
+   * Ver `compensarCadenas`: se niega el ÚLTIMO asiento de la cadena, no el
    * original. Con una sola quita son la misma fila; la diferencia aparece
    * cuando el tutor ya había deshecho una marca antes (fase-14-12).
    */
   async procesarActividadRegistroEliminado(
     envelope: EventEnvelope<ActividadRegistroEliminadoPayload>
   ): Promise<void> {
-    await this.compensarCadena(
+    await this.compensarCadenas(
       envelope,
       envelope.payload.registroId,
       TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
@@ -204,7 +217,7 @@ export class ProyeccionService {
   ): Promise<void> {
     const esNoHizo = envelope.payload.tipoRegistro === 'NO_HIZO';
 
-    await this.compensarCadena(
+    await this.compensarCadenas(
       envelope,
       envelope.payload.registroId,
       esNoHizo ? TipoOrigenPuntos.NO_HIZO : TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
@@ -216,9 +229,33 @@ export class ProyeccionService {
   }
 
   /**
+   * El Tutor anuló una tarea de equipo o deshizo esa anulación (fase-14-13).
+   * Las dos son la MISMA operación —negar el último eslabón de cada cadena—,
+   * solo cambia el motivo: anular deja el reparto en 0, deshacer lo devuelve.
+   *
+   * Acá `compensarCadenas` compensa de verdad VARIAS cadenas: el reparto son N
+   * asientos con el mismo `origenId`, uno por miembro que recibió puntos (más
+   * el bono del jefe, que va sumado en el asiento del jefe y por eso se pierde
+   * y vuelve con él).
+   */
+  async procesarTareaEquipoMarca(
+    envelope: EventEnvelope<TareaEquipoMarcaPayload>,
+    anulada: boolean
+  ): Promise<void> {
+    await this.compensarCadenas(
+      envelope,
+      envelope.payload.registroTareaEquipoId,
+      TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
+      envelope.payload.tutorId,
+      anulada
+        ? 'Tarea de equipo anulada por un tutor'
+        : 'Anulación de tarea de equipo deshecha por un tutor'
+    );
+  }
+
+  /**
    * Corrige un registro de activity creando una fila de signo opuesto al
-   * ÚLTIMO asiento de su cadena de correcciones (fase-14-12, Parte B de la
-   * spec del ítem 12).
+   * ÚLTIMO asiento de su cadena de correcciones (fase-14-12, Parte B).
    *
    * Por qué el último y no el original: tras `completar → quitar` el neto ya
    * es 0, así que deshacer la quita tiene que sumar, no restar de nuevo.
@@ -226,10 +263,17 @@ export class ProyeccionService {
    * `completar → quitar → deshacer → quitar` alterne correctamente entre el
    * valor y 0, con cualquier cantidad de idas y vueltas.
    *
-   * Nunca borra ni edita la fila original: cada paso es una fila nueva
-   * enlazada por `corregidoDeId` (regla 1 y regla 6 de CLAUDE.md).
+   * Por qué en PLURAL (fase-14-13): un registro individual tiene un solo
+   * asiento, pero el reparto de una tarea de equipo tiene **N asientos con el
+   * mismo `origenId`** — uno por miembro. Buscar con `findFirst` compensaría a
+   * un solo integrante y dejaría el puntaje del resto mal, en silencio. El caso
+   * individual es simplemente el caso N = 1.
+   *
+   * Nunca borra ni edita filas: cada paso es una fila nueva enlazada por
+   * `corregidoDeId`, y todas las de un mismo evento van en una transacción
+   * (reglas 1 y 6 de CLAUDE.md).
    */
-  private async compensarCadena(
+  private async compensarCadenas(
     envelope: EventEnvelope<unknown>,
     registroId: string,
     tipoOrigenDelRegistro: TipoOrigenPuntos,
@@ -240,7 +284,7 @@ export class ProyeccionService {
       return;
     }
 
-    const original = await this.prisma.client.eventoPuntos.findFirst({
+    const originales = await this.prisma.client.eventoPuntos.findMany({
       where: {
         origenId: registroId,
         tipoOrigen: tipoOrigenDelRegistro,
@@ -251,31 +295,39 @@ export class ProyeccionService {
     // Si el original todavía no llegó (no debería: activity publica por el
     // mismo canal en orden), el error manda el mensaje a reintento y
     // eventualmente a la DLQ — nunca descarte silencioso.
-    if (!original) {
+    if (originales.length === 0) {
       throw new Error(
         `No existe EventoPuntos de actividad con origenId ${registroId} para compensar`
       );
     }
 
-    const ultimo = await this.ultimoDeLaCadena(original);
+    const ultimos = await Promise.all(
+      originales.map(async (original) => await this.ultimoDeLaCadena(original))
+    );
 
     await this.enTransaccionIdempotente(envelope.eventId, async (tx) => {
-      await tx.eventoPuntos.create({
-        data: {
-          organizacionId: original.organizacionId,
-          grupoId: original.grupoId,
-          usuarioId: original.usuarioId,
-          seccionId: original.seccionId,
-          sesionId: original.sesionId,
-          tipoOrigen: TipoOrigenPuntos.CORRECCION,
-          origenId: ultimo.id,
-          puntosSnapshot: -ultimo.puntosSnapshot,
-          registradoPorId,
-          registradoPorTipo: 'SYSTEM',
-          corregidoDeId: ultimo.id,
-          motivoCorreccion,
-        },
-      });
+      for (const ultimo of ultimos) {
+        await tx.eventoPuntos.create({
+          data: {
+            organizacionId: ultimo.organizacionId,
+            grupoId: ultimo.grupoId,
+            usuarioId: ultimo.usuarioId,
+            seccionId: ultimo.seccionId,
+            sesionId: ultimo.sesionId,
+            tipoOrigen: TipoOrigenPuntos.CORRECCION,
+            origenId: ultimo.id,
+            puntosSnapshot: -ultimo.puntosSnapshot,
+            registradoPorId,
+            registradoPorTipo: 'SYSTEM',
+            corregidoDeId: ultimo.id,
+            motivoCorreccion,
+            // Se arrastra el equipoId (null en las individuales): el puntaje de
+            // equipo es la suma por ese campo, así que sin esto el equipo
+            // seguiría "puntuando" una tarea que ya no cuenta.
+            equipoId: ultimo.equipoId,
+          },
+        });
+      }
     });
   }
 
