@@ -187,3 +187,121 @@ describe('ProyeccionService — ConductaRegistroEliminado → compensación', ()
     expect(bd.eventosPuntos).toHaveLength(2);
   });
 });
+
+describe('ProyeccionService — marcas rojas del tutor (fase-14-12)', () => {
+  const suma = (filas: { puntosSnapshot: number }[]): number =>
+    filas.reduce((total, fila) => total + fila.puntosSnapshot, 0);
+
+  function eliminar(servicio: ProyeccionService): Promise<void> {
+    return servicio.procesarActividadRegistroEliminado(
+      envelopeDePrueba(
+        { registroId: 'registro-1', usuarioId: 'usuario-1', eliminadoPorTutorId: 'tutor-1' },
+        { eventType: 'ActividadRegistroEliminado' }
+      )
+    );
+  }
+
+  function revertir(
+    servicio: ProyeccionService,
+    tipoRegistro: 'COMPLETADA' | 'NO_HIZO'
+  ): Promise<void> {
+    return servicio.procesarActividadRegistroRevertido(
+      envelopeDePrueba(
+        {
+          registroId: 'registro-1',
+          usuarioId: 'usuario-1',
+          revertidoPorTutorId: 'tutor-1',
+          tipoRegistro,
+        },
+        { eventType: 'ActividadRegistroRevertido' }
+      )
+    );
+  }
+
+  it('restaurar una completada quitada devuelve los puntos negando la corrección, no el original', async () => {
+    const original = eventoPuntosDePrueba({ origenId: 'registro-1', puntosSnapshot: 5 });
+    const bd = crearBdEnMemoria({ eventosPuntos: [original] });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await eliminar(servicio);
+    await revertir(servicio, 'COMPLETADA');
+
+    expect(bd.eventosPuntos).toHaveLength(3);
+    expect(suma(bd.eventosPuntos)).toBe(5);
+    // El último eslabón corrige a la corrección, no al asiento original.
+    expect(bd.eventosPuntos[2]).toMatchObject({
+      tipoOrigen: 'CORRECCION',
+      puntosSnapshot: 5,
+      corregidoDeId: bd.eventosPuntos[1].id,
+      registradoPorId: 'tutor-1',
+      registradoPorTipo: 'SYSTEM',
+    });
+    // El original nunca se toca (regla 1).
+    expect(bd.eventosPuntos[0]).toMatchObject({ puntosSnapshot: 5, corregidoDeId: null });
+  });
+
+  it('completar → quitar → deshacer → quitar deja el puntaje en 0 (tabla de la spec)', async () => {
+    const original = eventoPuntosDePrueba({ origenId: 'registro-1', puntosSnapshot: 5 });
+    const bd = crearBdEnMemoria({ eventosPuntos: [original] });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await eliminar(servicio);
+    expect(suma(bd.eventosPuntos)).toBe(0);
+
+    await revertir(servicio, 'COMPLETADA');
+    expect(suma(bd.eventosPuntos)).toBe(5);
+
+    await eliminar(servicio);
+    expect(suma(bd.eventosPuntos)).toBe(0);
+  });
+
+  it('deshacer un "no hizo" compensa el castigo negativo', async () => {
+    const castigo = eventoPuntosDePrueba({
+      tipoOrigen: 'NO_HIZO',
+      origenId: 'registro-1',
+      puntosSnapshot: -15,
+    });
+    const bd = crearBdEnMemoria({ eventosPuntos: [castigo] });
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await revertir(servicio, 'NO_HIZO');
+
+    expect(suma(bd.eventosPuntos)).toBe(0);
+    expect(bd.eventosPuntos[1]).toMatchObject({
+      tipoOrigen: 'CORRECCION',
+      puntosSnapshot: 15,
+      corregidoDeId: castigo.id,
+    });
+  });
+
+  it('la reentrega de una reversión no duplica la compensación', async () => {
+    const castigo = eventoPuntosDePrueba({
+      tipoOrigen: 'NO_HIZO',
+      origenId: 'registro-1',
+      puntosSnapshot: -15,
+    });
+    const bd = crearBdEnMemoria({ eventosPuntos: [castigo] });
+    const servicio = new ProyeccionService(bd.prisma);
+    const envelope = envelopeDePrueba(
+      {
+        registroId: 'registro-1',
+        usuarioId: 'usuario-1',
+        revertidoPorTutorId: 'tutor-1',
+        tipoRegistro: 'NO_HIZO' as const,
+      },
+      { eventType: 'ActividadRegistroRevertido' }
+    );
+
+    await servicio.procesarActividadRegistroRevertido(envelope);
+    await servicio.procesarActividadRegistroRevertido(envelope);
+
+    expect(bd.eventosPuntos).toHaveLength(2);
+  });
+
+  it('si el asiento original no existe, lanza (reintento → DLQ)', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await expect(revertir(servicio, 'COMPLETADA')).rejects.toThrow(/compensar/);
+  });
+});

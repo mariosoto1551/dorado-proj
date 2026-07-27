@@ -219,6 +219,9 @@ describe('MaquinaSeccionesService — payloads de eventos (event-catalog.md)', (
       organizacionId: 'org-1',
       grupoId: 'grupo-1',
       numero: 1,
+      // fase-14-11: el día de la Sesión viaja en el evento para que el cierre de
+      // activity no castigue una obligatoria programada fuera de sus días.
+      fechaInicio: resultado.sesion.fechaInicio.toISOString(),
     });
   });
 });

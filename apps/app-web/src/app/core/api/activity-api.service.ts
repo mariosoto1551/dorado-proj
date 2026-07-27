@@ -4,12 +4,20 @@ import type { Observable } from 'rxjs';
 
 import type {
   ActividadDto,
+  ActualizarConfiguracionContenidoRequest,
   CompletadaOpcionalDto,
   CompletarTareaEquipoResponse,
   ConductaDto,
+  ConfiguracionContenidoGrupoDto,
+  CrearMiActividadRequest,
+  CrearMiActividadResponse,
   CrearReporteMiembroRequest,
+  EstadoPropuesta,
   EstadoReporte,
+  MarcaRojaDto,
   MiEstadoHoyDto,
+  MisActividadesDto,
+  PropuestaActividadDto,
   RegistroActividadDto,
   RegistroConductaDto,
   ReporteMiembroDto,
@@ -97,10 +105,14 @@ export class ActivityApiService {
     );
   }
 
-  registrarNoHizo(actividadId: string, usuarioId: string): Observable<RegistroActividadDto> {
+  registrarNoHizo(
+    actividadId: string,
+    usuarioId: string,
+    motivo?: string
+  ): Observable<RegistroActividadDto> {
     return this.http.post<RegistroActividadDto>(
       `${this.base}/actividades/${actividadId}/no-hizo`,
-      { usuarioId }
+      motivo ? { usuarioId, motivo } : { usuarioId }
     );
   }
 
@@ -111,10 +123,35 @@ export class ActivityApiService {
     );
   }
 
-  /** Quita (soft-delete) una completada de actividad de un usuario. */
-  eliminarRegistroActividad(registroId: string): Observable<RegistroActividadDto> {
+  /** Marcas rojas vivas de un usuario en la sesión abierta (fase-14-12). */
+  marcasRojas(grupoId: string, usuarioId: string): Observable<MarcaRojaDto[]> {
+    return this.http.get<MarcaRojaDto[]>(
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/marcas`
+    );
+  }
+
+  /**
+   * Quita (soft-delete) una completada de actividad de un usuario. El motivo va
+   * por query param, no por body: un DELETE con body pasa por intermediarios
+   * que tienen derecho a descartarlo (fase-14-12).
+   */
+  eliminarRegistroActividad(
+    registroId: string,
+    motivo?: string
+  ): Observable<RegistroActividadDto> {
+    const params = motivo ? new HttpParams().set('motivo', motivo) : undefined;
+
     return this.http.delete<RegistroActividadDto>(
-      `${this.base}/registros-actividad/${registroId}`
+      `${this.base}/registros-actividad/${registroId}`,
+      { params }
+    );
+  }
+
+  /** Deshace una marca roja del tutor y devuelve los puntos (fase-14-12). */
+  revertirMarca(registroId: string): Observable<RegistroActividadDto> {
+    return this.http.post<RegistroActividadDto>(
+      `${this.base}/registros-actividad/${registroId}/revertir`,
+      {}
     );
   }
 
@@ -159,5 +196,71 @@ export class ActivityApiService {
       `${this.base}/reportes/${reporteId}/rechazar`,
       motivo ? { motivo } : {}
     );
+  }
+
+  // ---- Contenido creado por los integrantes (fase-14-10) ----
+
+  /** Config del grupo: modo (RESTRICTIVO/BAJO_APROBACION/LIBRE) + topes. */
+  obtenerConfiguracionContenido(grupoId: string): Observable<ConfiguracionContenidoGrupoDto> {
+    return this.http.get<ConfiguracionContenidoGrupoDto>(
+      `${this.base}/grupos/${grupoId}/configuracion-contenido`
+    );
+  }
+
+  actualizarConfiguracionContenido(
+    grupoId: string,
+    datos: ActualizarConfiguracionContenidoRequest
+  ): Observable<ConfiguracionContenidoGrupoDto> {
+    return this.http.put<ConfiguracionContenidoGrupoDto>(
+      `${this.base}/grupos/${grupoId}/configuracion-contenido`,
+      datos
+    );
+  }
+
+  /** Bandeja del tutor: propuestas del grupo (sin estado = todas). */
+  listarPropuestas(grupoId: string, estado?: EstadoPropuesta): Observable<PropuestaActividadDto[]> {
+    let params = new HttpParams();
+
+    if (estado) {
+      params = params.set('estado', estado);
+    }
+
+    return this.http.get<PropuestaActividadDto[]>(
+      `${this.base}/grupos/${grupoId}/propuestas`,
+      { params }
+    );
+  }
+
+  aprobarPropuesta(propuestaId: string): Observable<PropuestaActividadDto> {
+    return this.http.post<PropuestaActividadDto>(
+      `${this.base}/propuestas/${propuestaId}/aprobar`,
+      {}
+    );
+  }
+
+  rechazarPropuesta(propuestaId: string, motivo?: string): Observable<PropuestaActividadDto> {
+    return this.http.post<PropuestaActividadDto>(
+      `${this.base}/propuestas/${propuestaId}/rechazar`,
+      motivo ? { motivo } : {}
+    );
+  }
+
+  /** Pantalla del integrante: config + cupo + sus actividades y propuestas. */
+  misActividades(grupoId: string): Observable<MisActividadesDto> {
+    return this.http.get<MisActividadesDto>(`${this.base}/grupos/${grupoId}/mis-actividades`);
+  }
+
+  crearMiActividad(
+    grupoId: string,
+    datos: CrearMiActividadRequest
+  ): Observable<CrearMiActividadResponse> {
+    return this.http.post<CrearMiActividadResponse>(
+      `${this.base}/grupos/${grupoId}/mis-actividades`,
+      datos
+    );
+  }
+
+  archivarMiActividad(actividadId: string): Observable<ActividadDto> {
+    return this.http.delete<ActividadDto>(`${this.base}/mis-actividades/${actividadId}`);
   }
 }

@@ -48,6 +48,21 @@ Fase 13 completa y estable.
 - Alcance a definir en la sub-spec: nueva config por Grupo (¿en identity o en activity?), qué tipos puede crear el integrante y con qué límites/moderación (¿crea directo `ACTIVA` o queda `PENDIENTE` de aprobación del Tutor?), y cómo se relaciona con el reporte de conducta MALA del jefe de equipo (ítem 9) — un integrante creando una conducta MALA para reportar es un caso a acotar con cuidado (riesgo de abuso). **No mezclar con el ítem 9**: es un punto propio.
 - Depende de: catálogo de actividades/conductas (Fase 5) y la diferenciación de roles en la UI (Fase 14). No implementar hasta que Fase 13 esté estable.
 
+### 11. Actividades programadas (solo ciertos días) — *agregado el 2026-07-26 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-11-actividades-programadas.md`.
+- Una Actividad puede limitarse a **ciertos días de la semana** (`Actividad.diasSemana`, `0 = domingo … 6 = sábado`, vacío = todos los días). Fuera de sus días no se completa, no se arranca su cronómetro, no se marca "no hizo" y —lo importante— **el castigo automático de las obligatorias confirmables (ítem 8) no se aplica**. Lo configura el Tutor en el mismo modal de crear/editar actividad.
+- José anticipó que después va a querer **fechas concretas** ("solo el 24 de diciembre"): la spec deja toda la evaluación de disponibilidad en una función única para que eso sea agregar un campo, no rediseñar.
+- Depende de: catálogo (Fase 5), ciclo de Sesión (Fase 6), registro (Fase 7) y el consumidor de cierre del ítem 8 — todos existen.
+
+### 12. Marcas rojas del tutor (denegar una obligatoria, quemar una repetición) — *agregado el 2026-07-26 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-12-marcas-rojas-del-tutor.md`.
+- Cuando el Tutor/ORG_ADMIN marca que un integrante **no hizo** algo, esa corrección se le muestra al integrante y tiene peso: una **obligatoria** queda con contorno rojo y bloqueada (no puede volver a confirmarla), y una **repetición quitada** de una opcional queda como una **barrita roja perdida** que le quema el cupo del día (`topeEfectivo = repeticionesMaximasSesion − vecesPerdidas`). El tutor puede dejar un motivo corto y es el único que puede **deshacer** la marca, lo que devuelve los puntos vía compensación en el ledger.
+- La marca vive dentro de la Sesión actual: al día siguiente se arranca limpio.
+- Quedan **fuera de alcance a propósito**: notificar al integrante (espera la implementación completa de notificaciones a usuarios) y las tareas de equipo del ítem 9.
+- Depende de: registro + ledger (Fase 7), `mi-estado-hoy` y el soft-delete de completadas (ítem 8) — todos existen.
+
+> Los ítems 11 y 12 **no existían** en la redacción original de este archivo: se sumaron al índice el 2026-07-26 cuando José los pidió, con su nota de fecha para que quede claro que es alcance nuevo y no una reescritura de lo ya decidido.
+
 ## Nota para Claude Code
 
 No empieces ninguno de estos ítems por iniciativa propia ni los mezcles con trabajo de Fases 0–13. Cada uno de estos necesita su propia sesión de planificación detallada (mismo nivel de detalle que las fases anteriores) antes de tocar código — este archivo es un índice de alcance, no una especificación ejecutable todavía.

@@ -6,34 +6,49 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { ActividadRegistroEliminadoPayload, ROUTING_KEYS } from '@dorado/shared-events';
+import {
+  ActividadRegistroEliminadoPayload,
+  ActividadRegistroRevertidoPayload,
+  ROUTING_KEYS,
+} from '@dorado/shared-events';
 import {
   CompletadaOpcionalDto,
   EstadoSeccion,
   EstadoSesion,
+  MarcaRojaDto,
   MiEstadoActividadHoyDto,
   MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
   Rol,
   TenantContext,
+  TipoMarcaRoja,
 } from '@dorado/shared-types';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import { deadlineVencido } from '../comun/deadline';
 import {
+  ActividadDenegadaPorTutorException,
+  ActividadNoDisponibleHoyException,
+  ActividadPersonalDeOtroUsuarioException,
   CronometroNoIniciadoException,
   CronometroVencidoException,
   DeadlineVencidoException,
   EsTareaDeEquipoException,
   LimiteRepeticionesAlcanzadoException,
+  MarcaNoReversibleException,
   NoHaySesionAbiertaException,
   ObligatoriaNoSeCompletaException,
 } from '../comun/excepciones';
 import { registroActividadADto, registroConductaADto } from '../comun/mapeadores';
+import { estaDisponibleEn } from '../comun/programacion';
+import {
+  esVisiblePara,
+  filtroVisibilidadUsuario,
+} from '../comun/visibilidad-actividad';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
-import type { Actividad, Conducta } from '../generated/prisma/client';
+import type { Actividad, Conducta, RegistroActividad } from '../generated/prisma/client';
 import {
   ComportamientoAlCierre,
   EstadoCatalogo,
@@ -55,6 +70,42 @@ interface SesionDeRegistro {
   seccionId: string;
   sesionId: string;
   fechaInicioSesion: Date;
+}
+
+/**
+ * Cuándo el tutor aplicó la marca (fase-14-12): un NO_HIZO se creó en ese
+ * momento; una repetición quemada existía desde antes y se marcó al quitarla.
+ */
+function instanteDeLaMarca(marca: RegistroActividad): Date {
+  return marca.tipo === TipoRegistroActividad.NO_HIZO
+    ? marca.createdAt
+    : (marca.eliminadoEn ?? marca.createdAt);
+}
+
+function agruparMarcasPorActividad(
+  marcas: RegistroActividad[]
+): Map<string, RegistroActividad[]> {
+  const porActividad = new Map<string, RegistroActividad[]>();
+
+  for (const marca of marcas) {
+    const lista = porActividad.get(marca.actividadId) ?? [];
+    lista.push(marca);
+    porActividad.set(marca.actividadId, lista);
+  }
+
+  return porActividad;
+}
+
+/**
+ * La nota de la marca más reciente que tenga una (fase-14-12). Se ordena acá y
+ * no en la query porque el instante relevante depende del tipo de marca.
+ */
+function ultimoMotivo(marcas: RegistroActividad[]): string | null {
+  const conMotivo = marcas
+    .filter((marca) => marca.motivoTutor !== null)
+    .sort((a, b) => instanteDeLaMarca(b).getTime() - instanteDeLaMarca(a).getTime());
+
+  return conMotivo[0]?.motivoTutor ?? null;
 }
 
 /**
@@ -90,7 +141,17 @@ export class RegistroService {
     // Solo USUARIO llega acá (RolesGuard) y la actividad ya pasó el filtro de
     // tenant (su grupo), así que el usuario objetivo es siempre él mismo.
     const usuarioId = tenant.principalId;
+
+    this.asegurarActividadVisible(actividad, tenant, usuarioId);
+
     const sesion = await this.resolverSesionAbierta(actividad.grupoId);
+
+    // fase-14-11: no tiene sentido arrancar un cronómetro que hoy no se va a
+    // poder cerrar (el `completar` lo rechazaría). fase-14-12: ídem si el tutor
+    // ya denegó la actividad.
+    await this.asegurarProgramacionVigente(actividad, sesion);
+    await this.asegurarNoDenegada(actividadId, usuarioId, sesion.sesionId);
+
     const ahora = new Date();
 
     // "Crea/reemplaza" (spec): reiniciar el cronómetro pisa el anterior.
@@ -145,9 +206,23 @@ export class RegistroService {
     }
 
     const usuarioId = await this.resolverUsuarioObjetivo(tenant, actividad.grupoId, datos.usuarioId);
+
+    this.asegurarActividadVisible(actividad, tenant, usuarioId);
+
     const sesion = await this.resolverSesionAbierta(actividad.grupoId);
 
-    const completadas = await this.prisma.client.registroActividad.count({
+    await this.asegurarProgramacionVigente(actividad, sesion);
+
+    // fase-14-12: una obligatoria que el tutor marcó como no hecha queda
+    // bloqueada — el usuario no puede "arreglarla" volviendo a confirmar.
+    await this.asegurarNoDenegada(actividadId, usuarioId, sesion.sesionId);
+
+    // Sin `eliminado: false` a propósito (fase-14-12, decisión 1): una
+    // repetición que el tutor quitó es un intento GASTADO, no un intento
+    // devuelto. Contarla acá es lo que hace que el cupo quede quemado de
+    // verdad; `mi-estado-hoy` expone el mismo número como `topeEfectivo`
+    // para que la pantalla no prometa un botón que el servidor va a rechazar.
+    const intentosUsados = await this.prisma.client.registroActividad.count({
       where: {
         usuarioId,
         actividadId,
@@ -156,7 +231,7 @@ export class RegistroService {
       },
     });
 
-    if (completadas >= actividad.repeticionesMaximasSesion) {
+    if (intentosUsados >= actividad.repeticionesMaximasSesion) {
       throw new LimiteRepeticionesAlcanzadoException();
     }
 
@@ -246,14 +321,19 @@ export class RegistroService {
 
     const usuarioId = tenant.principalId;
 
-    const [actividades, conteos] = await Promise.all([
+    const [actividades, conteos, marcas] = await Promise.all([
       this.prisma.client.actividad.findMany({
-        where: { grupoId, estado: EstadoCatalogo.ACTIVA },
+        where: {
+          grupoId,
+          estado: EstadoCatalogo.ACTIVA,
+          // fase-14-10: sus propias actividades + las del catálogo del tutor;
+          // nunca las personales de otro integrante (Parte C).
+          ...filtroVisibilidadUsuario(usuarioId),
+        },
         orderBy: { createdAt: 'asc' },
       }),
-      // vecesHechas: el mismo conteo real que valida `completar` (validación 4).
-      // Excluye eliminadas: si un tutor quitó una completada (fase-14), la
-      // pantalla del usuario lo refleja al instante.
+      // vecesHechas: las completadas que siguen VIVAS (las barritas verdes).
+      // Las que el tutor quitó no cuentan acá — cuentan como perdidas, abajo.
       this.prisma.client.registroActividad.groupBy({
         by: ['actividadId'],
         where: {
@@ -264,17 +344,32 @@ export class RegistroService {
         },
         _count: { _all: true },
       }),
+      this.buscarMarcasRojas(usuarioId, sesionAbierta.id),
     ]);
 
     const vecesPorActividad = new Map(
       conteos.map((conteo) => [conteo.actividadId, conteo._count._all])
     );
+    const marcasPorActividad = agruparMarcasPorActividad(marcas);
+
+    // fase-14-11: la timezone del Grupo se pide UNA vez, y solo si hay alguna
+    // actividad programada (el caso normal no paga la llamada).
+    const hayProgramadas = actividades.some((actividad) => actividad.diasSemana.length > 0);
+    const timezone = hayProgramadas
+      ? (await this.identity.obtenerGrupo(grupoId))?.timezone
+      : undefined;
+    const inicioSesion = new Date(sesionAbierta.fechaInicio);
 
     const items: MiEstadoActividadHoyDto[] = actividades.map((actividad) => {
       const vecesHechas = vecesPorActividad.get(actividad.id) ?? 0;
       const esConfirmable =
         actividad.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
         actividad.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION;
+      // fase-14-12: las marcas rojas del tutor sobre esta actividad, hoy.
+      const marcasDeLaActividad = marcasPorActividad.get(actividad.id) ?? [];
+      const vecesPerdidas = marcasDeLaActividad.filter(
+        (marca) => marca.tipo === TipoRegistroActividad.COMPLETADA
+      ).length;
 
       return {
         actividadId: actividad.id,
@@ -284,6 +379,21 @@ export class RegistroService {
         repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
         vecesHechas,
         confirmada: esConfirmable && vecesHechas > 0,
+        vecesPerdidas,
+        // Nunca negativo: el tutor no puede quitar más de lo que se registró,
+        // pero un Math.max evita que un dato raro apague la pantalla entera.
+        topeEfectivo: Math.max(0, actividad.repeticionesMaximasSesion - vecesPerdidas),
+        denegada: marcasDeLaActividad.some(
+          (marca) => marca.tipo === TipoRegistroActividad.NO_HIZO
+        ),
+        motivoTutor: ultimoMotivo(marcasDeLaActividad),
+        // Sin timezone resuelta (identity no respondió) se asume disponible: es
+        // el servidor el que decide de verdad al registrar, y una pantalla que
+        // apaga botones por una falla ajena es peor que una que los deja.
+        disponibleHoy: timezone
+          ? estaDisponibleEn(actividad.diasSemana, inicioSesion, timezone)
+          : true,
+        diasSemana: actividad.diasSemana,
       };
     });
 
@@ -305,7 +415,16 @@ export class RegistroService {
     }
 
     const usuarioId = await this.resolverUsuarioObjetivo(tenant, actividad.grupoId, datos.usuarioId);
+
+    // Defensa en profundidad: el contenido de integrante es siempre OPCIONAL
+    // (fase-14-10, decisión 8), así que acá no debería llegar ninguno — si algún
+    // día eso cambia, el dueño sigue siendo el único alcanzado.
+    this.asegurarActividadVisible(actividad, tenant, usuarioId);
+
     const sesion = await this.resolverSesionAbierta(actividad.grupoId);
+
+    // fase-14-11: tampoco se castiga a mano por un día que no correspondía.
+    await this.asegurarProgramacionVigente(actividad, sesion);
 
     // Sin límite de repeticiones a propósito (spec: cada "no hizo" resta
     // independientemente, regla explícita del proyecto original).
@@ -321,6 +440,8 @@ export class RegistroService {
         valorPuntosSnapshot: -actividad.valorPuntos,
         registradoPorId: tenant.principalId,
         registradoPorTipo: tenant.principalType,
+        // fase-14-12: la nota que el integrante va a leer en su pantalla.
+        motivoTutor: datos.motivo ?? null,
       },
     });
 
@@ -367,6 +488,138 @@ export class RegistroService {
   }
 
   /**
+   * GET /activity/grupos/:grupoId/usuarios/:usuarioId/marcas — Tutor. Las marcas
+   * rojas VIVAS de ese usuario en la Sesión abierta (fase-14-12): obligatorias
+   * denegadas y repeticiones quemadas, para poder deshacerlas. Sin Sesión
+   * ABIERTA devuelve [] — mismo criterio que `listarCompletadasOpcionales`.
+   */
+  async listarMarcasRojas(
+    tenant: TenantContext,
+    grupoId: string,
+    usuarioId: string
+  ): Promise<MarcaRojaDto[]> {
+    const usuarioObjetivo = await this.resolverUsuarioObjetivo(tenant, grupoId, usuarioId);
+    const seccion = await this.session.obtenerSeccionActual(grupoId);
+    const sesionAbierta =
+      seccion?.estado === EstadoSeccion.ABIERTA
+        ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
+        : undefined;
+
+    if (!sesionAbierta) {
+      return [];
+    }
+
+    const marcas = await this.buscarMarcasRojas(usuarioObjetivo, sesionAbierta.id);
+
+    if (marcas.length === 0) {
+      return [];
+    }
+
+    // Cruce por ID dentro del MISMO servicio (no rompe la regla 2): las
+    // actividades y los registros viven los dos en activity-service.
+    const actividades = await this.prisma.client.actividad.findMany({
+      where: { grupoId, id: { in: marcas.map((marca) => marca.actividadId) } },
+    });
+    const nombres = new Map(actividades.map((actividad) => [actividad.id, actividad.nombre]));
+
+    return marcas
+      .filter((marca) => nombres.has(marca.actividadId))
+      .map((marca) => ({
+        registroId: marca.id,
+        actividadId: marca.actividadId,
+        nombre: nombres.get(marca.actividadId) ?? '',
+        tipo:
+          marca.tipo === TipoRegistroActividad.NO_HIZO
+            ? TipoMarcaRoja.NO_HIZO
+            : TipoMarcaRoja.REPETICION_QUITADA,
+        // Lo que la marca le costó: el castigo del NO_HIZO, o los puntos que
+        // se le descontaron al quitarle la repetición.
+        puntos:
+          marca.tipo === TipoRegistroActividad.NO_HIZO
+            ? marca.valorPuntosSnapshot
+            : -marca.valorPuntosSnapshot,
+        motivoTutor: marca.motivoTutor,
+        marcadaEn: instanteDeLaMarca(marca).toISOString(),
+      }))
+      .sort((a, b) => b.marcadaEn.localeCompare(a.marcadaEn));
+  }
+
+  /**
+   * POST /activity/registros-actividad/:id/revertir — Tutor. Deshace una marca
+   * roja propia (fase-14-12): restaura una COMPLETADA que había quitado, o da
+   * de baja un NO_HIZO. Las dos son la misma acción para el tutor ("sacá esa
+   * marca"), por eso un solo endpoint. scoring devuelve los puntos vía evento.
+   */
+  async revertirMarca(
+    tenant: TenantContext,
+    registroId: string
+  ): Promise<RegistroActividadDto> {
+    const registro = await this.prisma.client.registroActividad.findFirst({
+      where: { id: registroId },
+    });
+
+    // Mismo 404 para inexistente y para "de otra organización": no revela nada.
+    if (!registro || registro.organizacionId !== tenant.organizacionId) {
+      throw new NotFoundException('Registro de actividad no encontrado');
+    }
+
+    const esCompletadaQuitada =
+      registro.tipo === TipoRegistroActividad.COMPLETADA && registro.eliminado;
+    const esNoHizoVivo =
+      registro.tipo === TipoRegistroActividad.NO_HIZO && !registro.eliminado;
+
+    if (!esCompletadaQuitada && !esNoHizoVivo) {
+      throw new MarcaNoReversibleException();
+    }
+
+    // La marca vive dentro de su Sesión (decisión 4): una vez cerrada, lo
+    // registrado queda como quedó — mismo principio que la regla 6.
+    const sesion = await this.resolverSesionAbierta(registro.grupoId);
+
+    if (registro.sesionId !== sesion.sesionId) {
+      throw new NoHaySesionAbiertaException();
+    }
+
+    const ahora = new Date();
+    // Restaurar NO limpia eliminadoPorTutorId/eliminadoEn (decisión 7): la fila
+    // conserva la historia entera. Un NO_HIZO no tiene otro estado de baja, así
+    // que se reusa el soft-delete que ya existía.
+    const cambios = esCompletadaQuitada
+      ? { eliminado: false, revertidoPorTutorId: tenant.principalId, revertidoEn: ahora }
+      : {
+          eliminado: true,
+          eliminadoPorTutorId: tenant.principalId,
+          eliminadoEn: ahora,
+          revertidoPorTutorId: tenant.principalId,
+          revertidoEn: ahora,
+        };
+
+    await this.prisma.client.registroActividad.updateMany({
+      where: { id: registroId },
+      data: cambios,
+    });
+
+    // Una confirmación vale 0 pts y no tiene asiento en el ledger: nada que
+    // compensar (mismo criterio que `eliminarRegistroActividad`).
+    if (registro.valorPuntosSnapshot !== 0) {
+      await this.eventos.publicar<ActividadRegistroRevertidoPayload>({
+        eventType: 'ActividadRegistroRevertido',
+        routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_REVERTIDO,
+        organizacionId: registro.organizacionId,
+        grupoId: registro.grupoId,
+        payload: {
+          registroId,
+          usuarioId: registro.usuarioId,
+          revertidoPorTutorId: tenant.principalId,
+          tipoRegistro: registro.tipo,
+        },
+      });
+    }
+
+    return registroActividadADto({ ...registro, ...cambios });
+  }
+
+  /**
    * GET /activity/grupos/:grupoId/usuarios/:usuarioId/completadas — Tutor.
    * Las OPCIONALES que el usuario completó en la Sesión abierta (no eliminadas),
    * agrupadas por actividad con sus filas individuales, para que el tutor quite
@@ -389,7 +642,14 @@ export class RegistroService {
     }
 
     const opcionales = await this.prisma.client.actividad.findMany({
-      where: { grupoId, estado: EstadoCatalogo.ACTIVA, tipoPuntaje: TipoPuntaje.OPCIONAL },
+      where: {
+        grupoId,
+        estado: EstadoCatalogo.ACTIVA,
+        tipoPuntaje: TipoPuntaje.OPCIONAL,
+        // fase-14-10: no ofrecerle al tutor las actividades personales de OTRO
+        // integrante al corregir lo completado de este usuario (Parte C).
+        ...filtroVisibilidadUsuario(usuarioObjetivo),
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -435,7 +695,8 @@ export class RegistroService {
    */
   async eliminarRegistroActividad(
     tenant: TenantContext,
-    registroId: string
+    registroId: string,
+    motivo?: string
   ): Promise<RegistroActividadDto> {
     const registro = await this.prisma.client.registroActividad.findFirst({
       where: { id: registroId },
@@ -455,14 +716,18 @@ export class RegistroService {
     }
 
     const ahora = new Date();
+    // fase-14-12: el motivo pisa el de una marca anterior sobre la misma fila
+    // (que solo puede existir si el tutor ya la había quitado y deshecho).
+    const cambios = {
+      eliminado: true,
+      eliminadoPorTutorId: tenant.principalId,
+      eliminadoEn: ahora,
+      motivoTutor: motivo ?? null,
+    };
 
     await this.prisma.client.registroActividad.updateMany({
       where: { id: registroId },
-      data: {
-        eliminado: true,
-        eliminadoPorTutorId: tenant.principalId,
-        eliminadoEn: ahora,
-      },
+      data: cambios,
     });
 
     if (registro.valorPuntosSnapshot !== 0) {
@@ -479,12 +744,7 @@ export class RegistroService {
       });
     }
 
-    return registroActividadADto({
-      ...registro,
-      eliminado: true,
-      eliminadoPorTutorId: tenant.principalId,
-      eliminadoEn: ahora,
-    });
+    return registroActividadADto({ ...registro, ...cambios });
   }
 
   /** POST /activity/conductas/:id/registrar — signo según tipo de conducta. */
@@ -615,6 +875,28 @@ export class RegistroService {
     return actividad;
   }
 
+  /**
+   * Una actividad personal (fase-14-10, `origen = USUARIO`) solo la registra su
+   * dueño. Para un USUARIO es 404 (no revela que existe la del hermano); para un
+   * Tutor registrando en nombre de alguien es 403 con code propio — él sí la ve
+   * en el listado del grupo, así que un 404 sería engañoso.
+   */
+  private asegurarActividadVisible(
+    actividad: Actividad,
+    tenant: TenantContext,
+    usuarioObjetivo: string
+  ): void {
+    if (esVisiblePara(actividad, usuarioObjetivo)) {
+      return;
+    }
+
+    if (tenant.rol === Rol.USUARIO) {
+      throw new NotFoundException('Actividad no encontrada');
+    }
+
+    throw new ActividadPersonalDeOtroUsuarioException();
+  }
+
   private async buscarConductaActiva(id: string): Promise<Conducta> {
     const conducta = await this.prisma.client.conducta.findFirst({ where: { id } });
 
@@ -682,6 +964,76 @@ export class RegistroService {
       sesionId: abierta.id,
       fechaInicioSesion: new Date(abierta.fechaInicio),
     };
+  }
+
+  /**
+   * Actividad programada (fase-14-11): solo se registra en sus días. El día se
+   * evalúa sobre el día de inicio de la Sesión y en la timezone del Grupo (mismo
+   * criterio que el deadline). Sin días configurados no consulta nada — el caso
+   * normal no paga ninguna llamada REST extra.
+   */
+  private async asegurarProgramacionVigente(
+    actividad: Actividad,
+    sesion: SesionDeRegistro
+  ): Promise<void> {
+    if (actividad.diasSemana.length === 0) {
+      return;
+    }
+
+    const grupo = await this.identity.obtenerGrupo(actividad.grupoId);
+
+    if (!grupo) {
+      throw new NotFoundException('Grupo no encontrado');
+    }
+
+    if (!estaDisponibleEn(actividad.diasSemana, sesion.fechaInicioSesion, grupo.timezone)) {
+      throw new ActividadNoDisponibleHoyException(actividad.diasSemana);
+    }
+  }
+
+  /**
+   * fase-14-12: las marcas rojas VIVAS de un usuario en una Sesión, en una sola
+   * query — una obligatoria denegada es un NO_HIZO sin dar de baja, y una
+   * repetición quemada es una COMPLETADA con `eliminado = true`.
+   */
+  private async buscarMarcasRojas(
+    usuarioId: string,
+    sesionId: string
+  ): Promise<RegistroActividad[]> {
+    return await this.prisma.client.registroActividad.findMany({
+      where: {
+        usuarioId,
+        sesionId,
+        OR: [
+          { tipo: TipoRegistroActividad.COMPLETADA, eliminado: true },
+          { tipo: TipoRegistroActividad.NO_HIZO, eliminado: false },
+        ],
+      },
+    });
+  }
+
+  /**
+   * fase-14-12: una actividad con un NO_HIZO vivo queda bloqueada para el
+   * usuario hasta que el tutor deshaga la marca (decisión 2).
+   */
+  private async asegurarNoDenegada(
+    actividadId: string,
+    usuarioId: string,
+    sesionId: string
+  ): Promise<void> {
+    const denegaciones = await this.prisma.client.registroActividad.count({
+      where: {
+        usuarioId,
+        actividadId,
+        sesionId,
+        tipo: TipoRegistroActividad.NO_HIZO,
+        eliminado: false,
+      },
+    });
+
+    if (denegaciones > 0) {
+      throw new ActividadDenegadaPorTutorException();
+    }
   }
 
   /** Validación 5 (DEADLINE): hora límite del día de la Sesión, en tz del Grupo. */

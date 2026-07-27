@@ -251,6 +251,9 @@ export function eventoDeSesion(
       organizacionId: sesion.organizacionId,
       grupoId: sesion.grupoId,
       numero: sesion.numero,
+      // fase-14-11: el día de la Sesión (no el del cierre) es el que decide si
+      // una actividad programada aplicaba — lo usa el cierre de activity.
+      fechaInicio: sesion.fechaInicio.toISOString(),
     },
   };
 }

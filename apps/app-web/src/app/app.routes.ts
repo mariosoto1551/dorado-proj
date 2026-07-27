@@ -161,6 +161,12 @@ export const appRoutes: Route[] = [
           import('./paginas/usuario/mi-equipo.page').then((m) => m.MiEquipoPage),
       },
       {
+        // fase-14-10: contenido propio del integrante (gated por el modo del grupo).
+        path: 'mis-actividades',
+        loadComponent: () =>
+          import('./paginas/usuario/mis-actividades.page').then((m) => m.MisActividadesPage),
+      },
+      {
         path: '',
         pathMatch: 'full',
         canActivate: [inicioUsuarioGuard],

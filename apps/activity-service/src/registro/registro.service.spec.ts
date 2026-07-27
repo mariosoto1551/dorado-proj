@@ -10,15 +10,20 @@ import type {
   SessionClientService,
 } from '../clientes/session-client.service';
 import {
+  ActividadDenegadaPorTutorException,
+  ActividadNoDisponibleHoyException,
+  ActividadPersonalDeOtroUsuarioException,
   CronometroNoIniciadoException,
   CronometroVencidoException,
   DeadlineVencidoException,
   LimiteRepeticionesAlcanzadoException,
+  MarcaNoReversibleException,
   NoHaySesionAbiertaException,
   ObligatoriaNoSeCompletaException,
 } from '../comun/excepciones';
 import {
   actividadDePrueba,
+  actividadPersonalDePrueba,
   conductaDePrueba,
   crearBdRegistroEnMemoria,
   type BdRegistroEnMemoria,
@@ -27,6 +32,7 @@ import type {
   EventoAPublicar,
   EventosPublisherService,
 } from '../eventos/eventos-publisher.service';
+import type { RegistroActividad } from '../generated/prisma/client';
 import { RegistroService } from './registro.service';
 
 const GRUPO: GrupoDto = {
@@ -626,5 +632,479 @@ describe('RegistroService — eliminar registro de conducta', () => {
     await expect(
       servicio.eliminarRegistroConducta(tenantTutor(), registro.id)
     ).rejects.toThrow(ConflictException);
+  });
+});
+
+describe('RegistroService — visibilidad de actividades personales (fase-14-10, Parte C)', () => {
+  it('mi-estado-hoy: el integrante ve las del tutor y LA SUYA, nunca la de otro', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba(),
+        actividadPersonalDePrueba('usuario-1'),
+        actividadPersonalDePrueba('usuario-2'),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual([
+      'actividad-1',
+      'actividad-de-usuario-1',
+    ]);
+  });
+
+  it('completar la actividad personal de otro integrante: 404 (no revela que existe)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadPersonalDePrueba('usuario-2')],
+    });
+    const { servicio, bd: base } = crearServicio({ bd });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'actividad-de-usuario-2', {})
+    ).rejects.toThrow(NotFoundException);
+    expect(base.registrosActividad).toHaveLength(0);
+  });
+
+  it('el autor SÍ completa la suya (suma sus puntos por el camino normal)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadPersonalDePrueba('usuario-1')],
+    });
+    const { servicio, publicados } = crearServicio({ bd });
+
+    const registro = await servicio.completar(tenantUsuario(), 'actividad-de-usuario-1', {});
+
+    expect(registro).toMatchObject({ usuarioId: 'usuario-1', valorPuntosSnapshot: 3 });
+    expect(publicados[0]).toMatchObject({ eventType: 'ActividadCompletada' });
+  });
+
+  it('un tutor no puede registrarle a un usuario la actividad personal de otro (403 con code)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadPersonalDePrueba('usuario-2')],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    // El tutor apunta a usuario-1, pero la actividad es personal de usuario-2.
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-de-usuario-2', { usuarioId: 'usuario-1' })
+    ).rejects.toThrow(ActividadPersonalDeOtroUsuarioException);
+  });
+
+  it('iniciar cronómetro de la actividad personal de otro integrante: 404', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadPersonalDePrueba('usuario-2', {
+          tipoLimiteTiempo: 'CRONOMETRO',
+          duracionCronometroMinutos: 30,
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(
+      servicio.iniciarCronometro(tenantUsuario(), 'actividad-de-usuario-2')
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('completadas-opcionales del tutor: no ofrece la actividad personal de otro integrante', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba(),
+        actividadPersonalDePrueba('usuario-1'),
+        actividadPersonalDePrueba('usuario-2'),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    await servicio.completar(tenantUsuario(), 'actividad-de-usuario-1', {});
+
+    const completadas = await servicio.listarCompletadasOpcionales(
+      tenantTutor(),
+      'grupo-1',
+      'usuario-1'
+    );
+
+    expect(completadas.map((item) => item.actividadId)).toEqual([
+      'actividad-1',
+      'actividad-de-usuario-1',
+    ]);
+  });
+});
+
+describe('RegistroService — actividades programadas (fase-14-11)', () => {
+  // La sesión de prueba arranca el 2026-07-13T04:00:00Z = lunes 00:00 en La Paz.
+  const MARTES = 2;
+  const LUNES = 1;
+
+  it('completar fuera de sus días → 409 ACTIVIDAD_NO_DISPONIBLE_HOY (con los días en el error)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ diasSemana: [MARTES] })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).rejects.toThrow(
+      ActividadNoDisponibleHoyException
+    );
+    expect(bd.registrosActividad).toHaveLength(0);
+  });
+
+  it('completar el día que le toca funciona normal', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ diasSemana: [LUNES] })],
+    });
+    const { servicio, publicados } = crearServicio({ bd });
+
+    const registro = await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    expect(registro).toMatchObject({ tipo: 'COMPLETADA', valorPuntosSnapshot: 10 });
+    expect(publicados[0]).toMatchObject({ eventType: 'ActividadCompletada' });
+  });
+
+  it('sin días configurados no consulta el grupo ni bloquea (comportamiento previo)', async () => {
+    const bd = crearBdRegistroEnMemoria({ actividades: [actividadDePrueba()] });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).resolves.toMatchObject({
+      tipo: 'COMPLETADA',
+    });
+  });
+
+  it('iniciar cronómetro fuera de sus días → 409 (no se arranca algo que no se podrá cerrar)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          diasSemana: [MARTES],
+          tipoLimiteTiempo: 'CRONOMETRO',
+          duracionCronometroMinutos: 30,
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(
+      servicio.iniciarCronometro(tenantUsuario(), 'actividad-1')
+    ).rejects.toThrow(ActividadNoDisponibleHoyException);
+  });
+
+  it('el no-hizo del tutor tampoco castiga fuera de sus días', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ diasSemana: [MARTES], tipoPuntaje: 'OBLIGATORIA' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(
+      servicio.registrarNoHizo(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' })
+    ).rejects.toThrow(ActividadNoDisponibleHoyException);
+    expect(bd.registrosActividad).toHaveLength(0);
+  });
+
+  it('mi-estado-hoy marca disponibleHoy por actividad y devuelve sus días', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'act-libre' }),
+        actividadDePrueba({ id: 'act-lunes', diasSemana: [LUNES] }),
+        actividadDePrueba({ id: 'act-martes', diasSemana: [MARTES] }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades).toEqual([
+      expect.objectContaining({ actividadId: 'act-libre', disponibleHoy: true, diasSemana: [] }),
+      expect.objectContaining({ actividadId: 'act-lunes', disponibleHoy: true, diasSemana: [LUNES] }),
+      expect.objectContaining({
+        actividadId: 'act-martes',
+        disponibleHoy: false,
+        diasSemana: [MARTES],
+      }),
+    ]);
+  });
+});
+
+describe('RegistroService — marcas rojas del tutor (fase-14-12)', () => {
+  /** La fila que el test da por sentada; falla ruidoso si el flujo no la dejó. */
+  function buscarRegistro(
+    bd: BdRegistroEnMemoria,
+    predicado: (fila: RegistroActividad) => boolean
+  ): RegistroActividad {
+    const fila = bd.registrosActividad.find(predicado);
+
+    if (!fila) {
+      throw new Error('El test esperaba un RegistroActividad que no está en la BD');
+    }
+
+    return fila;
+  }
+
+  /** Completa `veces` y después el tutor quita las últimas `quitar`. */
+  async function completarYQuitar(
+    servicio: RegistroService,
+    bd: BdRegistroEnMemoria,
+    veces: number,
+    quitar: number,
+    motivo?: string
+  ): Promise<void> {
+    for (let i = 0; i < veces; i += 1) {
+      await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    }
+
+    const vivas = bd.registrosActividad.filter((fila) => !fila.eliminado);
+
+    for (let i = 0; i < quitar; i += 1) {
+      await servicio.eliminarRegistroActividad(
+        tenantTutor(),
+        vivas[vivas.length - 1 - i].id,
+        motivo
+      );
+    }
+  }
+
+  it('quitar una repetición la deja perdida: baja el tope efectivo, no el máximo', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ repeticionesMaximasSesion: 3 })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await completarYQuitar(servicio, bd, 3, 1, 'Quedó a medias');
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades[0]).toMatchObject({
+      repeticionesMaximasSesion: 3,
+      vecesHechas: 2,
+      vecesPerdidas: 1,
+      topeEfectivo: 2,
+      denegada: false,
+      motivoTutor: 'Quedó a medias',
+    });
+  });
+
+  it('el cupo quemado lo hace valer el SERVIDOR: completar de nuevo es 409', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ repeticionesMaximasSesion: 3 })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await completarYQuitar(servicio, bd, 3, 1);
+
+    // La barrita roja no es decoración: ese intento se gastó.
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).rejects.toThrow(
+      LimiteRepeticionesAlcanzadoException
+    );
+  });
+
+  it('deshacer la quita devuelve la barrita verde y publica la reversión', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ repeticionesMaximasSesion: 3 })],
+    });
+    const { servicio, publicados } = crearServicio({ bd });
+
+    await completarYQuitar(servicio, bd, 3, 1);
+
+    const quitado = buscarRegistro(bd, (fila) => fila.eliminado);
+    const revertido = await servicio.revertirMarca(tenantTutor(), quitado.id);
+
+    expect(revertido).toMatchObject({ eliminado: false });
+    // La historia queda entera: quién quitó Y quién deshizo (decisión 7).
+    expect(quitado).toMatchObject({
+      eliminado: false,
+      eliminadoPorTutorId: 'tutor-1',
+      revertidoPorTutorId: 'tutor-1',
+    });
+    expect(quitado.eliminadoEn).not.toBeNull();
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    expect(estado.actividades[0]).toMatchObject({
+      vecesHechas: 3,
+      vecesPerdidas: 0,
+      topeEfectivo: 3,
+    });
+
+    const reversion = publicados.find(
+      (evento) => evento.eventType === 'ActividadRegistroRevertido'
+    );
+    expect(reversion).toMatchObject({ routingKey: 'activity.actividad_registro_revertido' });
+    expect(reversion?.payload).toMatchObject({
+      registroId: quitado.id,
+      usuarioId: 'usuario-1',
+      revertidoPorTutorId: 'tutor-1',
+      tipoRegistro: 'COMPLETADA',
+    });
+  });
+
+  it('una obligatoria con "no hizo" queda DENEGADA: el usuario no puede re-confirmar', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      motivo: 'Quedaron sucios',
+    });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    expect(estado.actividades[0]).toMatchObject({
+      denegada: true,
+      confirmada: false,
+      motivoTutor: 'Quedaron sucios',
+    });
+
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).rejects.toThrow(
+      ActividadDenegadaPorTutorException
+    );
+  });
+
+  it('deshacer el "no hizo" desbloquea la obligatoria y compensa el castigo', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio, publicados } = crearServicio({ bd });
+
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' });
+
+    const noHizo = buscarRegistro(bd, (fila) => fila.tipo === 'NO_HIZO');
+    await servicio.revertirMarca(tenantTutor(), noHizo.id);
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    expect(estado.actividades[0]).toMatchObject({ denegada: false });
+
+    const reversion = publicados.find(
+      (evento) => evento.eventType === 'ActividadRegistroRevertido'
+    );
+    expect(reversion?.payload).toMatchObject({ tipoRegistro: 'NO_HIZO' });
+
+    // Desbloqueada: puede volver a confirmar.
+    await expect(servicio.completar(tenantUsuario(), 'actividad-1', {})).resolves.toMatchObject({
+      tipo: 'COMPLETADA',
+    });
+  });
+
+  it('revertir algo que no es una marca roja viva → 409 MARCA_NO_REVERSIBLE', async () => {
+    const { servicio, bd } = crearServicio();
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    await expect(servicio.revertirMarca(tenantTutor(), bd.registrosActividad[0].id)).rejects.toThrow(
+      MarcaNoReversibleException
+    );
+  });
+
+  it('revertir una marca de otra organización → 404 (no revela que existe)', async () => {
+    const { servicio, bd } = crearServicio();
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    await servicio.eliminarRegistroActividad(tenantTutor(), bd.registrosActividad[0].id);
+
+    const tenantAjeno = { ...tenantTutor(), organizacionId: 'org-2' } as TenantContext;
+
+    await expect(servicio.revertirMarca(tenantAjeno, bd.registrosActividad[0].id)).rejects.toThrow(
+      NotFoundException
+    );
+  });
+
+  it('revertir una marca de otra Sesión → 409 NO_HAY_SESION_ABIERTA', async () => {
+    const { servicio, bd } = crearServicio();
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    await servicio.eliminarRegistroActividad(tenantTutor(), bd.registrosActividad[0].id);
+    // Al día siguiente, con otra Sesión abierta, la marca de ayer ya no se toca.
+    bd.registrosActividad[0].sesionId = 'sesion-de-ayer';
+
+    await expect(servicio.revertirMarca(tenantTutor(), bd.registrosActividad[0].id)).rejects.toThrow(
+      NoHaySesionAbiertaException
+    );
+  });
+
+  it('revertir una confirmación (0 pts) no publica evento: no tiene asiento en el ledger', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio, publicados } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    await servicio.eliminarRegistroActividad(tenantTutor(), bd.registrosActividad[0].id);
+    await servicio.revertirMarca(tenantTutor(), bd.registrosActividad[0].id);
+
+    expect(publicados).toHaveLength(0);
+  });
+
+  it('el tutor lista las marcas vivas del usuario para deshacerlas', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ repeticionesMaximasSesion: 3 }),
+        actividadDePrueba({
+          id: 'actividad-2',
+          nombre: 'Lavar los platos',
+          tipoPuntaje: 'OBLIGATORIA',
+          valorPuntos: 15,
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await completarYQuitar(servicio, bd, 2, 1, 'Quedó a medias');
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-2', {
+      usuarioId: 'usuario-1',
+      motivo: 'Quedaron sucios',
+    });
+
+    const marcas = await servicio.listarMarcasRojas(tenantTutor(), 'grupo-1', 'usuario-1');
+
+    expect(marcas).toHaveLength(2);
+    expect(marcas).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actividadId: 'actividad-1',
+          tipo: 'REPETICION_QUITADA',
+          puntos: -10,
+          motivoTutor: 'Quedó a medias',
+        }),
+        expect.objectContaining({
+          actividadId: 'actividad-2',
+          nombre: 'Lavar los platos',
+          tipo: 'NO_HIZO',
+          puntos: -15,
+          motivoTutor: 'Quedaron sucios',
+        }),
+      ])
+    );
+  });
+
+  it('sin marcas del tutor el estado de hoy no cambia en nada (default intacto)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ repeticionesMaximasSesion: 2 })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades[0]).toMatchObject({
+      vecesHechas: 1,
+      vecesPerdidas: 0,
+      topeEfectivo: 2,
+      denegada: false,
+      motivoTutor: null,
+    });
   });
 });

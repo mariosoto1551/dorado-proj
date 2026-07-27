@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type {
   ActividadCompletadaPayload,
   ActividadRegistroEliminadoPayload,
+  ActividadRegistroRevertidoPayload,
   ConductaRegistradaPayload,
   ConductaRegistroEliminadoPayload,
   EventEnvelope,
@@ -10,6 +11,7 @@ import type {
   TareaEquipoCompletadaPayload,
 } from '@dorado/shared-events';
 
+import type { EventoPuntos } from '../generated/prisma/client';
 import { TipoOrigenPuntos } from '../generated/prisma/enums';
 import { PrismaService, type ClientePrisma } from '../prisma/prisma.service';
 
@@ -17,6 +19,12 @@ import { PrismaService, type ClientePrisma } from '../prisma/prisma.service';
 export const CONSUMIDOR = 'scoring-service';
 
 type TxProyeccion = Pick<ClientePrisma, 'eventoPuntos' | 'eventoProcesado'>;
+
+/** Un eslabón de la cadena de correcciones de un registro (fase-14-12). */
+type FilaEventoPuntos = Pick<
+  EventoPuntos,
+  'id' | 'organizacionId' | 'grupoId' | 'usuarioId' | 'seccionId' | 'sesionId' | 'puntosSnapshot'
+>;
 
 /**
  * Proyección de los eventos de registro de activity-service al ledger
@@ -168,13 +176,65 @@ export class ProyeccionService {
   }
 
   /**
-   * Compensa una completada de actividad que un tutor quitó (fase-14): busca el
-   * asiento original por `origenId = registroId` (tipoOrigen ACTIVIDAD_COMPLETADA)
-   * y crea uno nuevo de signo opuesto con `corregidoDeId`. Mismo patrón exacto
-   * que la eliminación de conducta — nunca borra ni edita la fila original.
+   * Compensa una completada de actividad que un tutor quitó (fase-14).
+   * Ver `compensarCadena`: se niega el ÚLTIMO asiento de la cadena, no el
+   * original. Con una sola quita son la misma fila; la diferencia aparece
+   * cuando el tutor ya había deshecho una marca antes (fase-14-12).
    */
   async procesarActividadRegistroEliminado(
     envelope: EventEnvelope<ActividadRegistroEliminadoPayload>
+  ): Promise<void> {
+    await this.compensarCadena(
+      envelope,
+      envelope.payload.registroId,
+      TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
+      envelope.payload.eliminadoPorTutorId,
+      'Completada de actividad quitada por un tutor'
+    );
+  }
+
+  /**
+   * Un tutor deshizo su propia marca roja (fase-14-12): devuelve lo que la
+   * marca le había costado al integrante. Restaurar una completada niega la
+   * corrección que la había descontado; deshacer un "no hizo" niega el castigo.
+   * Las dos cosas son la misma operación sobre la cadena de correcciones.
+   */
+  async procesarActividadRegistroRevertido(
+    envelope: EventEnvelope<ActividadRegistroRevertidoPayload>
+  ): Promise<void> {
+    const esNoHizo = envelope.payload.tipoRegistro === 'NO_HIZO';
+
+    await this.compensarCadena(
+      envelope,
+      envelope.payload.registroId,
+      esNoHizo ? TipoOrigenPuntos.NO_HIZO : TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
+      envelope.payload.revertidoPorTutorId,
+      esNoHizo
+        ? 'Marca de «no hizo» deshecha por un tutor'
+        : 'Completada de actividad restaurada por un tutor'
+    );
+  }
+
+  /**
+   * Corrige un registro de activity creando una fila de signo opuesto al
+   * ÚLTIMO asiento de su cadena de correcciones (fase-14-12, Parte B de la
+   * spec del ítem 12).
+   *
+   * Por qué el último y no el original: tras `completar → quitar` el neto ya
+   * es 0, así que deshacer la quita tiene que sumar, no restar de nuevo.
+   * Negar siempre el eslabón final hace que la secuencia
+   * `completar → quitar → deshacer → quitar` alterne correctamente entre el
+   * valor y 0, con cualquier cantidad de idas y vueltas.
+   *
+   * Nunca borra ni edita la fila original: cada paso es una fila nueva
+   * enlazada por `corregidoDeId` (regla 1 y regla 6 de CLAUDE.md).
+   */
+  private async compensarCadena(
+    envelope: EventEnvelope<unknown>,
+    registroId: string,
+    tipoOrigenDelRegistro: TipoOrigenPuntos,
+    registradoPorId: string,
+    motivoCorreccion: string
   ): Promise<void> {
     if (await this.yaProcesado(envelope.eventId)) {
       return;
@@ -182,17 +242,22 @@ export class ProyeccionService {
 
     const original = await this.prisma.client.eventoPuntos.findFirst({
       where: {
-        origenId: envelope.payload.registroId,
-        tipoOrigen: TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
+        origenId: registroId,
+        tipoOrigen: tipoOrigenDelRegistro,
         organizacionId: envelope.organizacionId,
       },
     });
 
+    // Si el original todavía no llegó (no debería: activity publica por el
+    // mismo canal en orden), el error manda el mensaje a reintento y
+    // eventualmente a la DLQ — nunca descarte silencioso.
     if (!original) {
       throw new Error(
-        `No existe EventoPuntos de actividad con origenId ${envelope.payload.registroId} para compensar`
+        `No existe EventoPuntos de actividad con origenId ${registroId} para compensar`
       );
     }
+
+    const ultimo = await this.ultimoDeLaCadena(original);
 
     await this.enTransaccionIdempotente(envelope.eventId, async (tx) => {
       await tx.eventoPuntos.create({
@@ -203,15 +268,38 @@ export class ProyeccionService {
           seccionId: original.seccionId,
           sesionId: original.sesionId,
           tipoOrigen: TipoOrigenPuntos.CORRECCION,
-          origenId: original.id,
-          puntosSnapshot: -original.puntosSnapshot,
-          registradoPorId: envelope.payload.eliminadoPorTutorId,
+          origenId: ultimo.id,
+          puntosSnapshot: -ultimo.puntosSnapshot,
+          registradoPorId,
           registradoPorTipo: 'SYSTEM',
-          corregidoDeId: original.id,
-          motivoCorreccion: 'Completada de actividad quitada por un tutor',
+          corregidoDeId: ultimo.id,
+          motivoCorreccion,
         },
       });
     });
+  }
+
+  /**
+   * Sigue los `corregidoDeId` desde el asiento original hasta el final. La
+   * cadena es de dos o tres eslabones en la práctica (una quita y su posible
+   * reversión), y cada eslabón es una fila creada después de la anterior, así
+   * que no puede haber ciclos.
+   */
+  private async ultimoDeLaCadena(original: FilaEventoPuntos): Promise<FilaEventoPuntos> {
+    let actual = original;
+
+    for (;;) {
+      const siguiente = await this.prisma.client.eventoPuntos.findFirst({
+        where: { corregidoDeId: actual.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!siguiente) {
+        return actual;
+      }
+
+      actual = siguiente;
+    }
   }
 
   private async proyectarRegistro(

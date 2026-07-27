@@ -107,6 +107,18 @@
       disabled:pointer-events-none disabled:opacity-60;
   }
 
+  /* fase-14-12: segmento de repetición que el tutor "quemó". Va rayado además
+   * de rojo: la información no puede depender solo del color (WCAG 1.4.1), y
+   * de paso se lee como "tachado" y no como "todavía disponible". */
+  .segmento-perdido {
+    @apply bg-red-400 dark:bg-red-500/80;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      rgb(255 255 255 / 0.6) 0 2px,
+      transparent 2px 4px
+    );
+  }
+
   .btn-secundario {
     @apply inline-flex items-center justify-center gap-2 rounded-xl border
       border-slate-300 bg-white/60 px-5 py-3 text-sm font-semibold text-slate-700

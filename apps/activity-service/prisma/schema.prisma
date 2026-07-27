@@ -45,6 +45,27 @@ enum EstadoReporte {
   RECHAZADO
 }
 
+// Quién creó la actividad (fase-14-10). TUTOR = catálogo del grupo, visible
+// para todos. USUARIO = actividad PERSONAL de su autor (solo él la ve y la
+// completa; los tutores la ven para moderar).
+enum OrigenActividad {
+  TUTOR
+  USUARIO
+}
+
+// Quién puede crear contenido en el catálogo del Grupo (fase-14-10, decisión 1).
+enum ModoCreacionContenidoUsuario {
+  RESTRICTIVO // default: solo Tutor/ORG_ADMIN (comportamiento previo a fase-14-10)
+  BAJO_APROBACION // el integrante propone; el Tutor aprueba o rechaza
+  LIBRE // el integrante crea y su actividad queda ACTIVA al instante
+}
+
+enum EstadoPropuesta {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
 enum TipoConducta {
   BUENA
   MALA
@@ -80,13 +101,77 @@ model Actividad {
   // el comportamiento previo (migración retro-compatible).
   alcance                    AlcanceActividad @default(INDIVIDUAL)
   bonoJefePuntos             Int              @default(0)
+  // fase-14-11: días de la semana en que se puede registrar. 0 = domingo … 6 =
+  // sábado (misma convención que los cron de session-service). Vacío = todos
+  // los días, que es el default y el comportamiento previo al ítem 11.
+  diasSemana                 Int[]            @default([])
   estado                     EstadoCatalogo   @default(ACTIVA)
-  creadaPorTutorId           String
+  // fase-14-10: default TUTOR + autor nulo ⇒ toda actividad preexistente
+  // conserva el comportamiento actual (migración retro-compatible).
+  origen                     OrigenActividad  @default(TUTOR)
+  // Autor Y DUEÑO de una actividad personal; null si origen = TUTOR.
+  creadaPorUsuarioId         String?
+  // fase-14-10: pasa a nullable — una actividad creada en modo LIBRE no tiene
+  // tutor detrás. En BAJO_APROBACION guarda el Tutor que la aprobó.
+  creadaPorTutorId           String?
   createdAt                  DateTime         @default(now())
   updatedAt                  DateTime         @updatedAt
 
   @@index([organizacionId])
   @@index([grupoId])
+  @@index([grupoId, creadaPorUsuarioId])
+}
+
+// Configuración de creación de contenido por integrantes, por Grupo
+// (fase-14-10, Parte A). Vive en activity porque es una regla DEL CATÁLOGO y el
+// catálogo es de este servicio (sin cruce REST en el camino caliente, regla 2).
+// Fila perezosa: si no existe, la lectura devuelve los defaults sin escribir.
+model ConfiguracionContenidoGrupo {
+  id                              String                       @id @default(uuid())
+  organizacionId                  String
+  grupoId                         String                       @unique
+  modoCreacionUsuario             ModoCreacionContenidoUsuario @default(RESTRICTIVO)
+  // Topes del contenido de integrantes (decisión 4): sin ellos el modo LIBRE es
+  // un agujero de puntaje (crear "Respirar = 100 pts" y autocompletarla).
+  maxPuntosActividadUsuario       Int                          @default(5)
+  maxActividadesActivasPorUsuario Int                          @default(5)
+  createdAt                       DateTime                     @default(now())
+  updatedAt                       DateTime                     @updatedAt
+
+  @@index([organizacionId])
+}
+
+// Propuesta de actividad de un integrante (fase-14-10, Parte B). Objeto de
+// WORKFLOW mutable — NO es el ledger: los puntos solo existen cuando la
+// Actividad aprobada se completa por el camino normal (RegistroActividad +
+// ActividadCompletada). Modelo aparte a propósito: una propuesta PENDIENTE no
+// es una Actividad en un estado raro, así EstadoCatalogo queda intacto
+// (decisión 6) y es imposible que valga puntos antes de aprobarse.
+model PropuestaActividad {
+  id                        String                       @id @default(uuid())
+  organizacionId            String
+  grupoId                   String
+  creadaPorUsuarioId        String
+  nombre                    String
+  descripcion               String?
+  valorPuntos               Int
+  repeticionesMaximasSesion Int                          @default(1)
+  estado                    EstadoPropuesta              @default(PENDIENTE)
+  // Modo vigente al proponer: explica por qué una quedó aprobada sola.
+  modoAlCrear               ModoCreacionContenidoUsuario
+  resueltoPorId             String?
+  // 'TUTOR' | 'SYSTEM' (SYSTEM = auto-aprobada por modo LIBRE, decisión 7)
+  resueltoPorTipo           String?
+  resueltoEn                DateTime?
+  motivoRechazo             String?
+  // Actividad creada al aprobar (traza el resultado).
+  actividadId               String?
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId, estado])
+  @@index([creadaPorUsuarioId])
 }
 
 enum TipoRegistroActividad {
@@ -113,9 +198,18 @@ model RegistroActividad {
   registradoPorTipo   String
   // Soft-delete de una COMPLETADA que un tutor quita (fase-14): nunca DELETE
   // físico — scoring compensa vía evento (mismo patrón que RegistroConducta).
+  // fase-14-12: también da de baja un NO_HIZO cuando el tutor lo deshace.
   eliminado           Boolean   @default(false)
   eliminadoPorTutorId String?
   eliminadoEn         DateTime?
+  // fase-14-12: nota corta y opcional del tutor al marcar en rojo (NO_HIZO o
+  // quita de una repetición). La ve el integrante en su pantalla.
+  motivoTutor         String?
+  // fase-14-12: el tutor deshizo su propia marca. NO se limpian eliminadoPorTutorId
+  // ni eliminadoEn — la fila conserva la historia entera (quitó y después deshizo),
+  // en vez de volver a un estado que finge que nunca pasó.
+  revertidoPorTutorId String?
+  revertidoEn         DateTime?
   createdAt           DateTime  @default(now())
 
   @@index([organizacionId])

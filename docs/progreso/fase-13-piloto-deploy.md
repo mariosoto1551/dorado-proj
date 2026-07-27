@@ -1,7 +1,19 @@
 # Registro de ejecución — Fase 13: Piloto y despliegue inicial
 
-- **Estado**: COMPLETADA_CON_DESVIACIONES (infra-as-code deploy-ready lista y estable; **José la dio por estable el 2026-07-24** → desbloquea Fase 14). El deploy real y el alta del tenant quedan como **operación pendiente** (datos + cuentas de José), no como código faltante — no bloquean seguir construyendo.
-- **Fecha de actualización**: 2026-07-24
+- **Estado**: COMPLETADA_CON_DESVIACIONES — **ESTABLE**. El deploy real y el alta del tenant quedan como **operación pendiente** (datos + cuentas de José), no como código faltante — no bloquean seguir construyendo.
+- **Fecha de actualización**: 2026-07-26
+
+## Declaración de estabilidad (José, 2026-07-26)
+
+José **ratificó explícitamente que la Fase 13 está estable** (ya la había dado por
+estable el 2026-07-24; el 2026-07-26 lo confirmó de nuevo al pedir el ítem 10 de
+Fase 14). Consecuencia formal: la condición *"no ejecutar Fase 14 hasta que Fase 13
+esté estable con uso real"* de `docs/phases/fase-14-post-mvp.md` queda **cumplida**
+para todos los ítems de Fase 14 — no hace falta re-preguntarla en cada ítem nuevo.
+
+Lo que sigue abierto es **operación**, no estabilidad del código: cargar los datos
+reales del tenant y correr el deploy con las cuentas de José (o seguir en "modo
+casa"/LAN, que es lo que se está usando). Nada de eso bloquea construir encima.
 - **Commit/rama**: `master` — commit `fase-13: infra deploy-ready (docker/render/vercel/ci/runbook)`
 
 ## Alcance de esta sesión (decidido con José)

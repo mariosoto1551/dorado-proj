@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEnum,
   IsIn,
   IsInt,
@@ -6,6 +8,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -85,6 +88,16 @@ export class CrearActividadRequest {
   @IsInt()
   @Min(0)
   bonoJefePuntos?: number;
+
+  // fase-14-11: días en que se puede registrar (0=domingo…6=sábado). Vacío o
+  // ausente = todos los días. El service normaliza (ordena y deduplica).
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  diasSemana?: number[];
 }
 
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
@@ -146,6 +159,14 @@ export class EditarActividadRequest {
   @IsInt()
   @Min(0)
   bonoJefePuntos?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  diasSemana?: number[];
 }
 
 // GET /activity/grupos/:grupoId/actividades?estado= — solo tutores; para

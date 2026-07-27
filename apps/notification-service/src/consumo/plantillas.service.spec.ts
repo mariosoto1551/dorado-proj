@@ -256,4 +256,109 @@ describe('PlantillasService — destinatarios y mensajes (tabla de la spec)', ()
     expect(filas).toHaveLength(1);
     expect(filas[0].mensaje).toBe('Nombre de usuario-1 canjeó una recompensa, pendiente de entrega.');
   });
+  it('ActividadPropuestaCreada en BAJO_APROBACION pide revisión a los tutores (fase-14-10)', async () => {
+    const servicio = crearServicio({ tutores: [tutorDePrueba('tutor-1')] });
+
+    const filas = await servicio.armar(
+      envelopeDePrueba('ActividadPropuestaCreada', {
+        propuestaId: 'prop-1',
+        organizacionId: 'org-1',
+        grupoId: 'grupo-1',
+        creadaPorUsuarioId: 'usuario-1',
+        nombre: 'Practicar guitarra',
+        valorPuntos: 3,
+        estado: 'PENDIENTE',
+        requiereAprobacion: true,
+        actividadId: null,
+      })
+    );
+
+    expect(filas).toHaveLength(1);
+    expect(filas[0]).toMatchObject({
+      destinatarioId: 'tutor-1',
+      destinatarioTipo: 'TUTOR',
+      tipo: 'ACTIVIDAD_PROPUESTA_CREADA',
+    });
+    expect(filas[0].mensaje).toBe(
+      'Nombre de usuario-1 propuso la actividad «Practicar guitarra» (3 pts) — revisala para aprobarla o rechazarla.'
+    );
+  });
+
+  it('ActividadPropuestaCreada en modo LIBRE avisa igual, pero informativo', async () => {
+    const servicio = crearServicio({ tutores: [tutorDePrueba('tutor-1')] });
+
+    const filas = await servicio.armar(
+      envelopeDePrueba('ActividadPropuestaCreada', {
+        propuestaId: 'prop-1',
+        organizacionId: 'org-1',
+        grupoId: 'grupo-1',
+        creadaPorUsuarioId: 'usuario-1',
+        nombre: 'Practicar guitarra',
+        valorPuntos: 3,
+        estado: 'APROBADA',
+        requiereAprobacion: false,
+        actividadId: 'act-1',
+      })
+    );
+
+    expect(filas[0].mensaje).toBe(
+      'Nombre de usuario-1 creó la actividad «Practicar guitarra» (3 pts).'
+    );
+  });
+
+  it('ActividadPropuestaResuelta avisa al AUTOR; la auto-aprobación (SYSTEM) no notifica', async () => {
+    const servicio = crearServicio();
+    const base = {
+      propuestaId: 'prop-1',
+      organizacionId: 'org-1',
+      grupoId: 'grupo-1',
+      creadaPorUsuarioId: 'usuario-1',
+      nombre: 'Practicar guitarra',
+      resueltoPorId: 'tutor-1',
+      actividadId: 'act-1',
+      motivoRechazo: null,
+    };
+
+    const aprobada = await servicio.armar(
+      envelopeDePrueba('ActividadPropuestaResuelta', {
+        ...base,
+        estado: 'APROBADA',
+        resueltoPorTipo: 'TUTOR',
+      })
+    );
+
+    expect(aprobada).toHaveLength(1);
+    expect(aprobada[0]).toMatchObject({
+      destinatarioId: 'usuario-1',
+      destinatarioTipo: 'USUARIO',
+      tipo: 'ACTIVIDAD_PROPUESTA_RESUELTA',
+    });
+    expect(aprobada[0].mensaje).toBe(
+      'Tu actividad «Practicar guitarra» fue aprobada — ya la podés marcar como hecha.'
+    );
+
+    const rechazada = await servicio.armar(
+      envelopeDePrueba('ActividadPropuestaResuelta', {
+        ...base,
+        estado: 'RECHAZADA',
+        resueltoPorTipo: 'TUTOR',
+        actividadId: null,
+        motivoRechazo: 'Ya está cubierta por otra',
+      })
+    );
+
+    expect(rechazada[0].mensaje).toBe(
+      'Tu actividad «Practicar guitarra» fue rechazada: Ya está cubierta por otra'
+    );
+
+    const automatica = await servicio.armar(
+      envelopeDePrueba('ActividadPropuestaResuelta', {
+        ...base,
+        estado: 'APROBADA',
+        resueltoPorTipo: 'SYSTEM',
+      })
+    );
+
+    expect(automatica).toEqual([]);
+  });
 });

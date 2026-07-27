@@ -38,6 +38,11 @@ const ACTIVIDAD_BASE: Actividad = {
   repeticionesMaximasSesion: 1,
   repeticionesMaximasSeccion: null,
   comportamientoAlCierre: 'ASUME_HECHA',
+  alcance: 'INDIVIDUAL',
+  bonoJefePuntos: 0,
+  origen: 'TUTOR',
+  creadaPorUsuarioId: null,
+  diasSemana: [],
   estado: 'ACTIVA',
   creadaPorTutorId: 'tutor-1',
   createdAt: new Date(),
@@ -305,17 +310,23 @@ describe('ActividadesService — comportamientoAlCierre (fase-14-08)', () => {
 });
 
 describe('ActividadesService — visibilidad por rol (spec fase-05)', () => {
-  it('USUARIO solo ve ACTIVA aunque pida ?estado=ARCHIVADA (param ignorado)', async () => {
+  it('USUARIO solo ve ACTIVA aunque pida ?estado=ARCHIVADA (param ignorado), y solo el contenido propio o del tutor', async () => {
     const { servicio, listarFilas } = crearServicio();
     const usuario = tenantDePrueba({
       rol: 'USUARIO',
       principalType: 'USUARIO',
+      principalId: 'usuario-1',
     } as Partial<TenantContext>);
 
     await servicio.listar(usuario, 'grupo-1', { estado: 'ARCHIVADA' });
 
     expect(listarFilas).toHaveBeenCalledWith({
-      where: { grupoId: 'grupo-1', estado: 'ACTIVA' },
+      where: {
+        grupoId: 'grupo-1',
+        estado: 'ACTIVA',
+        // fase-14-10 (Parte C): nunca las actividades personales de otro integrante.
+        OR: [{ origen: 'TUTOR' }, { creadaPorUsuarioId: 'usuario-1' }],
+      },
       orderBy: { createdAt: 'asc' },
     });
   });

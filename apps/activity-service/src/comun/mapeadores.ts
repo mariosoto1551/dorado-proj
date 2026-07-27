@@ -3,8 +3,12 @@ import type {
   AlcanceActividad,
   ComportamientoAlCierre,
   ConductaDto,
+  EstadoPropuesta,
   EstadoReporte,
+  ModoCreacionContenidoUsuario,
+  OrigenActividad,
   PrincipalType,
+  PropuestaActividadDto,
   RegistroActividadDto,
   RegistroConductaDto,
   ReporteMiembroDto,
@@ -16,6 +20,7 @@ import type {
 import type {
   Actividad,
   Conducta,
+  PropuestaActividad,
   RegistroActividad,
   RegistroConducta,
   ReporteMiembro,
@@ -42,7 +47,33 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     comportamientoAlCierre: actividad.comportamientoAlCierre as ComportamientoAlCierre,
     alcance: actividad.alcance as AlcanceActividad,
     bonoJefePuntos: actividad.bonoJefePuntos,
+    origen: actividad.origen as OrigenActividad,
+    creadaPorUsuarioId: actividad.creadaPorUsuarioId,
+    diasSemana: actividad.diasSemana,
     estado: actividad.estado,
+  };
+}
+
+/** fase-14-10: propuesta de actividad de un integrante (objeto de workflow). */
+export function propuestaActividadADto(
+  propuesta: PropuestaActividad
+): PropuestaActividadDto {
+  return {
+    id: propuesta.id,
+    organizacionId: propuesta.organizacionId,
+    grupoId: propuesta.grupoId,
+    creadaPorUsuarioId: propuesta.creadaPorUsuarioId,
+    nombre: propuesta.nombre,
+    descripcion: propuesta.descripcion,
+    valorPuntos: propuesta.valorPuntos,
+    repeticionesMaximasSesion: propuesta.repeticionesMaximasSesion,
+    estado: propuesta.estado as EstadoPropuesta,
+    modoAlCrear: propuesta.modoAlCrear as ModoCreacionContenidoUsuario,
+    resueltoPorId: propuesta.resueltoPorId,
+    resueltoPorTipo: propuesta.resueltoPorTipo,
+    motivoRechazo: propuesta.motivoRechazo,
+    actividadId: propuesta.actividadId,
+    createdAt: propuesta.createdAt.toISOString(),
   };
 }
 
@@ -89,6 +120,8 @@ export function registroActividadADto(registro: RegistroActividad): RegistroActi
     valorPuntosSnapshot: registro.valorPuntosSnapshot,
     registradoPorId: registro.registradoPorId,
     registradoPorTipo: registro.registradoPorTipo as PrincipalType,
+    eliminado: registro.eliminado,
+    motivoTutor: registro.motivoTutor,
     createdAt: registro.createdAt.toISOString(),
   };
 }

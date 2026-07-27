@@ -11,6 +11,8 @@ import { NoHaySesionAbiertaException } from './excepciones';
 export function resolverSesionAbierta(seccion: SeccionActualInterna | null): {
   seccionId: string;
   sesionId: string;
+  /** fase-14-11: el día de la Sesión decide si una actividad programada aplica. */
+  fechaInicioSesion: Date;
 } {
   if (!seccion || seccion.estado !== EstadoSeccion.ABIERTA) {
     throw new NoHaySesionAbiertaException();
@@ -22,5 +24,9 @@ export function resolverSesionAbierta(seccion: SeccionActualInterna | null): {
     throw new NoHaySesionAbiertaException();
   }
 
-  return { seccionId: seccion.id, sesionId: abierta.id };
+  return {
+    seccionId: seccion.id,
+    sesionId: abierta.id,
+    fechaInicioSesion: new Date(abierta.fechaInicio),
+  };
 }

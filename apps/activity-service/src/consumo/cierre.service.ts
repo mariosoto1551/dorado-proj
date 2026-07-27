@@ -8,6 +8,7 @@ import type {
 import { ROUTING_KEYS } from '@dorado/shared-events';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
+import { estaDisponibleEn } from '../comun/programacion';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, RegistroActividad } from '../generated/prisma/client';
 import {
@@ -52,9 +53,9 @@ export class CierreService {
       return;
     }
 
-    const { sesionId, seccionId, organizacionId, grupoId } = envelope.payload;
+    const { sesionId, seccionId, organizacionId, grupoId, fechaInicio } = envelope.payload;
 
-    const obligatorias = await this.prisma.client.actividad.findMany({
+    const todas = await this.prisma.client.actividad.findMany({
       where: {
         organizacionId,
         grupoId,
@@ -63,6 +64,11 @@ export class CierreService {
         comportamientoAlCierre: ComportamientoAlCierre.REQUIERE_CONFIRMACION,
       },
     });
+
+    // fase-14-11: una obligatoria programada solo se castiga el día que le toca.
+    // Sin esto el sistema restaría puntos por no hacer algo que no correspondía
+    // hacer — bug de puntaje, no cosmético.
+    const obligatorias = await this.filtrarProgramadasDelDia(todas, grupoId, fechaInicio);
 
     // Pares (usuario × obligatoria) que faltan penalizar. Se salta cualquiera
     // que ya tenga un registro de ESTA sesión: COMPLETADA (el usuario confirmó)
@@ -183,6 +189,52 @@ export class CierreService {
     }
 
     return pendientes;
+  }
+
+  /**
+   * Quita las obligatorias programadas (fase-14-11) que no correspondían al día
+   * de la Sesión que se cerró. El día sale de `fechaInicio` de la Sesión, en la
+   * timezone del Grupo — nunca del reloj del cierre: la Sesión del martes cierra
+   * a las 00:00 del miércoles, así que "ahora" daría el día equivocado.
+   *
+   * Si el envelope llega **sin** `fechaInicio` (mensaje viejo en la cola durante
+   * un despliegue) no se puede saber el día: se saltean TODAS las programadas.
+   * Ante la duda no se restan puntos; las no programadas siguen igual.
+   */
+  private async filtrarProgramadasDelDia(
+    obligatorias: Actividad[],
+    grupoId: string,
+    fechaInicioSesion: string | undefined
+  ): Promise<Actividad[]> {
+    const programadas = obligatorias.filter((actividad) => actividad.diasSemana.length > 0);
+
+    if (programadas.length === 0) {
+      return obligatorias;
+    }
+
+    if (!fechaInicioSesion) {
+      this.logger.warn(
+        `SesionCerrada sin fechaInicio en el payload — se saltean ${programadas.length} obligatoria(s) programada(s) del grupo ${grupoId}`
+      );
+
+      return obligatorias.filter((actividad) => actividad.diasSemana.length === 0);
+    }
+
+    const grupo = await this.identity.obtenerGrupo(grupoId);
+
+    if (!grupo) {
+      this.logger.warn(
+        `Grupo ${grupoId} no encontrado en identity — se saltean las obligatorias programadas`
+      );
+
+      return obligatorias.filter((actividad) => actividad.diasSemana.length === 0);
+    }
+
+    const inicio = new Date(fechaInicioSesion);
+
+    return obligatorias.filter((actividad) =>
+      estaDisponibleEn(actividad.diasSemana, inicio, grupo.timezone)
+    );
   }
 
   private async yaProcesado(eventId: string): Promise<boolean> {

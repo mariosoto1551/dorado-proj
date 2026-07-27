@@ -62,6 +62,8 @@ export interface CrearActividadRequest {
   comportamientoAlCierre?: ComportamientoAlCierre;
   alcance?: AlcanceActividad;
   bonoJefePuntos?: number;
+  /** fase-14-11: días en que se puede hacer (0=domingo…6=sábado); vacío = todos. */
+  diasSemana?: number[];
 }
 
 export type EditarActividadRequest = Partial<CrearActividadRequest>;

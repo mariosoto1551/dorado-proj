@@ -15,8 +15,11 @@
 | `ConductaRegistrada` | `activity.conducta_registrada` | Activity Catalog | Scoring, Notification | MÍNIMO |
 | `ConductaRegistroEliminado` | `activity.conducta_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
 | `ActividadRegistroEliminado` | `activity.actividad_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
+| `ActividadRegistroRevertido` | `activity.actividad_registro_revertido` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-12 (marcas rojas del tutor) |
 | `TareaEquipoCompletada` | `activity.tarea_equipo_completada` | Activity Catalog | Scoring, Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
 | `ReporteMiembroCreado` | `activity.reporte_miembro_creado` | Activity Catalog | Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
+| `ActividadPropuestaCreada` | `activity.actividad_propuesta_creada` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
+| `ActividadPropuestaResuelta` | `activity.actividad_propuesta_resuelta` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
 | `SesionAbierta` | `session.sesion_abierta` | Session/Section | Notification | EXTENSIÓN |
 | `SesionCerrada` | `session.sesion_cerrada` | Session/Section | Scoring (si `evaluarUmbralesEn = CADA_SESION`), Notification | EXTENSIÓN |
 | `SeccionAbierta` | `session.seccion_abierta` | Session/Section | Notification | EXTENSIÓN |
@@ -112,6 +115,17 @@ interface ActividadRegistroEliminadoPayload {
   eliminadoPorTutorId: string;
 }
 
+// fase-14-12: un tutor deshizo su propia marca roja — restauró una completada
+// que había quitado, o dio de baja un "no hizo". Scoring devuelve los puntos
+// negando el ÚLTIMO asiento de la cadena de correcciones del registro (no el
+// original): ver docs/phases/fase-14-12-marcas-rojas-del-tutor.md, Parte B.
+interface ActividadRegistroRevertidoPayload {
+  registroId: string;
+  usuarioId: string;
+  revertidoPorTutorId: string;
+  tipoRegistro: 'COMPLETADA' | 'NO_HIZO';
+}
+
 // fase-14-09: el jefe completó una tarea de equipo; scoring reparte creando un
 // EventoPuntos por asignación, etiquetado con equipoId (asignaciones ya trae el
 // valor resuelto: base + bono del jefe).
@@ -140,12 +154,47 @@ interface ReporteMiembroCreadoPayload {
   conductaId: string;
 }
 
+// fase-14-10: un integrante creó/propuso una actividad propia. Solo notifica a
+// los tutores del grupo — los puntos no entran por acá: una vez ACTIVA, la
+// actividad se completa por el camino normal (ActividadCompletada).
+interface ActividadPropuestaCreadaPayload {
+  propuestaId: string;
+  organizacionId: string;
+  grupoId: string;
+  creadaPorUsuarioId: string;
+  nombre: string;
+  valorPuntos: number;
+  estado: string; // 'PENDIENTE' (BAJO_APROBACION) | 'APROBADA' (LIBRE)
+  requiereAprobacion: boolean;
+  actividadId: string | null;
+}
+
+// fase-14-10: el Tutor aprobó o rechazó la propuesta; notifica al autor.
+// resueltoPorTipo = 'SYSTEM' es la auto-aprobación del modo LIBRE (no se notifica).
+interface ActividadPropuestaResueltaPayload {
+  propuestaId: string;
+  organizacionId: string;
+  grupoId: string;
+  creadaPorUsuarioId: string;
+  nombre: string;
+  estado: string; // 'APROBADA' | 'RECHAZADA'
+  resueltoPorId: string;
+  resueltoPorTipo: string; // 'TUTOR' | 'SYSTEM'
+  actividadId: string | null;
+  motivoRechazo: string | null;
+}
+
 interface SesionEventoPayload {
   sesionId: string;
   seccionId: string;
   organizacionId: string;
   grupoId: string;
   numero: number;
+  // fase-14-11 (aditivo, opcional): ISO del inicio de la Sesión. El consumidor de
+  // cierre de activity lo usa para saber a qué DÍA pertenecía la Sesión y no
+  // castigar una obligatoria programada fuera de sus días. Los consumidores que
+  // no lo necesitan (scoring, notification) lo ignoran.
+  fechaInicio?: string;
 }
 
 interface SeccionEventoPayload {

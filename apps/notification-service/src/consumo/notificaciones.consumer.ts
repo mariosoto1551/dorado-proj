@@ -55,6 +55,8 @@ export class NotificacionesConsumer {
       ROUTING_KEYS.USUARIO_DESCALIFICADO,
       ROUTING_KEYS.RECOMPENSA_CANJEADA,
       ROUTING_KEYS.REPORTE_MIEMBRO_CREADO,
+      ROUTING_KEYS.ACTIVIDAD_PROPUESTA_CREADA,
+      ROUTING_KEYS.ACTIVIDAD_PROPUESTA_RESUELTA,
     ],
     queue: 'notification.q.eventos-dominio',
     queueOptions: {

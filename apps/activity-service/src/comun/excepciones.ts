@@ -148,3 +148,106 @@ export class ReporteYaResueltoException extends DomainException {
     super('REPORTE_YA_RESUELTO', 'El reporte ya fue aprobado o rechazado', 409);
   }
 }
+
+// --- Marcas rojas del tutor (fase-14-12) ---
+
+export class ActividadDenegadaPorTutorException extends DomainException {
+  constructor() {
+    super(
+      'ACTIVIDAD_DENEGADA_POR_TUTOR',
+      'Un tutor marcó que esta actividad no se hizo — solo él puede deshacer la marca',
+      409
+    );
+  }
+}
+
+export class MarcaNoReversibleException extends DomainException {
+  constructor() {
+    super(
+      'MARCA_NO_REVERSIBLE',
+      'El registro no es una marca roja viva: no hay nada que deshacer',
+      409
+    );
+  }
+}
+
+// --- Actividades programadas (fase-14-11) ---
+
+export class ActividadNoDisponibleHoyException extends DomainException {
+  constructor(diasSemana: number[]) {
+    super(
+      'ACTIVIDAD_NO_DISPONIBLE_HOY',
+      'La actividad está programada para otros días de la semana',
+      409,
+      // Los días viajan en el error para que el cliente pueda decir cuáles son
+      // sin tener que ir a buscar la actividad de nuevo.
+      { diasSemana }
+    );
+  }
+}
+
+// --- Contenido creado por los integrantes (fase-14-10) ---
+
+export class CreacionPorUsuarioDeshabilitadaException extends DomainException {
+  constructor() {
+    super(
+      'CREACION_POR_USUARIO_DESHABILITADA',
+      'El grupo no permite que los integrantes creen sus propias actividades',
+      403
+    );
+  }
+}
+
+export class PuntosSobreTopeDelGrupoException extends DomainException {
+  constructor(tope: number) {
+    super(
+      'PUNTOS_SOBRE_TOPE_DEL_GRUPO',
+      `Una actividad creada por un integrante puede valer como máximo ${tope} puntos en este grupo`,
+      400,
+      { tope }
+    );
+  }
+}
+
+export class LimiteActividadesPropiasAlcanzadoException extends DomainException {
+  constructor(tope: number) {
+    super(
+      'LIMITE_ACTIVIDADES_PROPIAS_ALCANZADO',
+      `Ya tenés ${tope} actividades propias activas o pendientes — archivá una para crear otra`,
+      409,
+      { tope }
+    );
+  }
+}
+
+export class PropuestaNoEncontradaException extends DomainException {
+  constructor() {
+    super('PROPUESTA_NO_ENCONTRADA', 'La propuesta de actividad no existe', 404);
+  }
+}
+
+export class PropuestaYaResueltaException extends DomainException {
+  constructor() {
+    super('PROPUESTA_YA_RESUELTA', 'La propuesta ya fue aprobada o rechazada', 409);
+  }
+}
+
+export class AutorYaNoEstaEnElGrupoException extends DomainException {
+  constructor() {
+    super(
+      'AUTOR_YA_NO_ESTA_EN_EL_GRUPO',
+      'El integrante que propuso la actividad ya no pertenece al grupo — solo se puede rechazar',
+      409
+    );
+  }
+}
+
+export class ActividadPersonalDeOtroUsuarioException extends DomainException {
+  constructor() {
+    super(
+      'ACTIVIDAD_PERSONAL_DE_OTRO_USUARIO',
+      'La actividad es personal de otro integrante — solo su autor la completa',
+      403
+    );
+  }
+}

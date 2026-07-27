@@ -89,7 +89,15 @@ function usuario(id: string): UsuarioDto {
   };
 }
 
-function envelopeCierre(eventId: string = randomUUID()): EventEnvelope<SesionEventoPayload> {
+/**
+ * fase-14-11: `fechaInicio` es el día al que pertenecía la Sesión cerrada. Por
+ * default, lunes 13/07/2026 00:00 en La Paz (04:00Z) — la misma semana de
+ * referencia que `deadline.spec.ts` y `programacion.spec.ts`.
+ */
+function envelopeCierre(
+  eventId: string = randomUUID(),
+  fechaInicio: string | undefined = '2026-07-13T04:00:00.000Z'
+): EventEnvelope<SesionEventoPayload> {
   return {
     eventId,
     eventType: 'SesionCerrada',
@@ -104,6 +112,7 @@ function envelopeCierre(eventId: string = randomUUID()): EventEnvelope<SesionEve
       organizacionId: 'org-1',
       grupoId: 'grupo-1',
       numero: 1,
+      ...(fechaInicio !== undefined && { fechaInicio }),
     },
   };
 }
@@ -112,6 +121,14 @@ function crearServicio(bd: ReturnType<typeof crearBd>, usuarios: UsuarioDto[]) {
   const publicados: EventoAPublicar<unknown>[] = [];
   const identity = {
     usuariosDelGrupo: vi.fn().mockResolvedValue(usuarios),
+    // fase-14-11: la timezone del Grupo decide qué día fue la Sesión.
+    obtenerGrupo: vi.fn().mockResolvedValue({
+      id: 'grupo-1',
+      organizacionId: 'org-1',
+      nombre: 'Grupo Uno',
+      timezone: 'America/La_Paz',
+      createdAt: new Date().toISOString(),
+    }),
   } as unknown as IdentityClientService;
   const eventos = {
     publicar: vi.fn(async (evento: EventoAPublicar<unknown>) => {
@@ -228,5 +245,70 @@ describe('CierreService — castigo automático al cerrar la sesión (fase-14-08
     expect(identity.usuariosDelGrupo).not.toHaveBeenCalled();
     expect(publicados).toHaveLength(0);
     expect(bd.eventoProcesado).toHaveLength(1);
+  });
+});
+
+describe('CierreService — obligatorias programadas (fase-14-11)', () => {
+  // Programada solo para los MARTES (2). La sesión por default es de un LUNES.
+  const CONFIRMABLE_MARTES = () =>
+    actividadDePrueba({
+      id: 'obl-martes',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 20,
+      diasSemana: [2],
+    });
+
+  it('NO castiga al cerrar la sesión de un día que no le tocaba (el caso que motiva el ítem)', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE_MARTES()] });
+    const { servicio, publicados } = crearServicio(bd, [usuario('u1'), usuario('u2')]);
+
+    // Lunes 13/07/2026 00:00 La Paz.
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), '2026-07-13T04:00:00.000Z'));
+
+    expect(bd.registros).toHaveLength(0);
+    expect(publicados).toHaveLength(0);
+  });
+
+  it('SÍ castiga al cerrar la sesión del día que le tocaba', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE_MARTES()] });
+    const { servicio, publicados } = crearServicio(bd, [usuario('u1'), usuario('u2')]);
+
+    // Martes 14/07/2026 00:00 La Paz.
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), '2026-07-14T04:00:00.000Z'));
+
+    expect(bd.registros).toHaveLength(2);
+    expect(bd.registros[0]).toMatchObject({ tipo: 'NO_HIZO', valorPuntosSnapshot: -20 });
+    expect(publicados).toHaveLength(2);
+  });
+
+  it('el día se evalúa en la timezone del Grupo: sesión del lunes 22:00 local (martes 02:00Z) es LUNES', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE_MARTES()] });
+    const { servicio } = crearServicio(bd, [usuario('u1')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), '2026-07-14T02:00:00.000Z'));
+
+    expect(bd.registros).toHaveLength(0);
+  });
+
+  it('una obligatoria SIN programación se castiga cualquier día (comportamiento previo intacto)', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE_MARTES(), CONFIRMABLE()] });
+    const { servicio } = crearServicio(bd, [usuario('u1')]);
+
+    // Lunes: solo la no programada genera castigo.
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), '2026-07-13T04:00:00.000Z'));
+
+    expect(bd.registros).toHaveLength(1);
+    expect(bd.registros[0]).toMatchObject({ actividadId: 'obl-1' });
+  });
+
+  it('envelope sin fechaInicio (mensaje viejo): saltea las programadas y castiga las normales', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE_MARTES(), CONFIRMABLE()] });
+    const { servicio } = crearServicio(bd, [usuario('u1')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), undefined));
+
+    expect(bd.registros).toHaveLength(1);
+    expect(bd.registros[0]).toMatchObject({ actividadId: 'obl-1' });
   });
 });

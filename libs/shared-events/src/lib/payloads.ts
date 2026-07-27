@@ -95,6 +95,20 @@ export interface ActividadRegistroEliminadoPayload {
 }
 
 /**
+ * Un tutor deshizo su propia marca roja (fase-14-12): restauró una completada
+ * que había quitado, o dio de baja un "no hizo". scoring compensa negando el
+ * ÚLTIMO asiento de la cadena de correcciones del registro, no el original —
+ * ver `docs/phases/fase-14-12-marcas-rojas-del-tutor.md`, Parte B.
+ */
+export interface ActividadRegistroRevertidoPayload {
+  registroId: string;
+  usuarioId: string;
+  revertidoPorTutorId: string;
+  /** Decide de qué asiento arranca la cadena (ACTIVIDAD_COMPLETADA o NO_HIZO). */
+  tipoRegistro: 'COMPLETADA' | 'NO_HIZO';
+}
+
+/**
  * Una tarea de equipo (Actividad alcance=EQUIPO) fue completada por el jefe
  * (fase-14-09). scoring reparte creando un EventoPuntos por cada asignación,
  * etiquetado con equipoId. `asignaciones` ya trae el signo/valor resuelto
@@ -129,12 +143,61 @@ export interface ReporteMiembroCreadoPayload {
   conductaId: string;
 }
 
+/**
+ * Un integrante creó/propuso una actividad propia (fase-14-10). Solo informa a
+ * notification: los puntos no entran por acá — una vez ACTIVA, la actividad se
+ * completa por el camino normal (ActividadCompletada).
+ */
+export interface ActividadPropuestaCreadaPayload {
+  propuestaId: string;
+  organizacionId: string;
+  grupoId: string;
+  creadaPorUsuarioId: string;
+  nombre: string;
+  valorPuntos: number;
+  /** 'PENDIENTE' (BAJO_APROBACION) | 'APROBADA' (LIBRE, auto-aprobada). */
+  estado: string;
+  requiereAprobacion: boolean;
+  /** id de la Actividad ya creada (modo LIBRE); null si quedó PENDIENTE. */
+  actividadId: string | null;
+}
+
+/**
+ * El Tutor resolvió una propuesta de actividad de un integrante (fase-14-10).
+ * `resueltoPorTipo = 'SYSTEM'` corresponde a la auto-aprobación del modo LIBRE
+ * (en ese caso notification no avisa al autor: acaba de crearla él).
+ */
+export interface ActividadPropuestaResueltaPayload {
+  propuestaId: string;
+  organizacionId: string;
+  grupoId: string;
+  creadaPorUsuarioId: string;
+  nombre: string;
+  /** 'APROBADA' | 'RECHAZADA'. */
+  estado: string;
+  resueltoPorId: string;
+  /** 'TUTOR' | 'SYSTEM'. */
+  resueltoPorTipo: string;
+  actividadId: string | null;
+  motivoRechazo: string | null;
+}
+
 export interface SesionEventoPayload {
   sesionId: string;
   seccionId: string;
   organizacionId: string;
   grupoId: string;
   numero: number;
+  /**
+   * ISO del inicio de la Sesión (fase-14-11, agregado). Lo necesita el consumidor
+   * de cierre de activity para saber a QUÉ DÍA pertenecía la Sesión (una
+   * obligatoria programada solo se castiga el día que le toca) — el reloj del
+   * cierre no sirve: la Sesión del martes cierra a las 00:00 del miércoles.
+   *
+   * Opcional por compatibilidad: un mensaje publicado antes de este cambio no lo
+   * trae, y el consumidor tiene un camino explícito para ese caso.
+   */
+  fechaInicio?: string;
 }
 
 export interface SeccionEventoPayload {

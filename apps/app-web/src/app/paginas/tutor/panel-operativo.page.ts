@@ -16,6 +16,7 @@ import {
   type CompletadaOpcionalDto,
   type ConductaDto,
   EstadoSesion,
+  type MarcaRojaDto,
   type UsuarioDto,
 } from '@dorado/shared-types';
 import { ConfirmDialogComponent, EstadoSeccionBadgeComponent } from '@dorado/shared-ui';
@@ -106,6 +107,14 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                     <option [value]="a.id">{{ a.nombre }}</option>
                   }
                 </select>
+                <!-- fase-14-12: la nota la ve el integrante en su pantalla. -->
+                <input
+                  type="text"
+                  [(ngModel)]="motivoNoHizo"
+                  maxlength="200"
+                  placeholder="Motivo (opcional)"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                />
                 <button
                   type="button"
                   (click)="registrarNoHizo()"
@@ -154,7 +163,8 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
             <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h3 class="text-sm font-bold text-slate-900 dark:text-white">Corregir completadas de un usuario</h3>
               <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Quitá opcionales que un usuario marcó de más. Resta los puntos y se refleja en su pantalla al instante.
+                Quitá opcionales que un usuario marcó de más. Resta los puntos y en su pantalla
+                queda una barrita roja: ese intento se le gasta y solo vos podés devolvérselo.
               </p>
               <select
                 [(ngModel)]="usuarioCorregir"
@@ -168,6 +178,15 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
               </select>
 
               @if (usuarioCorregir) {
+                <!-- fase-14-12: el motivo aplica a la próxima quita de este bloque. -->
+                <input
+                  type="text"
+                  [(ngModel)]="motivoCorreccion"
+                  maxlength="200"
+                  placeholder="Motivo (opcional) — lo ve el integrante"
+                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                />
+
                 @if (cargandoCorreccion()) {
                   <p class="mt-3 text-center text-xs text-slate-400 dark:text-slate-500">Cargando…</p>
                 } @else if (completadas().length === 0) {
@@ -205,6 +224,45 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
                       </li>
                     }
                   </ul>
+                }
+
+                <!-- Marcas rojas de hoy, con su botón de deshacer (fase-14-12) -->
+                @if (marcas().length > 0) {
+                  <div class="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+                    <h4 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                      Marcas de hoy
+                    </h4>
+                    <ul class="mt-2 space-y-2">
+                      @for (m of marcas(); track m.registroId) {
+                        <li class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
+                          <div class="min-w-0 flex-1">
+                            <p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {{ m.nombre }}
+                            </p>
+                            <p class="text-xs text-red-600 dark:text-red-400">
+                              {{ m.tipo === 'NO_HIZO' ? 'No hizo' : 'Repetición quitada' }}
+                              @if (m.puntos !== 0) {
+                                · {{ m.puntos }} pts
+                              }
+                            </p>
+                            @if (m.motivoTutor) {
+                              <p class="truncate text-xs italic text-slate-500 dark:text-slate-400">
+                                «{{ m.motivoTutor }}»
+                              </p>
+                            }
+                          </div>
+                          <button
+                            type="button"
+                            (click)="deshacerMarca(m)"
+                            [disabled]="procesando()"
+                            class="flex-none rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            Deshacer
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  </div>
                 }
               }
             </div>
@@ -315,7 +373,15 @@ export class PanelOperativoPage {
 
   protected usuarioCorregir = '';
 
+  /** Notas opcionales del tutor (fase-14-12): las lee el integrante. */
+  protected motivoNoHizo = '';
+
+  protected motivoCorreccion = '';
+
   protected readonly completadas = signal<CompletadaOpcionalDto[]>([]);
+
+  /** Marcas rojas vivas del usuario elegido, para poder deshacerlas. */
+  protected readonly marcas = signal<MarcaRojaDto[]>([]);
 
   protected readonly cargandoCorreccion = signal(false);
 
@@ -410,13 +476,40 @@ export class PanelOperativoPage {
   }
 
   protected registrarNoHizo(): void {
+    // Se guarda antes de limpiar el form: si el usuario marcado es el que el
+    // tutor está corrigiendo, hay que refrescar sus marcas al terminar.
+    const usuarioMarcado = this.usuarioNoHizo;
+
     this.procesando.set(true);
-    this.activity.registrarNoHizo(this.actividadNoHizo, this.usuarioNoHizo).subscribe({
+    this.activity
+      .registrarNoHizo(this.actividadNoHizo, usuarioMarcado, this.motivoNoHizo || undefined)
+      .subscribe({
+        next: () => {
+          this.toasts.exito('«No hizo» registrado.');
+          this.usuarioNoHizo = '';
+          this.actividadNoHizo = '';
+          this.motivoNoHizo = '';
+          this.procesando.set(false);
+
+          if (usuarioMarcado === this.usuarioCorregir) {
+            this.cargarCompletadas();
+          }
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.procesando.set(false);
+        },
+      });
+  }
+
+  /** Deshace una marca roja: devuelve los puntos y limpia el rojo (fase-14-12). */
+  protected deshacerMarca(marca: MarcaRojaDto): void {
+    this.procesando.set(true);
+    this.activity.revertirMarca(marca.registroId).subscribe({
       next: () => {
-        this.toasts.exito('«No hizo» registrado.');
-        this.usuarioNoHizo = '';
-        this.actividadNoHizo = '';
+        this.toasts.exito(`Se deshizo la marca de «${marca.nombre}».`);
         this.procesando.set(false);
+        this.cargarCompletadas();
       },
       error: (e) => {
         this.toasts.error(mensajeDeError(e));
@@ -443,6 +536,8 @@ export class PanelOperativoPage {
 
   protected onUsuarioCorregirCambio(): void {
     this.completadas.set([]);
+    this.marcas.set([]);
+    this.motivoCorreccion = '';
 
     if (this.usuarioCorregir) {
       this.cargarCompletadas();
@@ -457,17 +552,19 @@ export class PanelOperativoPage {
     }
 
     this.procesando.set(true);
-    this.activity.eliminarRegistroActividad(ultimo.registroId).subscribe({
-      next: () => {
-        this.toasts.exito(`Se quitó una de «${completada.nombre}».`);
-        this.procesando.set(false);
-        this.cargarCompletadas();
-      },
-      error: (e) => {
-        this.toasts.error(mensajeDeError(e));
-        this.procesando.set(false);
-      },
-    });
+    this.activity
+      .eliminarRegistroActividad(ultimo.registroId, this.motivoCorreccion || undefined)
+      .subscribe({
+        next: () => {
+          this.toasts.exito(`Se quitó una de «${completada.nombre}».`);
+          this.procesando.set(false);
+          this.cargarCompletadas();
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.procesando.set(false);
+        },
+      });
   }
 
   protected quitarTodas(completada: CompletadaOpcionalDto): void {
@@ -475,10 +572,12 @@ export class PanelOperativoPage {
       return;
     }
 
+    const motivo = this.motivoCorreccion || undefined;
+
     this.procesando.set(true);
     forkJoin(
       completada.registros.map((registro) =>
-        this.activity.eliminarRegistroActividad(registro.registroId)
+        this.activity.eliminarRegistroActividad(registro.registroId, motivo)
       )
     ).subscribe({
       next: () => {
@@ -493,15 +592,20 @@ export class PanelOperativoPage {
     });
   }
 
+  /** Estado de corrección del usuario elegido: lo que hizo y lo que ya se le marcó. */
   private cargarCompletadas(): void {
     if (!this.usuarioCorregir) {
       return;
     }
 
     this.cargandoCorreccion.set(true);
-    this.activity.completadasOpcionales(this.grupoId(), this.usuarioCorregir).subscribe({
-      next: (lista) => {
-        this.completadas.set(lista);
+    forkJoin({
+      completadas: this.activity.completadasOpcionales(this.grupoId(), this.usuarioCorregir),
+      marcas: this.activity.marcasRojas(this.grupoId(), this.usuarioCorregir),
+    }).subscribe({
+      next: ({ completadas, marcas }) => {
+        this.completadas.set(completadas);
+        this.marcas.set(marcas);
         this.cargandoCorreccion.set(false);
       },
       error: (e) => {

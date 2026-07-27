@@ -8,12 +8,15 @@ import {
 import { ActividadDto, Rol, TenantContext } from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
-import {
-  LimitePlanAlcanzadoException,
-  TareaEquipoDebeSerOpcionalException,
-} from '../comun/excepciones';
+import { TareaEquipoDebeSerOpcionalException } from '../comun/excepciones';
+import { asegurarLimiteActividadesDelGrupo } from '../comun/limite-plan-actividades';
 import { validarCamposLimiteTiempo } from '../comun/limite-tiempo';
+import { normalizarDiasSemana } from '../comun/programacion';
 import { actividadADto } from '../comun/mapeadores';
+import {
+  esVisiblePara,
+  filtroVisibilidadUsuario,
+} from '../comun/visibilidad-actividad';
 import { BillingClientService } from '../clientes/billing-client.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
@@ -86,6 +89,7 @@ export class ActividadesService {
         ),
         alcance: equipo.alcance,
         bonoJefePuntos: equipo.bonoJefePuntos,
+        diasSemana: normalizarDiasSemana(datos.diasSemana),
         creadaPorTutorId: tenant.principalId,
       },
     });
@@ -106,13 +110,19 @@ export class ActividadesService {
     this.acceso.asegurarAccesoLectura(tenant, grupoId);
 
     // USUARIO solo ve ACTIVA y su query param se ignora (spec fase-05).
-    const estado =
-      tenant.rol === Rol.USUARIO ? EstadoCatalogo.ACTIVA : query.estado;
+    const esUsuario = tenant.rol === Rol.USUARIO;
+    const estado = esUsuario ? EstadoCatalogo.ACTIVA : query.estado;
 
     const actividades = await this.prisma.client.actividad.findMany({
       // El filtro organizacionId (+ grupoId IN grupoIds) lo agrega la tenant
       // extension; grupoId acá acota al grupo pedido dentro de los accesibles.
-      where: { grupoId, ...(estado && { estado }) },
+      where: {
+        grupoId,
+        ...(estado && { estado }),
+        // fase-14-10: el contenido de un integrante es personal — no aparece en
+        // el catálogo de sus compañeros (el tutor sí ve todo, para moderar).
+        ...(esUsuario && filtroVisibilidadUsuario(tenant.principalId)),
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -192,6 +202,11 @@ export class ActividadesService {
         comportamientoAlCierre: comportamientoEfectivo,
         alcance: equipo.alcance,
         bonoJefePuntos: equipo.bonoJefePuntos,
+        // fase-14-11: solo se toca si el request lo trae (un PATCH parcial no
+        // debe borrar la programación existente).
+        ...(datos.diasSemana !== undefined && {
+          diasSemana: normalizarDiasSemana(datos.diasSemana),
+        }),
       },
     });
 
@@ -297,14 +312,17 @@ export class ActividadesService {
   /**
    * Fila accesible para el tenant (el filtro automático agrega organizacionId
    * y, para TUTOR/USUARIO, grupoId IN grupoIds) — 404 si no existe o no es
-   * suya. Un USUARIO además no ve ARCHIVADA (misma regla que las listas).
+   * suya. Un USUARIO además no ve ARCHIVADA (misma regla que las listas) ni la
+   * actividad personal de otro integrante (fase-14-10, Parte C).
    */
   private async buscarAccesible(tenant: TenantContext, id: string): Promise<Actividad> {
     const actividad = await this.prisma.client.actividad.findFirst({ where: { id } });
+    const esUsuario = tenant.rol === Rol.USUARIO;
 
     if (
       !actividad ||
-      (tenant.rol === Rol.USUARIO && actividad.estado !== EstadoCatalogo.ACTIVA)
+      (esUsuario && actividad.estado !== EstadoCatalogo.ACTIVA) ||
+      (esUsuario && !esVisiblePara(actividad, tenant.principalId))
     ) {
       throw new NotFoundException('Actividad no encontrada');
     }
@@ -313,37 +331,20 @@ export class ActividadesService {
   }
 
   /**
-   * Chequeo de entitlements previo a crear (spec fase-05): cuenta las
-   * actividades ACTIVA del grupo contra `limites.actividadesPorGrupo`. Si
-   * billing no está disponible se omite con warning (fail-open, misma
-   * decisión que fase-04 — los límites solo viven en billing).
+   * Chequeo de entitlements previo a crear (spec fase-05). La regla vive en
+   * `comun/limite-plan-actividades.ts` porque la comparten los flujos de
+   * contenido creado por integrantes (fase-14-10).
    */
   private async asegurarLimiteActividades(
     organizacionId: string,
     grupoId: string
   ): Promise<void> {
-    const entitlements = await this.billing.resolveEntitlements(organizacionId);
-
-    if (!entitlements) {
-      this.logger.warn(
-        `Billing no disponible — se omite el chequeo de límite de actividades para ${organizacionId}`
-      );
-
-      return;
-    }
-
-    const limite = entitlements.limites.actividadesPorGrupo;
-
-    if (limite === null) {
-      return;
-    }
-
-    const actuales = await this.prisma.client.actividad.count({
-      where: { grupoId, estado: EstadoCatalogo.ACTIVA },
-    });
-
-    if (actuales >= limite) {
-      throw new LimitePlanAlcanzadoException();
-    }
+    await asegurarLimiteActividadesDelGrupo(
+      this.prisma,
+      this.billing,
+      this.logger,
+      organizacionId,
+      grupoId
+    );
   }
 }

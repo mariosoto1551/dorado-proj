@@ -120,8 +120,8 @@ Tres mejoras sobre el MVP: (1) poder crear más de un grupo; (2) diferenciar la 
 - **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
 
 ## Ítem: Propuesta de actividad por Usuario (condicional a confirmación de José)
-- **Estado**: PENDIENTE — confirmar con José si sigue siendo un requisito antes de diseñarlo.
-- **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
+- **Estado**: **CERRADO POR ABSORCIÓN** en el ítem 10 (2026-07-26). José confirmó que sí quería el flujo, y lo pidió con los 3 modos configurables por Grupo — que es exactamente el modo `BAJO_APROBACION` del ítem 10 más sus dos hermanos. El modelo `PropuestaActividad` que este ítem describía se implementó allá (`docs/phases/fase-14-10-contenido-por-integrantes.md`), con los eventos `ActividadPropuestaCreada`/`ActividadPropuestaResuelta` en vez del `PropuestaActividadCreada` que se había bocetado acá.
+- **Fecha**: 2026-07-26 / **No hay trabajo pendiente propio**: ver el ítem 10.
 
 ## Ítem: Equipos de trabajo (jefe de equipo + tareas colectivas)
 - **Estado**: EN_PROGRESO — **backend + frontend completos** (todo compila, tests existentes verdes, lint limpio, migraciones aplicadas contra DB real; mockups de UI aprobados por José antes de construir). **Falta**: tests unitarios nuevos + E2E real (por API y en navegador).
@@ -155,10 +155,53 @@ Script `e2e-equipos.mjs` (scratchpad, Node fetch vía Gateway :3000). Levantados
 2. **E2E en navegador** de las pantallas nuevas (el flujo por API está verde; falta verificación por click).
 3. **Deuda UI menor**: `mi-equipo` no marca "tarea de equipo ya hecha hoy" (el backend igual corta por `repeticionesMaximasSesion`); el puntaje de equipo se muestra total (no por sección) — decisión de arranque.
 
-## Ítem: Contenido creado por los integrantes (gated por config del Grupo)
-- **Estado**: PENDIENTE — idea de José (2026-07-24), registrada como ítem 10 en `docs/phases/fase-14-post-mvp.md`; falta redactar spec.
-- **Fecha**: — / **Commit**: — / **Resumen**: — / **Desviaciones**: —
-- **Origen**: que un Grupo pueda configurar si sus integrantes crean su propio contenido (opcionales, conductas buenas/malas). Punto aparte del ítem 9 (equipos). A acotar: moderación/aprobación del Tutor y el riesgo de que un integrante fabrique conductas MALA.
+## Ítem 10: Contenido creado por los integrantes (3 modos, gated por config del Grupo)
+- **Estado**: EN_PROGRESO — **backend + frontend completos y verificados en tests/build/lint**. **Falta**: aplicar la migración contra la DB real y el E2E (por API y en navegador) — en esta sesión no había infra levantada (Docker Desktop apagado, 5432 y 5672 cerrados).
+- **Fecha**: 2026-07-26 / **Spec**: `docs/phases/fase-14-10-contenido-por-integrantes.md` (escrita en esta sesión con las decisiones de José) / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-26): *"debe hacer 3 opciones: que sea libre que todos los usuarios puedan crear sus propias actividades, bajo aprobación, y restrictivo"*. Absorbe el ítem 7 del índice de fase 14 (ver arriba).
+
+### Decisiones tomadas con José en esta sesión (las 3 que faltaban para poder especificar)
+1. **Qué puede crear el integrante**: **solo actividades OPCIONAL**. Las conductas (BUENA y MALA) siguen siendo exclusivas del Tutor — el ítem 9 ya cubre el caso negativo legítimo (el jefe reporta una MALA del catálogo y el Tutor aprueba). Ampliar a BUENA queda como decisión futura de un campo.
+2. **Alcance del contenido creado**: **personal de su autor**. Solo él la ve y la completa; el Tutor la ve para moderar. Un integrante no altera la experiencia de sus hermanos.
+3. **Topes por Grupo**: `maxPuntosActividadUsuario` (default **5**) y `maxActividadesActivasPorUsuario` (default **5**, cuenta ACTIVA + propuestas PENDIENTE). Sin esto, el modo LIBRE es un agujero de puntaje (crear *"Respirar = 100 pts"* y autocompletarla).
+
+### Decisiones de implementación que resolvió la spec (huecos que el índice dejaba abiertos)
+- **La config vive en `activity-service`** (`ConfiguracionContenidoGrupo`), no en identity: es una regla del catálogo y el catálogo es de activity — sin cruce REST en el camino caliente de cada creación (regla 2).
+- **Modelo separado `PropuestaActividad`; `EstadoCatalogo` NO se tocó.** Una propuesta pendiente no es una `Actividad` en un estado raro: es otra tabla. Motivo: `estado: 'ACTIVA' | 'ARCHIVADA'` está asumido en todo el sistema (`mi-estado-hoy`, castigo al cierre, tareas de equipo, límite del plan, `ActividadDto`, y el enum compartido con rewards) — agregarle valores obligaba a auditar cada consulta, y así es **imposible** que una propuesta sin aprobar valga puntos.
+- **En modo LIBRE también se escribe la propuesta**, `APROBADA` con `resueltoPorTipo = 'SYSTEM'`: un solo lugar donde el Tutor ve qué propuso cada integrante, y queda el rastro de que se creó sin revisión.
+- **Campos fijos del contenido de integrante**: OPCIONAL / SIN_LIMITE / INDIVIDUAL / ASUME_HECHA / bono 0. No viajan en el request → un integrante no puede crear obligatorias ni tareas de equipo ni intentándolo.
+- **Cuenta para el límite del plan** (`limites.actividadesPorGrupo`): el modo LIBRE no es un bypass de FREE. En `BAJO_APROBACION` el tope del plan **no** corta al proponer, se revalida al aprobar.
+- **Cambiar el modo no toca lo ya creado** (mismo principio que la regla 6): pasar a RESTRICTIVO solo impide crear nuevas; las activas siguen activas y las pendientes siguen resolubles.
+- **El autor archiva la suya pero no la edita**: evita "la creo de 1 punto, la aprueban, la subo a 50".
+
+### Backend ejecutado (activity + notification; 107/107 y 22/22 verde, tsc de los 13 proyectos y lint limpios)
+- **Contratos**: `shared-types` sumó `ModoCreacionContenidoUsuario`, `OrigenActividad`, `EstadoPropuesta`, `ConfiguracionContenidoGrupoDto`, `PropuestaActividadDto`, `CrearMiActividadRequest/Response`, `MisActividadesDto`, `ActualizarConfiguracionContenidoRequest`, `RechazarPropuestaRequest`; `ActividadDto` sumó `origen` + `creadaPorUsuarioId`. `shared-events`: routing keys `activity.actividad_propuesta_creada` / `activity.actividad_propuesta_resuelta` + payloads, y ambos eventos en `event-catalog.md`.
+- **Schema + migración** `20260726120000_contenido_por_integrantes_fase14` (escrita a mano — sin Postgres levantado, mismo criterio que ítems 5 y 8): enums `OrigenActividad`/`ModoCreacionContenidoUsuario`/`EstadoPropuesta`, `Actividad.origen @default(TUTOR)` + `creadaPorUsuarioId` + índice `[grupoId, creadaPorUsuarioId]`, **`creadaPorTutorId` pasó a nullable** (en modo LIBRE no hay tutor detrás; no viaja en el DTO, así que ningún consumidor se rompe), y las tablas `ConfiguracionContenidoGrupo` (fila perezosa, `grupoId` único) y `PropuestaActividad`.
+- **Módulo `contenido-usuario`**: `ConfiguracionContenidoService` (GET con defaults en memoria si no hay fila + PUT upsert con auditoría `CONFIG_CONTENIDO_ACTUALIZADA`), `MisActividadesService` (crear con las 5 validaciones en orden, listar todo-en-una-llamada, archivar la propia), `PropuestasService` (bandeja, aprobar → crea la Actividad en transacción, rechazar con motivo), `ContenidoUsuarioController` (8 rutas), DTOs con class-validator y techos duros de cordura para los topes (100 pts / 50 actividades).
+- **Excepciones tipadas nuevas**: `CREACION_POR_USUARIO_DESHABILITADA` (403), `PUNTOS_SOBRE_TOPE_DEL_GRUPO` (400, con el tope en el body), `LIMITE_ACTIVIDADES_PROPIAS_ALCANZADO` (409), `PROPUESTA_NO_ENCONTRADA` (404), `PROPUESTA_YA_RESUELTA` (409), `AUTOR_YA_NO_ESTA_EN_EL_GRUPO` (409), `ACTIVIDAD_PERSONAL_DE_OTRO_USUARIO` (403).
+- **Parte C (visibilidad personal — el riesgo real del ítem)**: regla única en `comun/visibilidad-actividad.ts` (`filtroVisibilidadUsuario` para queries + `esVisiblePara` en memoria), aplicada en **6** lugares: `ActividadesService.listar`, `ActividadesService.buscarAccesible`, `RegistroService.miEstadoHoy`, `completar`, `iniciarCronometro` y `listarCompletadasOpcionales` (+ `registrarNoHizo` como defensa en profundidad). `CierreService` y `TareasEquipoService` no necesitaron cambio y quedó documentado por qué (filtran OBLIGATORIA y EQUIPO respectivamente; el contenido de integrante es siempre OPCIONAL/INDIVIDUAL).
+- **`asegurarLimiteActividades` extraído** a `comun/limite-plan-actividades.ts` (función libre, no provider) para compartirlo sin cambiar constructores ni duplicar la regla; `ActividadesService` delega.
+- **notification**: los dos eventos nuevos en el `@RabbitSubscribe` y dos plantillas — `ActividadPropuestaCreada` avisa a los tutores (texto distinto según `requiereAprobacion`), `ActividadPropuestaResuelta` avisa al autor (aprobada/rechazada + motivo) y **no notifica** cuando `resueltoPorTipo = 'SYSTEM'` (el autor acaba de crearla).
+- **gateway**: sin cambios (todo cae bajo el prefijo `/api/activity`).
+
+### Tests nuevos (20 en activity, 3 en notification)
+- `mis-actividades.service.spec.ts`: RESTRICTIVO da 403 sin escribir nada; LIBRE crea Actividad ACTIVA con los campos fijos + propuesta APROBADA/SYSTEM; BAJO_APROBACION no crea Actividad; tope de puntos; cupo (activas + pendientes); el plan corta en LIBRE y **no** al proponer.
+- `propuestas.service.spec.ts`: aprobar crea la actividad del **autor** (con el tutor como `creadaPorTutorId`); doble aprobación 409 sin segunda actividad; 404; tope bajado después de proponer; autor fuera del grupo.
+- `registro.service.spec.ts` (Parte C): `mi-estado-hoy` muestra las del tutor + las propias y **no** las del hermano; completar la ajena da 404; el autor sí completa la suya y publica `ActividadCompletada`; un tutor apuntando a otro usuario recibe 403 con code; cronómetro ajeno 404; `completadas-opcionales` no ofrece las de otro integrante.
+- `plantillas.service.spec.ts`: los tres textos (revisión / informativo / resolución) y el silencio de la auto-aprobación.
+- **Helper de tests extendido**: `bd-registro-en-memoria` soporta `OR` y `{ in: [...] }` en el `where` (lo exige el filtro nuevo) y `actividadDePrueba` trae `origen: 'TUTOR'`; se agregó `actividadPersonalDePrueba`.
+
+### Frontend ejecutado (`apps/app-web`, build + lint limpios; mockups aprobados por José antes de escribir)
+- **API**: `ActivityApiService` sumó 8 métodos (config get/put, propuestas listar/aprobar/rechazar, mis-actividades listar/crear/archivar).
+- **Tutor** (dentro de la pantalla **Actividades**, opción elegida por José): card colapsable "Contenido de los integrantes" con los 3 modos como opciones excluyentes + los dos topes + aviso de que cambiar el modo no toca lo ya creado; **pestañas** "Del grupo (N) / Propuestas (N pendientes en badge ámbar)"; cada propuesta muestra autor (nombre resuelto por `identity.listarUsuarios`), puntos y repeticiones, con Aprobar y Rechazar **con textarea de motivo inline** (no `prompt()`); chip violeta **"de \<integrante\>"** en las actividades `origen = USUARIO` del listado.
+- **Integrante**: la home partió la lista en dos bloques — "Actividades de hoy" y **"Mis metas"** con el botón "Crear la mía" (el bloque aparece si tiene alguna o si el grupo lo habilitó, para que descubra la función); pantalla nueva **`/mis-actividades`** con el aviso del modo vigente, cupo y tope a la vista, form de creación (nombre, detalle, puntos con `max` del grupo, veces por día), lista de activas con archivar, y lista de propuestas pendientes/rechazadas con el motivo. Reacciona al grupo activo (multi-grupo).
+
+### Qué falta / verificar la próxima sesión (en este orden) — ver también el ítem 11, que agrega una migración más
+1. **Aplicar la migración contra la DB real** (`docker compose up` + `prisma migrate deploy` de activity) y confirmar que el servicio arranca. La migración está escrita a mano: revisar que `ALTER COLUMN "creadaPorTutorId" DROP NOT NULL` corra sin problema sobre la tabla con datos.
+2. **E2E por API vía Gateway** (:3000), cubriendo los criterios de la spec: (a) grupo sin config → crear como USUARIO da 403 `CREACION_POR_USUARIO_DESHABILITADA`; (b) `PUT` modo `LIBRE` → el integrante crea de 3 pts → aparece en su `mi-estado-hoy` → la completa → **scoring le suma 3**; (c) modo `BAJO_APROBACION` → propone → **no** aparece en `mi-estado-hoy` ni en el listado → el tutor aprueba → recién ahí la completa; re-aprobar da 409; (d) rechazo con motivo → nada cambia de puntaje; (e) tope de puntos 400 y cupo 409; (f) **privacidad**: el usuario B no ve ni puede completar la actividad personal de A (404), el tutor sí la ve en el listado del grupo.
+3. **E2E en navegador** de las dos pantallas (card de modos + pestaña de propuestas del tutor; "Mis metas" y `/mis-actividades` del integrante).
+4. **Colas**: confirmar en el Management UI que `notification.q.eventos-dominio` quedó bindeada a las dos routing keys nuevas (el binding se declara al arrancar notification).
+5. Deuda menor: no hay tests unitarios de `ConfiguracionContenidoService` (cubierto indirectamente por los otros specs) ni de los componentes nuevos de app-web (build + lint cubren el typecheck de plantillas).
 
 ### Origen (idea de José 2026-07-24)
 Dentro de un Grupo, agrupar participantes en **equipos** con un **jefe de equipo** que impulsa al resto a cumplir **tareas colectivas** y ganar puntos en conjunto. Reglas de gobernanza pedidas: si el equipo no cumple, se **sustituye al jefe** (el reemplazo queda sujeto a evaluación, mismo ciclo); si un integrante no coopera / no le hace caso al jefe, éste lo **reporta** para que se le bajen puntos **solo a ese integrante**, sin eximir al equipo de cumplir la tarea.
@@ -223,3 +266,97 @@ Modelo opt-in "B2": una actividad `OBLIGATORIA` puede configurarse `REQUIERE_CON
 - `nx build app-web`: OK (typecheck de plantillas incluido).
 - `tsc --noEmit` de activity/scoring/notification: OK.
 - `nx lint` de activity-service/shared-types/shared-events/app-web: OK.
+
+## Ítem 11: Actividades programadas (solo ciertos días de la semana)
+- **Estado**: EN_PROGRESO — **backend + frontend completos y verificados** (124/124 activity, 59/59 session, tsc de los 13 proyectos, build y lint de app-web verdes). **Falta**: aplicar la migración contra la DB real y el E2E (misma situación que el ítem 10: no había infra levantada).
+- **Fecha**: 2026-07-26 / **Spec**: `docs/phases/fase-14-11-actividades-programadas.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-26): *"quiero que haya tareas que solo se pueden hacer cierto día, por ahora cierto día pero pienso también poner cierta fecha; en la misma ventana de crear actividad, solo para el tutor"*. Se sumó como ítem 11 al índice de Fase 14 (con nota de fecha, no reescritura).
+
+### Decisiones tomadas con José
+1. **Alcance de este corte: solo días de la semana.** Las **fechas concretas** quedan para un corte siguiente; por eso toda la evaluación de disponibilidad vive en una función única (`comun/programacion.ts`) — agregarlas es tocar ese archivo y los DTOs, no los cinco puntos de enforcement.
+2. **El integrante ve la actividad apagada, no oculta**: en gris, sin botón, con el chip "solo los martes". Sabe que existe y cuándo le toca.
+3. **Convención `0 = domingo … 6 = sábado`**: la que ya usaban los cron de `session-service` y el selector de días de la config de sesión. No se inventó una segunda numeración.
+
+### Decisiones de implementación que resolvió la spec
+- **El día se evalúa sobre el día de inicio de la SESIÓN** (no sobre el reloj del momento) y **en la timezone del Grupo**, mismo criterio que `deadlineVencido`. Es lo que hace que una Sesión del martes que cierra a las 00:00 del miércoles siga contando como martes, y que una que arranca lunes 22:00 local (martes 02:00 UTC) cuente como lunes.
+- **`SesionCerrada` suma `fechaInicio` al payload** (aditivo, opcional): el consumidor de cierre de activity no tenía cómo saber a qué día pertenecía la sesión cerrada. Si el campo falta (mensaje viejo en la cola durante un despliegue), **no se castiga** ninguna programada — ante la duda no se restan puntos; las no programadas siguen igual.
+- **Normalización**: los días se guardan ordenados y sin repetidos, y **los 7 días se guardan como `[]`** (misma semántica que "sin restricción", una sola representación en la base; así `diasSemana.length > 0` alcanza para saber si está programada).
+- **El contenido de integrantes (ítem 10) no lleva programación** en este corte: su request no expone el campo.
+
+### Backend ejecutado
+- **Schema + migración** `20260726160000_actividades_programadas_fase14`: `Actividad.diasSemana Int[] @default([])` (escrita a mano, sin Postgres levantado — mismo criterio que los ítems previos).
+- **`comun/programacion.ts`**: `diaSemanaEnTimezone`, `estaDisponibleEn` y `normalizarDiasSemana`, con 6 tests propios de timezone (`programacion.spec.ts`).
+- **Enforcement en los 5 lugares**: `completar`, `iniciarCronometro` y `registrarNoHizo` (409 `ACTIVIDAD_NO_DISPONIBLE_HOY`, con los días en el body del error), `TareasEquipoService.completar` (mismo 409) y **`CierreService`**, que ahora filtra las obligatorias programadas por el día de la Sesión antes de generar los `NO_HIZO`. La consulta de la timezone solo ocurre si hay alguna actividad programada — el caso normal no paga ninguna llamada REST extra.
+- **`mi-estado-hoy`** devuelve `disponibleHoy` y `diasSemana` por actividad (la timezone se resuelve una sola vez por request); si identity no responde, se asume disponible: el servidor decide de verdad al registrar, y apagar botones por una falla ajena es peor.
+- **`resolverSesionAbierta`** (helper compartido) ahora devuelve también `fechaInicioSesion`.
+- **`ActividadDto`** suma `diasSemana`; `CrearActividadRequest`/`EditarActividadRequest` lo aceptan validado (array de 0..6, máx. 7); un `PATCH` que no lo trae **no borra** la programación existente.
+- **session-service**: `eventoDeSesion` publica `fechaInicio`; `event-catalog.md` actualizado.
+
+### Tests nuevos (17 en activity, +1 ajustado en session)
+- `programacion.spec.ts` (6): convención de días, timezone del Grupo vs UTC, sesión nocturna, 7 días = sin restricción.
+- `cierre.service.spec.ts` (5, fase-14-11): **no castiga el día que no toca**, sí el día que toca, el caso de la sesión del lunes 22:00 local, la obligatoria sin programación intacta, y el envelope sin `fechaInicio`.
+- `registro.service.spec.ts` (6): 409 al completar fuera de sus días, completar el día correcto, sin días no bloquea, cronómetro y no-hizo fuera de días, y `mi-estado-hoy` marcando `disponibleHoy` por actividad.
+- `maquina-secciones.service.spec.ts`: el payload de sesión ahora incluye `fechaInicio`.
+
+### Frontend ejecutado (`apps/app-web`)
+- **`core/dias-semana.ts` nuevo**: chips Lun→Dom, nombres y `describirDias` ("todos los días" / "los martes y jueves" / "de lunes a viernes"). **De paso se deduplicó**: `configuracion-sesion.page.ts` tenía su propia copia de esas constantes y del armado del texto, y ahora usa el helper compartido (era la segunda copia; con actividades hubieran sido tres).
+- **Tutor**: selector de 7 chips en el modal de crear/editar actividad, con el resumen en lenguaje natural y el hint de que sin marcar nada se puede todos los días; chip 🗓 con los días en la lista de actividades.
+- **Integrante**: en la lista de hoy, la actividad que no toca aparece atenuada (`opacity-60`), con "🗓 solo los martes" en lugar de los puntos y un chip "Otro día" en vez del botón. El dato viene de `mi-estado-hoy` — el navegador no recalcula el día.
+
+### Qué falta / verificar la próxima sesión
+1. **Aplicar la migración** `20260726160000_actividades_programadas_fase14` contra la DB real (junto con la del ítem 10) y confirmar que activity arranca.
+2. **E2E por API**: crear una actividad con `diasSemana: [2]` (martes) → completarla un lunes da 409 `ACTIVIDAD_NO_DISPONIBLE_HOY` → forzar el cierre de la sesión del lunes y confirmar que **no** aparece un `NO_HIZO` → repetir un martes y ver que sí. Verificar además que `SesionCerrada` llega con `fechaInicio` (Management UI o log del consumidor).
+3. **E2E en navegador**: selector de días en el modal del tutor y la actividad apagada en la pantalla del integrante.
+4. Cuando José pida **fechas concretas**: `comun/programacion.ts` + `ActividadDto`/`CrearActividadRequest` + el selector del modal. El enforcement no se toca.
+
+## Ítem 12: Marcas rojas del tutor (denegar una obligatoria, quemar una repetición)
+- **Estado**: EN_PROGRESO — **backend + frontend completos y verificados** (135/135 activity, 50/50 scoring, build de los 5 servicios backend tocados, build y lint de app-web verdes con **0 warnings**). **Falta**: aplicar la migración contra la DB real y el E2E (misma situación que los ítems 10 y 11: no había infra levantada).
+- **Fecha**: 2026-07-26 / **Spec**: `docs/phases/fase-14-12-marcas-rojas-del-tutor.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-26): *"cuando el tutor o admin marque que un usuario no hizo algo, que su tarea obligatoria se marque con contorno rojo tipo denegado; y si es una opcional de varias repeticiones y el admin la ajusta de 3 a 2, que se marque en rojo una barrita, y sea una barrita perdida que solo el admin/tutor puede volver a modificar"*. Se sumó como ítem 12 al índice de Fase 14 (con nota de fecha, no reescritura).
+
+### Decisiones tomadas con José (dos rondas de preguntas antes de escribir código)
+1. **La barrita perdida quema el cupo**: el tope de hoy pasa a `repeticionesMaximasSesion − vecesPerdidas`. No es un aviso, es un intento gastado.
+2. **La obligatoria denegada queda bloqueada**: contorno rojo y sin botón; el integrante no puede "arreglarla" volviendo a confirmar.
+3. **Solo el tutor revierte, y revertir devuelve los puntos** (la acción "me equivoqué"). Se descartó la variante "devolvele el intento sin los puntos" para no duplicar UI por un caso raro.
+4. **La marca vive dentro de la Sesión actual**: al día siguiente se arranca limpio.
+5. **Motivo opcional y visible** para el integrante.
+6. **Pendientes que pidió dejar afuera explícitamente**: notificar al integrante (espera la implementación completa de notificaciones a usuarios) y las tareas de equipo del ítem 9.
+
+### El bug que apareció al leer el código (y que motivó la mitad del ítem)
+`RegistroService.completar` contaba las completadas **sin filtrar `eliminado`**, así que el cupo ya quedaba quemado del lado del servidor; pero `mi-estado-hoy` **sí** las filtraba. Resultado: la barrita retrocedía de 3/3 a 2/3, el botón «Completar» quedaba habilitado y al tocarlo el usuario comía un 409 `LIMITE_REPETICIONES_ALCANZADO`. El backend hacía lo correcto y la UI lo contradecía. El ítem alinea las dos lecturas en lugar de cambiar la regla: se dejó el conteo como estaba (con un comentario que explica por qué no lleva el filtro) y se expuso el mismo número como `topeEfectivo`.
+
+### Backend ejecutado
+- **Schema + migración** `20260726190000_marcas_rojas_del_tutor_fase14`: `RegistroActividad` suma `motivoTutor`, `revertidoPorTutorId` y `revertidoEn` (las tres nullable ⇒ retro-compatible; escrita a mano, sin Postgres levantado, mismo criterio que los ítems previos). **No hubo tabla nueva**: una repetición perdida ya era una `COMPLETADA` con `eliminado = true` y una obligatoria denegada ya era un `NO_HIZO` — solo faltaba leerlas.
+- **`completar` e `iniciarCronometro`** rechazan con 409 `ACTIVIDAD_DENEGADA_POR_TUTOR` si hay un `NO_HIZO` vivo. Esto **invierte** el comportamiento del ítem 8, donde el "no hizo" daba de baja la confirmación previa y el usuario podía volver a confirmar como si nada.
+- **`mi-estado-hoy`** suma `vecesPerdidas`, `topeEfectivo`, `denegada` y `motivoTutor`. Las marcas se traen en **una sola query** (un `OR` de "COMPLETADA eliminada" y "NO_HIZO vivo") y se agregan en memoria.
+- **`POST /activity/registros-actividad/:id/revertir`** (nuevo, TUTOR/ORG_ADMIN): restaura una completada quitada o da de baja un `NO_HIZO`, según el tipo de la fila. Un solo endpoint porque para el tutor las dos son la misma acción ("sacá esa marca"). 409 `MARCA_NO_REVERSIBLE` si no es una marca viva, 409 `NO_HAY_SESION_ABIERTA` si es de otra Sesión, 404 si es de otra organización.
+- **`GET /activity/grupos/:g/usuarios/:u/marcas`** (nuevo): las marcas vivas del usuario en la Sesión abierta, con nombre de actividad, puntos y motivo.
+- **El motivo del `DELETE` va por query param**, no por body: un DELETE con body atraviesa el Gateway y otros intermediarios que tienen derecho a descartarlo.
+- **Revertir no borra el rastro**: `eliminadoPorTutorId`/`eliminadoEn` se conservan y se agregan `revertidoPorTutorId`/`revertidoEn`. La fila cuenta la historia entera en vez de volver a un estado que finge que nunca pasó.
+
+### scoring-service: la parte con trampa
+La compensación **no puede negar el asiento original** al revertir. Tras `completar → quitar` el neto ya es 0; deshacer la quita tiene que **sumar**, y negar el original volvería a restar. Se agregó `compensarCadena`, que camina los `corregidoDeId` hasta el último eslabón y crea una fila de signo opuesto **a ese último**. `procesarActividadRegistroEliminado` pasó a usar la misma función: para una quita simple el resultado es idéntico al de antes (la cadena tiene un solo eslabón) y, de paso, la cadena queda estrictamente lineal, sin dos filas apuntando al mismo padre.
+
+Secuencia verificada por test con una actividad de 5 puntos: completar `+5` → quitar `0` → deshacer `+5` → quitar `0`. Y un "no hizo" de 15: `−15` al marcar, `0` al revertir. El ledger nunca se edita: todo son filas nuevas con `corregidoDeId`.
+
+### Tests nuevos (11 en activity, 5 en scoring)
+- `registro.service.spec.ts` (11): tope efectivo tras una quita, el 409 del cupo quemado, la reversión completa (estado + evento + rastro conservado), la obligatoria denegada bloqueando `completar`, el desbloqueo al deshacer, `MARCA_NO_REVERSIBLE`, el 404 cross-tenant, el 409 de otra Sesión, la confirmación de 0 pts que no publica evento, el listado de marcas del tutor y el **default intacto** sin ninguna marca.
+- `proyeccion.service.spec.ts` (5): restaurar negando la corrección y no el original, la secuencia completa de la tabla de la spec, el "no hizo" revertido, la idempotencia de la reentrega y el error → DLQ si falta el asiento.
+
+### Frontend ejecutado (`apps/app-web`)
+- **Integrante**: barrita con **tres** estados de segmento (`hecho` / `libre` / `perdido`) en vez de un booleano; contador "2 de 3 · 1 perdida"; tarjeta con contorno rojo, chip "No hecha" y leyenda "Tu tutor marcó que no la hiciste" cuando está bloqueada; el motivo del tutor debajo, en cursiva. El botón se deshabilita contra el **tope efectivo**, no contra el máximo nominal.
+- **Detalle de diseño**: una actividad que llegó al tope **con** repeticiones perdidas ya no se pinta de verde ni se tacha — "llegaste al tope porque te quitaron una" no es un logro.
+- **`.segmento-perdido` en `libs/shared-ui/src/theme.css`**: rojo **+ rayado diagonal**. La información no puede depender solo del color (WCAG 1.4.1) y, de paso, se lee como "tachado" y no como "todavía disponible".
+- **Tutor** (`panel-operativo.page.ts`): campo de motivo opcional en «Registrar no hizo» y en el bloque de corrección; bloque nuevo «Marcas de hoy» con las marcas vivas del usuario elegido y un botón **Deshacer** por fila. El texto del bloque de corrección ahora avisa que la quita le gasta el intento al integrante.
+
+### Desviaciones / decisiones de implementación
+- **Migración escrita a mano** (sin Postgres levantado), igual que los ítems 8, 10 y 11. Ya son **tres** migraciones de activity sin aplicar contra una DB real.
+- **`revertir` reusa las columnas de soft-delete para el `NO_HIZO`**: un `NO_HIZO` no tenía otro estado de baja y las columnas ya eran genéricas. Se setean `eliminado`/`eliminadoPorTutorId`/`eliminadoEn` **y** los campos de reversión, así se mantiene el invariante "eliminado ⇒ hay tutor y fecha".
+- **El `NO_HIZO` automático del cierre (ítem 8) no es revertible**: nace en una Sesión que se está cerrando, así que `revertirMarca` lo rechaza por la validación de Sesión abierta. Es coherente con la decisión 4, pero **no fue una decisión explícita de José** — si alguna vez quiere corregir un castigo automático, hay que revisarlo.
+
+### Qué falta / verificar la próxima sesión
+1. **Aplicar las tres migraciones pendientes de activity** (`...contenido_por_integrantes`, `...actividades_programadas`, `...marcas_rojas_del_tutor`) contra la DB real y confirmar que el servicio arranca.
+2. **E2E por API del ciclo completo de puntos**, que es lo único que los tests unitarios no prueban de punta a punta: completar 3 veces una opcional de 5 pts → puntaje 15 → el tutor quita una → puntaje 10 → deshacer → puntaje 15. Verificar en `EventoPuntos` que son filas nuevas encadenadas por `corregidoDeId` y que **ninguna fila vieja cambió**.
+3. **Verificar el binding nuevo de la cola `scoring.q.registros-actividad`** con la routing key `activity.actividad_registro_revertido`: la cola ya existía, así que hay que confirmar que el binding se declara al arrancar y no quedan mensajes sin rutear.
+4. **E2E en navegador**: la barrita con el segmento rojo rayado y la tarjeta denegada en la pantalla del integrante; el bloque «Marcas de hoy» con Deshacer en el panel del tutor.
+5. Cuando se haga la **implementación completa de notificaciones a usuarios**, engancharle el aviso de marca roja (pendiente declarado, no olvidado). Ídem las **tareas de equipo**.

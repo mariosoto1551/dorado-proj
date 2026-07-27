@@ -15,32 +15,7 @@ import { ToastService } from '../../componentes/toast.service';
 import type { GuardarConfiguracionRequest } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { SessionApiService } from '../../core/api/session-api.service';
-
-interface DiaSemana {
-  valor: number;
-  etiqueta: string;
-}
-
-const DIAS: DiaSemana[] = [
-  { valor: 1, etiqueta: 'Lun' },
-  { valor: 2, etiqueta: 'Mar' },
-  { valor: 3, etiqueta: 'Mié' },
-  { valor: 4, etiqueta: 'Jue' },
-  { valor: 5, etiqueta: 'Vie' },
-  { valor: 6, etiqueta: 'Sáb' },
-  { valor: 0, etiqueta: 'Dom' },
-];
-
-/** Nombres completos para el resumen en lenguaje natural. */
-const NOMBRE_DIA: Record<number, string> = {
-  0: 'domingo',
-  1: 'lunes',
-  2: 'martes',
-  3: 'miércoles',
-  4: 'jueves',
-  5: 'viernes',
-  6: 'sábado',
-};
+import { describirDias, DIAS_SEMANA } from '../../core/dias-semana';
 
 /** Construye "m h * * dows" a partir de una hora HH:mm y días elegidos. */
 function armarCron(hora: string, dias: number[]): string {
@@ -67,7 +42,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
   const dowRaw = partes[4];
   const dias =
     dowRaw === '*'
-      ? DIAS.map((d) => d.valor)
+      ? DIAS_SEMANA.map((d) => d.valor)
       : dowRaw
           .split(',')
           .map((n) => Number(n))
@@ -232,7 +207,7 @@ export class ConfiguracionSesionPage {
 
   protected readonly EU = EvaluarUmbralesEn;
 
-  protected readonly DIAS = DIAS;
+  protected readonly DIAS = DIAS_SEMANA;
 
   private readonly api = inject(SessionApiService);
 
@@ -298,42 +273,14 @@ export class ConfiguracionSesionPage {
     );
   }
 
-  /** "de lunes a sábado" / "todos los días" / "lunes, miércoles y viernes". */
+  /**
+   * "de lunes a sábado" / "todos los días" / "lunes, miércoles y viernes".
+   * La lógica vive en `core/dias-semana` desde fase-14-11 (la comparten este
+   * form y el de actividades programadas); acá solo cambia el texto de "vacío":
+   * en la config de sesión no elegir ningún día es un error, no "todos".
+   */
   private nombreDias(dias: number[]): string {
-    if (dias.length === 0) {
-      return '(ningún día elegido)';
-    }
-
-    if (dias.length === 7) {
-      return 'todos los días';
-    }
-
-    const ordenados = [...dias].sort((a, b) => this.ordenSemana(a) - this.ordenSemana(b));
-    const contiguo = ordenados.every(
-      (d, i) => i === 0 || this.ordenSemana(d) === this.ordenSemana(ordenados[i - 1]) + 1
-    );
-
-    if (contiguo && ordenados.length >= 3) {
-      return `de ${NOMBRE_DIA[ordenados[0]]} a ${NOMBRE_DIA[ordenados[ordenados.length - 1]]}`;
-    }
-
-    const nombres = ordenados.map((d) => this.plural(NOMBRE_DIA[d]));
-
-    if (nombres.length === 1) {
-      return `los ${nombres[0]}`;
-    }
-
-    return `los ${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
-  }
-
-  /** Pluraliza un día ("domingo" → "domingos"); los que ya terminan en "s" no cambian. */
-  private plural(nombre: string): string {
-    return nombre.endsWith('s') ? nombre : `${nombre}s`;
-  }
-
-  /** Lunes=1 … Sábado=6, Domingo=7 (para ordenar con la semana arrancando en lunes). */
-  private ordenSemana(dia: number): number {
-    return dia === 0 ? 7 : dia;
+    return describirDias(dias, '(ningún día elegido)');
   }
 
   protected guardar(evento: Event): void {

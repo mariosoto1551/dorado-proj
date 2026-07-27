@@ -12,11 +12,13 @@ import {
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import {
+  ActividadNoDisponibleHoyException,
   EquipoNoEncontradoException,
   LimiteRepeticionesAlcanzadoException,
   NoEsTareaDeEquipoException,
   SoloJefeCompletaTareaEquipoException,
 } from '../comun/excepciones';
+import { estaDisponibleEn } from '../comun/programacion';
 import { resolverSesionAbierta } from '../comun/sesion-abierta';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
@@ -49,6 +51,18 @@ export class TareasEquipoService {
     const actividad = await this.buscarTareaEquipo(actividadId, equipo.grupoId);
     const seccion = await this.session.obtenerSeccionActual(equipo.grupoId);
     const sesion = resolverSesionAbierta(seccion);
+
+    // fase-14-11: una tarea de equipo también puede estar programada.
+    if (actividad.diasSemana.length > 0) {
+      const grupo = await this.identity.obtenerGrupo(equipo.grupoId);
+
+      if (
+        !grupo ||
+        !estaDisponibleEn(actividad.diasSemana, sesion.fechaInicioSesion, grupo.timezone)
+      ) {
+        throw new ActividadNoDisponibleHoyException(actividad.diasSemana);
+      }
+    }
 
     const hechas = await this.prisma.client.registroTareaEquipo.count({
       where: { equipoId, actividadId, sesionId: sesion.sesionId },

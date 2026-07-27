@@ -38,6 +38,16 @@ export enum AlcanceActividad {
   EQUIPO = 'EQUIPO',
 }
 
+/**
+ * Quién creó la actividad (fase-14-10). TUTOR = comportamiento clásico (del
+ * catálogo del grupo, visible para todos). USUARIO = actividad PERSONAL de su
+ * autor: solo él la ve y la completa (los tutores la ven para moderar).
+ */
+export enum OrigenActividad {
+  TUTOR = 'TUTOR',
+  USUARIO = 'USUARIO',
+}
+
 export interface ActividadDto {
   id: string;
   organizacionId: string;
@@ -55,6 +65,15 @@ export interface ActividadDto {
   alcance: AlcanceActividad;
   /** Puntos extra al jefe sobre el valor base; solo relevante si alcance = EQUIPO. */
   bonoJefePuntos: number;
+  /** fase-14-10: TUTOR (catálogo del grupo) o USUARIO (personal de su autor). */
+  origen: OrigenActividad;
+  /** Autor y dueño si origen = USUARIO; null si la creó un tutor. */
+  creadaPorUsuarioId: string | null;
+  /**
+   * fase-14-11: días de la semana en que se puede registrar
+   * (0 = domingo … 6 = sábado). Vacío = todos los días.
+   */
+  diasSemana: number[];
   estado: 'ACTIVA' | 'ARCHIVADA';
 }
 
@@ -81,6 +100,10 @@ export interface RegistroActividadDto {
   valorPuntosSnapshot: number;
   registradoPorId: string;
   registradoPorTipo: PrincipalType;
+  /** fase-14-12: dado de baja por el tutor (una completada quitada o un NO_HIZO revertido). */
+  eliminado: boolean;
+  /** fase-14-12: nota corta del tutor al marcar en rojo; la ve el integrante. */
+  motivoTutor: string | null;
   createdAt: string;
 }
 
@@ -113,6 +136,32 @@ export interface MiEstadoActividadHoyDto {
   vecesHechas: number;
   /** Obligatoria confirmable: vecesHechas > 0. Para OPCIONAL/ASUME_HECHA: false. */
   confirmada: boolean;
+  /**
+   * fase-14-12: repeticiones que el tutor quitó en esta Sesión — las "barritas
+   * rojas perdidas". Son COMPLETADAS con `eliminado = true`: el intento se gastó.
+   */
+  vecesPerdidas: number;
+  /**
+   * fase-14-12: tope real de hoy (`repeticionesMaximasSesion − vecesPerdidas`).
+   * Es contra ESTE número que el cliente deshabilita el botón, no contra el
+   * máximo nominal — el servidor valida igual (regla 3 de CLAUDE.md).
+   */
+  topeEfectivo: number;
+  /**
+   * fase-14-12: hay un NO_HIZO vivo del tutor para esta actividad en la Sesión.
+   * La actividad queda bloqueada hasta que el tutor deshaga la marca.
+   */
+  denegada: boolean;
+  /** fase-14-12: nota del tutor de la marca roja más reciente; null si no dejó. */
+  motivoTutor: string | null;
+  /**
+   * fase-14-11: false si la actividad está programada y el día de la Sesión
+   * actual no es uno de sus días. La calcula el servidor (es el que conoce la
+   * timezone del Grupo) — el cliente no re-deriva el día.
+   */
+  disponibleHoy: boolean;
+  /** Días configurados (0 = domingo … 6 = sábado); vacío = todos. */
+  diasSemana: number[];
 }
 
 export interface MiEstadoHoyDto {
@@ -138,6 +187,35 @@ export interface CompletadaOpcionalDto {
   valorPuntos: number;
   /** Ordenadas por createdAt asc; para "quitar una" se elimina la última. */
   registros: RegistroCompletadaDto[];
+}
+
+// --- Marcas rojas del tutor (fase-14-12) ---
+
+/**
+ * Clase de marca roja. `NO_HIZO` denegó una obligatoria entera;
+ * `REPETICION_QUITADA` quemó una repetición de una opcional.
+ */
+export enum TipoMarcaRoja {
+  NO_HIZO = 'NO_HIZO',
+  REPETICION_QUITADA = 'REPETICION_QUITADA',
+}
+
+/**
+ * Una marca roja viva de un usuario en la Sesión abierta (fase-14-12), para que
+ * el tutor la pueda deshacer. Solo el tutor las lista: el integrante ve el
+ * efecto agregado en `MiEstadoActividadHoyDto`, no las filas.
+ */
+export interface MarcaRojaDto {
+  /** id del RegistroActividad — es lo que se manda a `/revertir`. */
+  registroId: string;
+  actividadId: string;
+  nombre: string;
+  tipo: TipoMarcaRoja;
+  /** Impacto de la marca en el puntaje (negativo, o 0 si era una confirmación). */
+  puntos: number;
+  motivoTutor: string | null;
+  /** Cuándo la aplicó el tutor (para REPETICION_QUITADA, cuándo la quitó). */
+  marcadaEn: string;
 }
 
 // --- Tareas de equipo y reportes del jefe (fase-14-09) ---
@@ -187,4 +265,98 @@ export interface CrearReporteMiembroRequest {
   /** conducta MALA ACTIVA del grupo. */
   conductaId: string;
   motivo?: string;
+}
+
+// --- Contenido creado por los integrantes (fase-14-10) ---
+
+/**
+ * Quién puede crear contenido en el catálogo del Grupo (fase-14-10, decisión 1).
+ * Configurable por Grupo; el default RESTRICTIVO es el comportamiento previo.
+ */
+export enum ModoCreacionContenidoUsuario {
+  /** Solo Tutor/ORG_ADMIN crea (comportamiento previo a fase-14-10). */
+  RESTRICTIVO = 'RESTRICTIVO',
+  /** El integrante propone; el Tutor aprueba o rechaza antes de que exista. */
+  BAJO_APROBACION = 'BAJO_APROBACION',
+  /** El integrante crea y su actividad queda ACTIVA al instante. */
+  LIBRE = 'LIBRE',
+}
+
+export enum EstadoPropuesta {
+  PENDIENTE = 'PENDIENTE',
+  APROBADA = 'APROBADA',
+  RECHAZADA = 'RECHAZADA',
+}
+
+export interface ConfiguracionContenidoGrupoDto {
+  grupoId: string;
+  modoCreacionUsuario: ModoCreacionContenidoUsuario;
+  /** Tope de puntos de una actividad creada por un integrante. */
+  maxPuntosActividadUsuario: number;
+  /** Tope de actividades propias vivas a la vez (ACTIVA + propuestas PENDIENTE). */
+  maxActividadesActivasPorUsuario: number;
+}
+
+export interface ActualizarConfiguracionContenidoRequest {
+  modoCreacionUsuario?: ModoCreacionContenidoUsuario;
+  maxPuntosActividadUsuario?: number;
+  maxActividadesActivasPorUsuario?: number;
+}
+
+/**
+ * Propuesta de actividad de un integrante (fase-14-10). Objeto de workflow: en
+ * modo LIBRE nace ya APROBADA (`resueltoPorTipo = 'SYSTEM'`) y con `actividadId`;
+ * en BAJO_APROBACION nace PENDIENTE y no hay Actividad hasta que el Tutor aprueba.
+ */
+export interface PropuestaActividadDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  creadaPorUsuarioId: string;
+  nombre: string;
+  descripcion: string | null;
+  valorPuntos: number;
+  repeticionesMaximasSesion: number;
+  estado: EstadoPropuesta;
+  modoAlCrear: ModoCreacionContenidoUsuario;
+  resueltoPorId: string | null;
+  /** 'TUTOR' | 'SYSTEM' (SYSTEM = auto-aprobada por modo LIBRE). */
+  resueltoPorTipo: string | null;
+  motivoRechazo: string | null;
+  actividadId: string | null;
+  createdAt: string;
+}
+
+export interface CrearMiActividadRequest {
+  nombre: string;
+  descripcion?: string | null;
+  valorPuntos: number;
+  repeticionesMaximasSesion?: number;
+}
+
+export interface CrearMiActividadResponse {
+  propuesta: PropuestaActividadDto;
+  /** La Actividad ya creada (modo LIBRE); null si quedó pendiente de aprobación. */
+  actividad: ActividadDto | null;
+}
+
+export interface RechazarPropuestaRequest {
+  motivo?: string;
+}
+
+/**
+ * Todo lo que la pantalla "Mis actividades" del integrante necesita, en una
+ * sola llamada: la config vigente del grupo, si puede crear, sus actividades
+ * personales activas y sus propuestas con estado.
+ */
+export interface MisActividadesDto {
+  modoCreacionUsuario: ModoCreacionContenidoUsuario;
+  maxPuntosActividadUsuario: number;
+  maxActividadesActivasPorUsuario: number;
+  /** false si el modo es RESTRICTIVO o si ya llegó al cupo. */
+  puedeCrear: boolean;
+  /** Cupo ya usado: actividades propias ACTIVA + propuestas PENDIENTE. */
+  cupoUsado: number;
+  actividades: ActividadDto[];
+  propuestas: PropuestaActividadDto[];
 }

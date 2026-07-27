@@ -23,7 +23,20 @@ interface Where {
 }
 
 function matchea(fila: Fila, where: Where): boolean {
-  return Object.entries(where).every(([campo, condicion]) => fila[campo] === condicion);
+  return Object.entries(where).every(([campo, condicion]) => {
+    // `OR: [{...}, {...}]` — necesario desde fase-14-10: el filtro de
+    // visibilidad de actividades personales se expresa así.
+    if (campo === 'OR') {
+      return (condicion as Where[]).some((rama) => matchea(fila, rama));
+    }
+
+    // `campo: { in: [...] }` (lo usa listarCompletadasOpcionales).
+    if (condicion !== null && typeof condicion === 'object' && 'in' in condicion) {
+      return (condicion as { in: unknown[] }).in.includes(fila[campo]);
+    }
+
+    return fila[campo] === condicion;
+  });
 }
 
 function crearDelegado<T extends Fila>(filas: T[], defaults: () => Partial<T>) {
@@ -119,6 +132,10 @@ export function crearBdRegistroEnMemoria(datos: {
       eliminado: false,
       eliminadoPorTutorId: null,
       eliminadoEn: null,
+      // fase-14-12: metadatos de la marca roja del tutor.
+      motivoTutor: null,
+      revertidoPorTutorId: null,
+      revertidoEn: null,
       createdAt: new Date(),
     })),
     registroConducta: crearDelegado<RegistroConducta>(registrosConducta, () => ({
@@ -198,12 +215,38 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     repeticionesMaximasSesion: 1,
     repeticionesMaximasSeccion: null,
     comportamientoAlCierre: 'ASUME_HECHA',
+    alcance: 'INDIVIDUAL',
+    bonoJefePuntos: 0,
+    // fase-14-11: sin programación = disponible todos los días.
+    diasSemana: [],
     estado: 'ACTIVA',
+    // fase-14-10: por defecto es del catálogo del tutor (visible para todos).
+    origen: 'TUTOR',
+    creadaPorUsuarioId: null,
     creadaPorTutorId: 'tutor-1',
     createdAt: new Date(),
     updatedAt: new Date(),
     ...sobrescribir,
   } as Actividad;
+}
+
+/**
+ * Actividad PERSONAL de un integrante (fase-14-10): `origen = USUARIO` y con
+ * dueño. Solo su autor la ve y la completa.
+ */
+export function actividadPersonalDePrueba(
+  creadaPorUsuarioId: string,
+  sobrescribir: Partial<Actividad> = {}
+): Actividad {
+  return actividadDePrueba({
+    id: `actividad-de-${creadaPorUsuarioId}`,
+    nombre: 'Practicar guitarra',
+    origen: 'USUARIO',
+    creadaPorUsuarioId,
+    creadaPorTutorId: null,
+    valorPuntos: 3,
+    ...sobrescribir,
+  } as Partial<Actividad>);
 }
 
 export function conductaDePrueba(sobrescribir: Partial<Conducta> = {}): Conducta {

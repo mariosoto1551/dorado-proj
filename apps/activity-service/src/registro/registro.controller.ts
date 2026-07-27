@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import {
   CurrentTenant,
@@ -8,6 +8,7 @@ import {
 } from '@dorado/shared-auth';
 import {
   CompletadaOpcionalDto,
+  MarcaRojaDto,
   MiEstadoHoyDto,
   RegistroActividadDto,
   RegistroConductaDto,
@@ -19,6 +20,7 @@ import { RegistroService } from './registro.service';
 import {
   CompletarActividadRequest,
   IniciarCronometroResponse,
+  QuitarCompletadaQuery,
   RegistrarConductaRequest,
   RegistrarNoHizoRequest,
 } from './dto/registro.dto';
@@ -79,14 +81,36 @@ export class RegistroController {
     return await this.registro.listarCompletadasOpcionales(tenant, grupoId, usuarioId);
   }
 
+  /** Marcas rojas vivas de un usuario en la sesión abierta (fase-14-12). */
+  @Get('grupos/:grupoId/usuarios/:usuarioId/marcas')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async marcasRojas(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string,
+    @Param('usuarioId') usuarioId: string
+  ): Promise<MarcaRojaDto[]> {
+    return await this.registro.listarMarcasRojas(tenant, grupoId, usuarioId);
+  }
+
   /** Quitar (soft-delete) una completada de actividad de un usuario (fase-14). */
   @Delete('registros-actividad/:id')
   @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
   async eliminarRegistroActividad(
     @CurrentTenant() tenant: TenantContext,
+    @Param('id') registroId: string,
+    @Query() query: QuitarCompletadaQuery
+  ): Promise<RegistroActividadDto> {
+    return await this.registro.eliminarRegistroActividad(tenant, registroId, query.motivo);
+  }
+
+  /** Deshacer una marca roja del tutor (fase-14-12). */
+  @Post('registros-actividad/:id/revertir')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async revertirMarca(
+    @CurrentTenant() tenant: TenantContext,
     @Param('id') registroId: string
   ): Promise<RegistroActividadDto> {
-    return await this.registro.eliminarRegistroActividad(tenant, registroId);
+    return await this.registro.revertirMarca(tenant, registroId);
   }
 
   @Post('conductas/:id/registrar')

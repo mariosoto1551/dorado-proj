@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 
 import type {
+  ActividadPropuestaCreadaPayload,
+  ActividadPropuestaResueltaPayload,
   ConductaRegistradaPayload,
   ConductaRegistroEliminadoPayload,
   EventEnvelope,
@@ -68,6 +70,14 @@ export class PlantillasService {
       case 'ReporteMiembroCreado':
         return await this.reporteMiembroCreado(
           envelope as EventEnvelope<ReporteMiembroCreadoPayload>
+        );
+      case 'ActividadPropuestaCreada':
+        return await this.actividadPropuestaCreada(
+          envelope as EventEnvelope<ActividadPropuestaCreadaPayload>
+        );
+      case 'ActividadPropuestaResuelta':
+        return this.actividadPropuestaResuelta(
+          envelope as EventEnvelope<ActividadPropuestaResueltaPayload>
         );
       default:
         throw new Error(`eventType inesperado en cola de notification: ${envelope.eventType}`);
@@ -282,6 +292,68 @@ export class PlantillasService {
       tipo: 'REPORTE_MIEMBRO_CREADO',
       mensaje: `El jefe de equipo reportó a ${nombre} — revisá el reporte para aprobarlo o rechazarlo.`,
     }));
+  }
+
+  /**
+   * Un integrante creó/propuso una actividad propia (fase-14-10): notifica a los
+   * tutores del grupo. El texto distingue los dos modos — en `BAJO_APROBACION`
+   * hay algo que hacer (revisar), en `LIBRE` es informativo, pero se avisa igual:
+   * el Tutor tiene que poder enterarse sin entrar a mirar.
+   */
+  private async actividadPropuestaCreada(
+    envelope: EventEnvelope<ActividadPropuestaCreadaPayload>
+  ): Promise<NotificacionAPersistir[]> {
+    const { grupoId, creadaPorUsuarioId, nombre, valorPuntos, requiereAprobacion } =
+      envelope.payload;
+    const [autor, tutores] = await Promise.all([
+      this.identity.obtenerUsuario(creadaPorUsuarioId),
+      this.identity.tutoresDelGrupo(grupoId),
+    ]);
+    const nombreAutor = autor?.nombre ?? 'Un integrante';
+    const mensaje = requiereAprobacion
+      ? `${nombreAutor} propuso la actividad «${nombre}» (${valorPuntos} pts) — revisala para aprobarla o rechazarla.`
+      : `${nombreAutor} creó la actividad «${nombre}» (${valorPuntos} pts).`;
+
+    return tutores.map((tutor) => ({
+      organizacionId: envelope.organizacionId,
+      grupoId,
+      destinatarioId: tutor.id,
+      destinatarioTipo: 'TUTOR' as const,
+      tipo: 'ACTIVIDAD_PROPUESTA_CREADA',
+      mensaje,
+    }));
+  }
+
+  /**
+   * El Tutor resolvió la propuesta (fase-14-10): avisa al autor. La
+   * auto-aprobación del modo LIBRE (`SYSTEM`) no se notifica — el integrante
+   * acaba de crearla, ya lo sabe.
+   */
+  private actividadPropuestaResuelta(
+    envelope: EventEnvelope<ActividadPropuestaResueltaPayload>
+  ): NotificacionAPersistir[] {
+    const { grupoId, creadaPorUsuarioId, nombre, estado, resueltoPorTipo, motivoRechazo } =
+      envelope.payload;
+
+    if (resueltoPorTipo === 'SYSTEM') {
+      return [];
+    }
+
+    const mensaje =
+      estado === 'APROBADA'
+        ? `Tu actividad «${nombre}» fue aprobada — ya la podés marcar como hecha.`
+        : `Tu actividad «${nombre}» fue rechazada${motivoRechazo ? `: ${motivoRechazo}` : '.'}`;
+
+    return [
+      {
+        organizacionId: envelope.organizacionId,
+        grupoId,
+        destinatarioId: creadaPorUsuarioId,
+        destinatarioTipo: 'USUARIO',
+        tipo: 'ACTIVIDAD_PROPUESTA_RESUELTA',
+        mensaje,
+      },
+    ];
   }
 
   private grupoDelEnvelope(envelope: EventEnvelope<unknown>): string {
