@@ -20,6 +20,11 @@ const MODELOS_TENANT = {
   Conducta: { conGrupoId: true },
   RegistroActividad: { conGrupoId: true },
   RegistroConducta: { conGrupoId: true },
+  // fase-14-17: es estado operativo, pero a diferencia de CronometroActivo sí
+  // lleva organizacionId + grupoId, así que se declara y las lecturas por
+  // usuario+sesión quedan filtradas de arriba (el upsert no se intercepta —
+  // usa clave única —, y ahí el grupo ya viene de la Actividad tenant-filtrada).
+  SeleccionPlanDia: { conGrupoId: true },
 };
 
 export function crearClientePrisma(databaseUrl: string) {

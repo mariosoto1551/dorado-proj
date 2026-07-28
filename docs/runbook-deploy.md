@@ -66,6 +66,10 @@ identity-service. Nunca al repo.
      (ej. `IDENTITY_INTERNAL_URL=http://identity-service:3001`). El nombre es el
      del servicio en Render; el puerto, el `PORT` que ya trae el Blueprint.
    - En el **gateway**, además `APP_WEB_URL` y `PUBLIC_SITE_URL` (paso 5, CORS).
+   - En **session-service**, opcionalmente `SCHEDULER_MAX_RECUPERACION_HORAS`
+     (default 168 = 7 días): cuánto hacia atrás recupera el scheduler las
+     transiciones que se perdieron mientras el servicio estuvo caído
+     (fase-14-16). Si falta, toma el default; no hace falta configurarla.
 4. Las migraciones corren **solas** al arrancar cada servicio con base
    (`entrypoint.sh` → `prisma migrate deploy`, idempotente). Billing siembra los
    planes FREE/PRO en su bootstrap.
@@ -74,9 +78,16 @@ identity-service. Nunca al repo.
    (`https://<gateway>.onrender.com`).
 
 > **Costo / always-on**: `session-service` tiene el scheduler cron (modo
-> AUTOMATICO) — su plan NO puede dormir. El Blueprint usa `starter` en los 9;
-> podés bajar a free los sin-cron si querés ahorrar, pero session-service (y el
-> gateway) conviene dejarlos en un plan que no se suspenda.
+> AUTOMATICO) — conviene que su plan no duerma. El Blueprint usa `starter` en
+> los 9; podés bajar a free los sin-cron si querés ahorrar, pero session-service
+> (y el gateway) conviene dejarlos en un plan que no se suspenda.
+>
+> Desde **fase-14-16** una suspensión ya no **pierde** transiciones: al volver,
+> el scheduler reconcilia todo lo vencido en la ventana `(evaluadoHasta, ahora]`
+> y lo aplica sellado con el instante programado. Pero se aplican **tarde** —
+> el usuario ve su Sesión cambiar cuando el servicio despierta, no a la hora
+> configurada. Por eso sigue siendo un plan always-on, ahora por puntualidad y
+> no por integridad de los datos.
 
 ## 4. Frontends — Vercel
 

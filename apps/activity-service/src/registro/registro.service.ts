@@ -28,6 +28,7 @@ import {
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import { deadlineVencido, instanteDeDeadline } from '../comun/deadline';
+import { requiereSeleccionDelPlan } from '../comun/elegibilidad-plan';
 import {
   ActividadDenegadaPorTutorException,
   ActividadNoDisponibleHoyException,
@@ -57,6 +58,7 @@ import {
   TipoPuntaje,
   TipoRegistroActividad,
 } from '../generated/prisma/enums';
+import { PlanDiaService } from '../plan-dia/plan-dia.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CompletarActividadRequest,
@@ -122,7 +124,8 @@ export class RegistroService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityClientService,
     private readonly session: SessionClientService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly planDia: PlanDiaService
   ) {}
 
   /** POST /activity/actividades/:id/iniciar-cronometro — USUARIO (self). */
@@ -166,6 +169,15 @@ export class RegistroService {
       create: { usuarioId, actividadId, sesionId: sesion.sesionId, iniciadoEn: ahora },
       update: { iniciadoEn: ahora },
     });
+
+    // fase-14-17: arrancar el cronómetro ya es empezarla — que quede en el plan
+    // del día aunque no la haya elegido antes (spec, decisión 9).
+    await this.planDia.asegurarEnPlan(
+      tenant.organizacionId,
+      actividad,
+      usuarioId,
+      sesion.sesionId
+    );
 
     const venceEn = new Date(
       ahora.getTime() + (actividad.duracionCronometroMinutos ?? 0) * 60000
@@ -298,6 +310,16 @@ export class RegistroService {
       });
     }
 
+    // fase-14-17: una actividad completada NO puede desaparecer de la lista —
+    // tiene que quedar en el tramo "Ya está". Va después del commit y no lanza:
+    // el registro ya vale puntos y el plan es solo cómo se ve la pantalla.
+    await this.planDia.asegurarEnPlan(
+      tenant.organizacionId,
+      actividad,
+      usuarioId,
+      sesion.sesionId
+    );
+
     return registroActividadADto(registro);
   }
 
@@ -316,12 +338,12 @@ export class RegistroService {
         : undefined;
 
     if (!sesionAbierta) {
-      return { sesionId: null, actividades: [] };
+      return { sesionId: null, planDelDiaActivo: false, actividades: [] };
     }
 
     const usuarioId = tenant.principalId;
 
-    const [actividades, conteos, marcas] = await Promise.all([
+    const [actividades, conteos, marcas, planActivo, elegidas] = await Promise.all([
       this.prisma.client.actividad.findMany({
         where: {
           grupoId,
@@ -345,6 +367,9 @@ export class RegistroService {
         _count: { _all: true },
       }),
       this.buscarMarcasRojas(usuarioId, sesionAbierta.id),
+      // fase-14-17: el modo del grupo y lo que el integrante ya eligió para hoy.
+      this.planDia.estaActivo(grupoId),
+      this.planDia.idsElegidos(usuarioId, sesionAbierta.id),
     ]);
 
     const vecesPorActividad = new Map(
@@ -375,6 +400,10 @@ export class RegistroService {
       const vecesPerdidas = marcasDeLaActividad.filter(
         (marca) => marca.tipo === TipoRegistroActividad.COMPLETADA
       ).length;
+      // fase-14-17: con el modo apagado, `requiereSeleccion` es false para
+      // todas y `enPlan` viaja true — la home se comporta exactamente como
+      // antes del ítem 17 (decisión 12 de la spec).
+      const requiereSeleccion = requiereSeleccionDelPlan(actividad, planActivo);
 
       return {
         actividadId: actividad.id,
@@ -408,10 +437,12 @@ export class RegistroService {
           ? estaDisponibleEn(actividad.diasSemana, inicioSesion, timezone)
           : true,
         diasSemana: actividad.diasSemana,
+        requiereSeleccion,
+        enPlan: requiereSeleccion ? elegidas.has(actividad.id) : true,
       };
     });
 
-    return { sesionId: sesionAbierta.id, actividades: items };
+    return { sesionId: sesionAbierta.id, planDelDiaActivo: planActivo, actividades: items };
   }
 
   /** POST /activity/actividades/:id/no-hizo — solo Tutores, solo OBLIGATORIA. */

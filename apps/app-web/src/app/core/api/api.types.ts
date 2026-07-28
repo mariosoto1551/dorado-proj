@@ -64,6 +64,8 @@ export interface CrearActividadRequest {
   bonoJefePuntos?: number;
   /** fase-14-11: días en que se puede hacer (0=domingo…6=sábado); vacío = todos. */
   diasSemana?: number[];
+  /** fase-14-17: la opcional se ve siempre, sin que el integrante la elija. */
+  siempreVisible?: boolean;
 }
 
 export type EditarActividadRequest = Partial<CrearActividadRequest>;

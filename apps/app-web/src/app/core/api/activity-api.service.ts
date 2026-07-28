@@ -17,6 +17,7 @@ import type {
   MarcaRojaDto,
   MiEstadoHoyDto,
   MisActividadesDto,
+  PlanDelDiaDto,
   PropuestaActividadDto,
   RegistroActividadDto,
   RegistroConductaDto,
@@ -244,6 +245,24 @@ export class ActivityApiService {
     return this.http.put<ConfiguracionContenidoGrupoDto>(
       `${this.base}/grupos/${grupoId}/configuracion-contenido`,
       datos
+    );
+  }
+
+  // ---- Plan del día del integrante (fase-14-17) ----
+
+  /**
+   * Mete una OPCIONAL en el plan de hoy. No hay GET: el estado del plan viaja
+   * en `mi-estado-hoy` (`enPlan`), que la home ya consulta.
+   */
+  agregarAlPlanDelDia(grupoId: string, actividadId: string): Observable<PlanDelDiaDto> {
+    return this.http.post<PlanDelDiaDto>(`${this.base}/grupos/${grupoId}/plan-dia`, {
+      actividadId,
+    });
+  }
+
+  quitarDelPlanDelDia(grupoId: string, actividadId: string): Observable<PlanDelDiaDto> {
+    return this.http.delete<PlanDelDiaDto>(
+      `${this.base}/grupos/${grupoId}/plan-dia/${actividadId}`
     );
   }
 

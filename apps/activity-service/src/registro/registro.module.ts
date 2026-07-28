@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ClientesModule } from '../clientes/clientes.module';
+import { PlanDiaModule } from '../plan-dia/plan-dia.module';
 import { RegistroController } from './registro.controller';
 import { RegistroService } from './registro.service';
 
@@ -8,7 +9,7 @@ import { RegistroService } from './registro.service';
 // el grupo sale de la fila de catálogo (ya tenant-filtrada) y el usuario
 // objetivo se valida contra identity dentro del service.
 @Module({
-  imports: [ClientesModule],
+  imports: [ClientesModule, PlanDiaModule],
   controllers: [RegistroController],
   providers: [RegistroService],
 })

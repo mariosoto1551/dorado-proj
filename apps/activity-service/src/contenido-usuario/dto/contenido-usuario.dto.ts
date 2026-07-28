@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -40,6 +41,11 @@ export class ActualizarConfiguracionContenidoRequest {
   @Min(1)
   @Max(TOPE_MAXIMO_ACTIVIDADES)
   maxActividadesActivasPorUsuario?: number;
+
+  // fase-14-17: enciende el plan del día para el grupo.
+  @IsOptional()
+  @IsBoolean()
+  planDelDiaActivo?: boolean;
 }
 
 /**

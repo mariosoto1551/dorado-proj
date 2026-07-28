@@ -12,6 +12,7 @@ con un smoke opcional de UI. No es una app desplegable: es el arnés de pruebas.
 | `seguridad-aislamiento.e2e.ts` | 2 | **Test de seguridad**: un JWT de la Org A no lee/escribe datos de la Org B (por lista, por UUID adivinado y con headers forjados). |
 | `seguridad-inmutabilidad.e2e.ts` | 3 | **Test de seguridad**: editar `valorPuntos` no altera asientos pasados; corrección post-cierre = fila nueva con `corregidoDeId`; `ResultadoSeccion` intacto; no se registra sin Sesión ABIERTA. |
 | `carga-bus.e2e.ts` | 4 | ~500 registros en ráfaga → scoring los proyecta sin pérdidas ni duplicados; la DLQ (`scoring.dlq`) recibe un mensaje veneno. |
+| `plan-del-dia.e2e.ts` | fase-14 · ítem 17 | El **plan del día**: con el modo apagado nada cambia (retro-compatibilidad); encendido, las opcionales del tutor se esconden hasta elegirlas, se sacan mientras no se empezaron, el alta automática al completar, y el plan se vacía en la Sesión siguiente. |
 
 ## Cómo correr
 
@@ -45,5 +46,11 @@ guest/guest), `E2E_INTERNAL_SECRET`, `E2E_CARGA` (cantidad, default 500),
   siempre por el Gateway.
 - El test de carga le pega **directo a activity-service** (no al Gateway) para
   no chocar con el rate limit de 100 req/min por IP.
+- **Ese rate limit es el techo de crecimiento de la suite**: cada escenario
+  cuesta ~10 requests de setup y el limiter da 100/min por IP. Al sumar una
+  suite nueva, agrupar casos que comparten setup en un mismo test y no crear
+  datos que el test no va a assertar (los umbrales de zona, por ejemplo). El
+  reintento ante 429 de `support/api.ts` cubre la ventana entera (~66 s), así
+  que el exceso se paga en tiempo, no en tests rojos — pero conviene no pagarlo.
 - Integración a CI: pendiente de Fase 13 (junto con la dockerización de deploy)
   — ver `docs/progreso/fase-12-qa-hardening.md`.

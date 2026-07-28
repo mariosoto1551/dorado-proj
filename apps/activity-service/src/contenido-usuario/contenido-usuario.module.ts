@@ -17,5 +17,8 @@ import { PropuestasService } from './propuestas.service';
     PropuestasService,
     AccesoGrupoService,
   ],
+  // fase-14-17: `PlanDiaService` necesita saber si el Grupo tiene el plan del
+  // día encendido, y esa config vive acá (es la misma fila del ítem 10).
+  exports: [ConfiguracionContenidoService],
 })
 export class ContenidoUsuarioModule {}

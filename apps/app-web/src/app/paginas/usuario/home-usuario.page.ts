@@ -30,6 +30,11 @@ import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { describirDias } from '../../core/dias-semana';
+import {
+  sePuedeQuitarDelPlan,
+  seMuestraEnLaLista,
+  seOfreceParaElegir,
+} from '../../core/plan-del-dia';
 import { compararPrioridad } from '../../core/prioridad-actividades';
 
 interface CronometroActivo {
@@ -49,6 +54,8 @@ interface BloqueLista {
   esPropio: boolean;
   /** fase-14-15: bloque de tareas de equipo — solo informativo, sin acción. */
   esEquipo: boolean;
+  /** fase-14-17: el bloque del catálogo del tutor — el único con «＋ Elegir». */
+  esCatalogo: boolean;
   /** Pendientes primero, terminadas después; las dos partes ya ordenadas. */
   items: ActividadDto[];
   /** Cuántas quedan por hacer (va en el chip del encabezado). */
@@ -124,6 +131,19 @@ const MINUTOS_URGENTE = 60;
             >
               Ir a Mi equipo →
             </a>
+          } @else if (bloque.esCatalogo && planActivo()) {
+            <!-- fase-14-17: el catálogo entero vive en la hoja, no en la lista. -->
+            <button
+              type="button"
+              (click)="hojaAbierta.set(true)"
+              class="flex items-center gap-1 rounded-full bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-marca-700"
+            >
+              <span class="h-3.5 w-3.5"><app-icono nombre="plus" /></span>
+              Elegir
+              @if (elegibles().length > 0) {
+                <span class="tabular-nums opacity-80">({{ elegibles().length }})</span>
+              }
+            </button>
           }
         </div>
         <ul class="space-y-2.5">
@@ -220,6 +240,19 @@ const MINUTOS_URGENTE = 60;
                 }
               </div>
 
+              <!-- fase-14-17: sacarla del plan, mientras no la haya empezado. -->
+              @if (puedeQuitarDelPlan(a)) {
+                <button
+                  type="button"
+                  (click)="quitarDelPlan(a)"
+                  [disabled]="procesando()"
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-300 transition hover:bg-slate-100 hover:text-slate-500 disabled:opacity-50 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  [attr.aria-label]="'Sacar ' + a.nombre + ' de mi lista de hoy'"
+                >
+                  <span class="h-3.5 w-3.5"><app-icono nombre="x" /></span>
+                </button>
+              }
+
               @if (!disponibleHoy(a)) {
                 <!-- Sin acción: hoy no le toca. La verdad del día la decide el
                      servidor (conoce la timezone del Grupo), no el navegador. -->
@@ -276,6 +309,10 @@ const MINUTOS_URGENTE = 60;
             <li class="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
               @if (bloque.esPropio) {
                 Todavía no armaste ninguna meta propia. 🌱
+              } @else if (bloque.esCatalogo && planActivo()) {
+                <!-- fase-14-17: no es "no hay nada", es "todavía no elegiste". -->
+                <p class="font-semibold text-slate-600 dark:text-slate-300">Armá tu día 📋</p>
+                <p class="mt-1">Tocá «Elegir» y sumá las tareas que vas a hacer hoy.</p>
               } @else {
                 No hay actividades activas.
               }
@@ -285,6 +322,83 @@ const MINUTOS_URGENTE = 60;
         }
       }
     </section>
+
+    <!-- ===== fase-14-17: hoja «Elegir tareas» ===== -->
+    @if (hojaAbierta()) {
+      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+        <button
+          type="button"
+          aria-label="Cerrar"
+          (click)="hojaAbierta.set(false)"
+          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
+        ></button>
+        <div class="relative flex max-h-[85dvh] w-full max-w-lg flex-col rounded-t-3xl bg-white shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-3xl">
+          <div class="flex items-start justify-between gap-3 px-5 pt-5">
+            <div>
+              <h2 class="text-lg font-bold text-slate-900 dark:text-white">¿Qué vas a hacer hoy?</h2>
+              <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Tocá las tareas que querés sumar a tu lista.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="hojaAbierta.set(false)"
+              aria-label="Cerrar"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <span class="h-4 w-4"><app-icono nombre="x" /></span>
+            </button>
+          </div>
+
+          <ul class="mt-4 flex-1 space-y-2 overflow-y-auto px-5 pb-2">
+            @for (a of elegibles(); track a.id) {
+              <li>
+                <button
+                  type="button"
+                  (click)="elegir(a)"
+                  [disabled]="procesando()"
+                  class="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 text-left transition hover:border-marca-300 hover:bg-marca-50/50 disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-marca-700 dark:hover:bg-marca-900/20"
+                >
+                  <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-marca-50 text-marca-600 dark:bg-marca-900/40 dark:text-marca-300">
+                    <span class="h-4 w-4"><app-icono nombre="plus" /></span>
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate font-semibold text-slate-900 dark:text-white">
+                      {{ a.nombre }}
+                    </span>
+                    <span class="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                      <span class="font-bold text-marca-600 dark:text-marca-400">+{{ a.valorPuntos }} pts</span>
+                      @if (a.tipoLimiteTiempo === 'DEADLINE') {
+                        · hasta {{ a.deadlineHora }}
+                      } @else if (a.tipoLimiteTiempo === 'CRONOMETRO') {
+                        · {{ a.duracionCronometroMinutos }} min
+                      }
+                      @if (a.repeticionesMaximasSesion > 1) {
+                        · hasta {{ a.repeticionesMaximasSesion }} veces
+                      }
+                    </span>
+                  </span>
+                </button>
+              </li>
+            } @empty {
+              <li class="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                Ya sumaste todo lo que había para hoy. 🎉
+              </li>
+            }
+          </ul>
+
+          <div class="px-5 pt-2 pb-5">
+            <button
+              type="button"
+              (click)="hojaAbierta.set(false)"
+              class="w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              Listo
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class HomeUsuarioPage {
@@ -352,6 +466,23 @@ export class HomeUsuarioPage {
    * índice donde arrancan las que ya no requieren acción, para que la plantilla
    * meta ahí el separador sin duplicar el template de la tarjeta.
    */
+  /** fase-14-17: el Grupo tiene el plan del día encendido (lo dice el servidor). */
+  protected readonly planActivo = computed(() => this.estadoHoy()?.planDelDiaActivo ?? false);
+
+  /** fase-14-17: la hoja «Elegir» está abierta. */
+  protected readonly hojaAbierta = signal(false);
+
+  /**
+   * fase-14-17: lo que se ofrece en la hoja — las opcionales que el plan
+   * esconde, que todavía no eligió y que hoy se pueden hacer. Ordenadas con el
+   * mismo criterio que la lista (ítem 14), para que elegir y hacer coincidan.
+   */
+  protected readonly elegibles = computed(() =>
+    this.actividades()
+      .filter((a) => seOfreceParaElegir(this.estadoPorActividad().get(a.id)))
+      .sort((a, b) => compararPrioridad(a, b, (item) => this.venceEn(item)))
+  );
+
   protected readonly bloques = computed(() => {
     const todas = this.actividades();
     // fase-14-15: las de equipo salen a su propio bloque. No las completa este
@@ -360,7 +491,14 @@ export class HomeUsuarioPage {
     const deEquipo = todas.filter((a) => a.alcance === AlcanceActividad.EQUIPO);
     const individuales = todas.filter((a) => a.alcance !== AlcanceActividad.EQUIPO);
     const propias = individuales.filter((a) => a.origen === OrigenActividad.USUARIO);
-    const delTutor = individuales.filter((a) => a.origen !== OrigenActividad.USUARIO);
+    // fase-14-17: con el plan del día activo, la lista muestra solo lo elegido
+    // (más las obligatorias y las que el tutor fijó). Con el modo apagado el
+    // servidor manda `enPlan = true` para todas y esto no filtra nada.
+    const delTutor = individuales.filter(
+      (a) =>
+        a.origen !== OrigenActividad.USUARIO &&
+        seMuestraEnLaLista(this.estadoPorActividad().get(a.id))
+    );
     const habilitado = this.modoContenido() !== ModoCreacionContenidoUsuario.RESTRICTIVO;
 
     const bloques = [this.armarBloque('Actividades de hoy', delTutor)];
@@ -399,6 +537,7 @@ export class HomeUsuarioPage {
     items: ActividadDto[],
     tipo: { esPropio?: boolean; esEquipo?: boolean } = {}
   ): BloqueLista {
+    const esCatalogo = !tipo.esPropio && !tipo.esEquipo;
     const pendientes = items
       .filter((a) => !this.terminada(a))
       .sort((a, b) => compararPrioridad(a, b, (item) => this.venceEn(item)));
@@ -410,6 +549,7 @@ export class HomeUsuarioPage {
       titulo,
       esPropio: tipo.esPropio ?? false,
       esEquipo: tipo.esEquipo ?? false,
+      esCatalogo,
       items: [...pendientes, ...terminadas],
       pendientes: pendientes.length,
       // -1 = no hay tramo de terminadas, así que el separador nunca coincide.
@@ -704,6 +844,59 @@ export class HomeUsuarioPage {
     }
 
     return 'Completar';
+  }
+
+  /** fase-14-17: ¿ofrecer el botón de sacarla del plan? Solo si no la empezó. */
+  protected puedeQuitarDelPlan(a: ActividadDto): boolean {
+    return sePuedeQuitarDelPlan(
+      this.estadoPorActividad().get(a.id),
+      this.cronometroDe(a.id) !== undefined
+    );
+  }
+
+  /** fase-14-17: la mete en el plan de hoy desde la hoja «Elegir». */
+  protected elegir(a: ActividadDto): void {
+    const grupoId = this.auth.grupoUsuario();
+
+    if (!grupoId || this.procesando()) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.activity.agregarAlPlanDelDia(grupoId, a.id).subscribe({
+      next: () => {
+        this.procesando.set(false);
+        this.toasts.exito(`«${a.nombre}» va a tu lista de hoy 📋`);
+        // El plan vive en el estado del servidor, así que se recarga de ahí en
+        // vez de mantener una copia optimista que puede desincronizarse.
+        this.recargarEstado();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  /** fase-14-17: la saca del plan de hoy (el servidor rechaza si ya la empezó). */
+  protected quitarDelPlan(a: ActividadDto): void {
+    const grupoId = this.auth.grupoUsuario();
+
+    if (!grupoId || this.procesando()) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.activity.quitarDelPlanDelDia(grupoId, a.id).subscribe({
+      next: () => {
+        this.procesando.set(false);
+        this.recargarEstado();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
   }
 
   protected iniciarCronometro(a: ActividadDto): void {

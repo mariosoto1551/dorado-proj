@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -98,6 +99,12 @@ export class CrearActividadRequest {
   @Min(0, { each: true })
   @Max(6, { each: true })
   diasSemana?: number[];
+
+  // fase-14-17: la opcional aparece en la lista sin que el integrante la elija.
+  // Solo tiene sentido en OPCIONAL + INDIVIDUAL (validado en el service).
+  @IsOptional()
+  @IsBoolean()
+  siempreVisible?: boolean;
 }
 
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
@@ -167,6 +174,12 @@ export class EditarActividadRequest {
   @Min(0, { each: true })
   @Max(6, { each: true })
   diasSemana?: number[];
+
+  // fase-14-17: la opcional aparece en la lista sin que el integrante la elija.
+  // Solo tiene sentido en OPCIONAL + INDIVIDUAL (validado en el service).
+  @IsOptional()
+  @IsBoolean()
+  siempreVisible?: boolean;
 }
 
 // GET /activity/grupos/:grupoId/actividades?estado= — solo tutores; para

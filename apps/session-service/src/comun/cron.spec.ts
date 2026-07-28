@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { cronMatcheaMinuto, esCronValido, proximaOcurrencia } from './cron';
+import { cronMatcheaMinuto, esCronValido, ocurrenciasEntre, proximaOcurrencia } from './cron';
 
 // America/La_Paz = UTC-4 fijo (sin DST): 00:00 local = 04:00Z.
 const TZ = 'America/La_Paz';
@@ -72,6 +72,53 @@ describe('cronMatcheaMinuto — cron corto de prueba (E2E del modo automático)'
 
   it('una expresión inválida nunca matchea (el guard de validación está en el PUT)', () => {
     expect(cronMatcheaMinuto('no-es-cron', LUNES_0000, TZ)).toBe(false);
+  });
+});
+
+describe('ocurrenciasEntre (base del scheduler con recuperación, fase-14-16)', () => {
+  const CRON_SESION = '0 0 * * 1-6';
+
+  it('devuelve las aperturas de sesión perdidas durante un corte de tres días, en orden', () => {
+    const desde = new Date('2026-07-13T04:01:00Z'); // lunes 00:01, ya pasado el cron
+    const hasta = new Date('2026-07-16T04:05:00Z'); // jueves 00:05
+
+    expect(ocurrenciasEntre(CRON_SESION, desde, hasta, TZ, 500).map((d) => d.toISOString())).toEqual([
+      '2026-07-14T04:00:00.000Z',
+      '2026-07-15T04:00:00.000Z',
+      '2026-07-16T04:00:00.000Z',
+    ]);
+  });
+
+  it('la ventana es abierta en `desde` y cerrada en `hasta` — ventanas consecutivas no se solapan ni dejan huecos', () => {
+    // El instante exacto del cron pertenece a la ventana que lo cierra…
+    expect(ocurrenciasEntre(CRON_SESION, new Date('2026-07-13T04:00:00Z'), MARTES_0000, TZ, 500))
+      .toHaveLength(1);
+    // …y no a la siguiente, que lo tiene como extremo abierto.
+    expect(ocurrenciasEntre(CRON_SESION, MARTES_0000, new Date('2026-07-14T23:59:00Z'), TZ, 500))
+      .toHaveLength(0);
+  });
+
+  it('un corte que no cruza ningún cron no devuelve nada', () => {
+    const desde = new Date('2026-07-14T10:00:00Z');
+    const hasta = new Date('2026-07-14T20:00:00Z');
+
+    expect(ocurrenciasEntre(CRON_SESION, desde, hasta, TZ, 500)).toEqual([]);
+  });
+
+  it('corta en el máximo pedido (techo de trabajo por tick)', () => {
+    const desde = new Date('2026-07-13T04:00:00Z');
+    const hasta = new Date('2026-07-13T10:00:00Z');
+
+    expect(ocurrenciasEntre('* * * * *', desde, hasta, TZ, 10)).toHaveLength(10);
+  });
+
+  it('ventana vacía o invertida devuelve []', () => {
+    expect(ocurrenciasEntre(CRON_SESION, MARTES_0000, MARTES_0000, TZ, 500)).toEqual([]);
+    expect(ocurrenciasEntre(CRON_SESION, DOMINGO_0000, LUNES_0000, TZ, 500)).toEqual([]);
+  });
+
+  it('una expresión inválida devuelve [] (el guard duro está en el PUT)', () => {
+    expect(ocurrenciasEntre('no-es-cron', LUNES_0000, DOMINGO_0000, TZ, 500)).toEqual([]);
   });
 });
 

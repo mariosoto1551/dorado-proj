@@ -28,11 +28,13 @@ import {
   crearBdRegistroEnMemoria,
   type BdRegistroEnMemoria,
 } from '../comun/testing/bd-registro-en-memoria';
+import type { ConfiguracionContenidoService } from '../contenido-usuario/configuracion-contenido.service';
 import type {
   EventoAPublicar,
   EventosPublisherService,
 } from '../eventos/eventos-publisher.service';
 import type { RegistroActividad } from '../generated/prisma/client';
+import { PlanDiaService } from '../plan-dia/plan-dia.service';
 import { RegistroService } from './registro.service';
 
 const GRUPO: GrupoDto = {
@@ -106,6 +108,8 @@ function crearServicio(opciones: {
   bd?: BdRegistroEnMemoria;
   seccionActual?: SeccionActualInterna | null;
   usuarioDeIdentity?: UsuarioDto | null;
+  /** fase-14-17: por default apagado — el comportamiento previo al ítem 17. */
+  planDelDiaActivo?: boolean;
 } = {}) {
   const bd = opciones.bd ?? crearBdRegistroEnMemoria({ actividades: [actividadDePrueba()] });
   const publicados: EventoAPublicar<unknown>[] = [];
@@ -133,7 +137,33 @@ function crearServicio(opciones: {
     }),
   } as unknown as EventosPublisherService;
 
-  return { servicio: new RegistroService(bd.prisma, identity, session, eventos), bd, publicados };
+  // fase-14-17: PlanDiaService REAL (no un mock) contra la misma bd en memoria,
+  // para que los tests vean el alta automática al completar tal como pasa en
+  // producción. Lo único falseado es la config del grupo.
+  const configuracion = {
+    resolver: vi.fn().mockResolvedValue({
+      grupoId: 'grupo-1',
+      modoCreacionUsuario: 'RESTRICTIVO',
+      maxPuntosActividadUsuario: 5,
+      maxActividadesActivasPorUsuario: 5,
+      planDelDiaActivo: opciones.planDelDiaActivo ?? false,
+    }),
+  } as unknown as ConfiguracionContenidoService;
+
+  const planDia = new PlanDiaService(
+    bd.prisma,
+    session,
+    identity,
+    configuracion,
+    { asegurarAccesoLectura: () => undefined } as never
+  );
+
+  return {
+    servicio: new RegistroService(bd.prisma, identity, session, eventos, planDia),
+    planDia,
+    bd,
+    publicados,
+  };
 }
 
 afterEach(() => {
@@ -424,7 +454,7 @@ describe('RegistroService — mi-estado-hoy (fase-14-08)', () => {
 
     const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
 
-    expect(estado).toEqual({ sesionId: null, actividades: [] });
+    expect(estado).toEqual({ sesionId: null, planDelDiaActivo: false, actividades: [] });
   });
 
   it('devuelve vecesHechas real y confirmada por actividad', async () => {
@@ -455,6 +485,106 @@ describe('RegistroService — mi-estado-hoy (fase-14-08)', () => {
       confirmada: true,
       comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
     });
+  });
+});
+
+describe('RegistroService — mi-estado-hoy con el plan del día (fase-14-17)', () => {
+  function bdConCatalogoMixto(): BdRegistroEnMemoria {
+    return crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'opcional' }),
+        actividadDePrueba({ id: 'fija', siempreVisible: true }),
+        actividadDePrueba({ id: 'obligatoria', tipoPuntaje: 'OBLIGATORIA' }),
+        actividadDePrueba({ id: 'equipo', alcance: 'EQUIPO' }),
+        actividadPersonalDePrueba('usuario-1'),
+      ],
+    });
+  }
+
+  it('con el modo APAGADO nada requiere selección y todo viaja enPlan (comportamiento previo)', async () => {
+    const { servicio } = crearServicio({ bd: bdConCatalogoMixto() });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.planDelDiaActivo).toBe(false);
+    expect(estado.actividades.every((item) => !item.requiereSeleccion)).toBe(true);
+    expect(estado.actividades.every((item) => item.enPlan)).toBe(true);
+  });
+
+  it('con el modo ACTIVO solo la opcional del tutor requiere selección, y arranca fuera del plan', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConCatalogoMixto(),
+      planDelDiaActivo: true,
+    });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    const porId = new Map(estado.actividades.map((item) => [item.actividadId, item]));
+
+    expect(estado.planDelDiaActivo).toBe(true);
+    expect(porId.get('opcional')).toMatchObject({ requiereSeleccion: true, enPlan: false });
+    // Fija, obligatoria, de equipo y propia: siempre a la vista (decisión 1).
+    for (const id of ['fija', 'obligatoria', 'equipo', 'actividad-de-usuario-1']) {
+      expect(porId.get(id)).toMatchObject({ requiereSeleccion: false, enPlan: true });
+    }
+  });
+
+  it('elegirla la deja enPlan', async () => {
+    const bd = bdConCatalogoMixto();
+    const { servicio, planDia } = crearServicio({ bd, planDelDiaActivo: true });
+
+    await planDia.agregar(tenantUsuario(), 'grupo-1', { actividadId: 'opcional' });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.find((item) => item.actividadId === 'opcional')).toMatchObject({
+      requiereSeleccion: true,
+      enPlan: true,
+    });
+  });
+
+  it('completarla sin haberla elegido la mete sola en el plan: no puede desaparecer de la lista', async () => {
+    const bd = bdConCatalogoMixto();
+    const { servicio } = crearServicio({ bd, planDelDiaActivo: true });
+
+    await servicio.completar(tenantUsuario(), 'opcional', {});
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(bd.seleccionesPlanDia).toHaveLength(1);
+    expect(estado.actividades.find((item) => item.actividadId === 'opcional')).toMatchObject({
+      enPlan: true,
+      vecesHechas: 1,
+    });
+  });
+
+  it('un TUTOR completando en nombre del integrante también la deja en su plan', async () => {
+    const bd = bdConCatalogoMixto();
+    const { servicio } = crearServicio({ bd, planDelDiaActivo: true });
+
+    await servicio.completar(tenantTutor(), 'opcional', { usuarioId: 'usuario-1' });
+
+    expect(bd.seleccionesPlanDia).toHaveLength(1);
+    expect(bd.seleccionesPlanDia[0]).toMatchObject({
+      usuarioId: 'usuario-1',
+      actividadId: 'opcional',
+    });
+  });
+
+  it('iniciar el cronómetro también la mete en el plan (empezarla ya es elegirla)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          id: 'crono',
+          tipoLimiteTiempo: 'CRONOMETRO',
+          duracionCronometroMinutos: 10,
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd, planDelDiaActivo: true });
+
+    await servicio.iniciarCronometro(tenantUsuario(), 'crono');
+
+    expect(bd.seleccionesPlanDia).toHaveLength(1);
   });
 });
 

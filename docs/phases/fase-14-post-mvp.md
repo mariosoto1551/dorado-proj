@@ -82,7 +82,21 @@ Fase 13 completa y estable.
 - Ítem chico: solo frontend, sin schema, sin endpoints y sin eventos (`ActividadDto.alcance` ya viajaba desde el ítem 9).
 - Depende de: equipos (#9), estado de tareas de equipo (#13) y orden de la lista (#14) — los tres existen.
 
-> Los ítems 11, 12, 13, 14 y 15 **no existían** en la redacción original de este archivo: se sumaron al índice el 2026-07-26 cuando José los pidió, con su nota de fecha para que quede claro que es alcance nuevo y no una reescritura de lo ya decidido.
+### 16. Scheduler con recuperación: ninguna transición se pierde por un reinicio — *agregado el 2026-07-27 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-16-scheduler-con-recuperacion.md`.
+- Arregla una limitación de diseño heredada de la **Fase 6**: el scheduler disparaba por **igualdad de minuto**, así que si el proceso no estaba vivo en ese minuto exacto (un deploy, un reinicio del VPS, 90 s de Postgres caído) la transición **se perdía para siempre**. Un grupo que perdiera su lunes 00:00 se quedaba en `EVALUACION` una semana.
+- El scheduler pasa de temporizador a **reconciliador**: cada tick aplica todo lo vencido en la ventana `(evaluadoHasta, ahora]`, en orden y **sellado con el instante programado**, no con el de la recuperación. `UltimoTickProcesado.minutoEpoch` → `evaluadoHasta`.
+- Suma dos topes (ventana máxima de 7 días configurable, y 500 ocurrencias por tick que continúan en el siguiente) y un **advisory lock por grupo**, que además cierra el riesgo de duplicación si algún día session-service corre con más de una réplica.
+- Backend puro, sin frontend, sin endpoints y sin eventos nuevos. Depende de: Fase 6.
+
+### 17. El plan del día: las opcionales se eligen, no se muestran todas — *agregado el 2026-07-27 a pedido de José*
+- **Ya especificado en detalle**: ver `docs/phases/fase-14-17-plan-del-dia.md`.
+- Resuelve el ruido visual de la lista del integrante: hoy se muestra **todo el catálogo ACTIVA, todos los días**, así que con 20 opcionales cargadas las obligatorias quedan ahogadas entre opciones. El catálogo (un menú) y la lista de hoy (un compromiso) pasan a ser dos cosas distintas.
+- Con el modo activo, las **OPCIONALES individuales del catálogo del tutor** se ocultan hasta que el integrante las mete en su **plan del día** (dura una Sesión) desde una hoja «＋ Elegir». Obligatorias, tareas de equipo y «Mis metas» siguen siempre visibles. El Tutor puede fijar algunas con `Actividad.siempreVisible`.
+- Se activa **por Grupo y viene apagado** (`ConfiguracionContenidoGrupo.planDelDiaActivo = false`): ningún grupo existente cambia de comportamiento con la migración.
+- Schema nuevo (`SeleccionPlanDia`, estado operativo — **no** ledger), dos endpoints (`POST`/`DELETE /activity/grupos/:grupoId/plan-dia`), sin eventos nuevos. Depende de: ítems 8, 10, 11, 14 y 15 — los cinco existen.
+
+> Los ítems 11, 12, 13, 14 y 15 **no existían** en la redacción original de este archivo: se sumaron al índice el 2026-07-26 cuando José los pidió, con su nota de fecha para que quede claro que es alcance nuevo y no una reescritura de lo ya decidido. Los ítems 16 y 17 se sumaron el 2026-07-27 con el mismo criterio.
 
 ## Nota para Claude Code
 

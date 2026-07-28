@@ -490,3 +490,109 @@ Ni `mi-estado-hoy` ni la home filtraban por `alcance`, así que una tarea de equ
 1. **E2E en navegador**: con una tarea de equipo activa, ver el bloque «De tu equipo» separado, sin botón, y que el enlace lleve a `/mi-equipo`. Confirmar que el contador de «Actividades de hoy» no la cuenta.
 2. **Sin tests unitarios nuevos**: la lógica es el filtro por `alcance` dentro de `bloques()`, que es un computed del componente y app-web no tiene tests de componentes. El comparador del #14 sí quedó testeado porque se extrajo a `core/`; acá no había nada puro que valiera extraer. Deuda menor, cubierta por build + lint (typecheck de plantillas).
 3. Si algún día la lista deja de mostrar las de equipo por decisión de producto, el filtro está en un solo lugar (`bloques()`), no en el backend.
+
+## Ítem 16: Scheduler con recuperación — ninguna transición se pierde por un reinicio
+- **Estado**: EN_PROGRESO — **completo y verificado**. 74/74 tests de session-service verdes, lint verde, `tsc --noEmit` limpio, migración aplicada contra `session_db` local, y **verificación contra Postgres real** (ver abajo).
+- **Fecha**: 2026-07-27 / **Spec**: `docs/phases/fase-14-16-scheduler-con-recuperacion.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: José preguntó si la app dependía de estar prendida en el minuto exacto del cron, y si "los servicios de alto nivel" son así. Se auditó el scheduler: **sí dependía**. Pedido textual: *"quiero que esta app sea profesional, que no se pierda cosas y funcione bien"*.
+
+### El bug de diseño que se arregló (venía de la Fase 6, no era un error de código)
+El scheduler disparaba **por igualdad de minuto**: cada tick preguntaba "¿el minuto actual **es** el del cron?". `UltimoTickProcesado.minutoEpoch` sólo daba idempotencia "dentro del mismo minuto" — así estaba especificado, textual, en `fase-06-session-section.md:99`. **El código implementaba exactamente la spec.**
+
+Consecuencia: si el proceso no estaba vivo en ese minuto, la transición **no ocurría nunca** y no se recuperaba. Disparadores reales, no exóticos:
+- Un deploy (`docker compose up --build`, `runbook-deploy.md:141`) que cruzara el minuto del cron.
+- Un reinicio del VPS, un OOM-kill, 90 s de Postgres caído.
+- `identity` sin responder justo en ese minuto — ese caso ya reintentaba al minuto siguiente, pero para entonces el cron ya no matcheaba, **así que el reintento no servía de nada**.
+
+Un grupo con `cronAperturaSeccion = "0 0 * * 1"` que perdiera el lunes 00:00 se quedaba en `EVALUACION` **una semana entera**, sin log de error.
+
+### El cambio conceptual
+**Un scheduler no debe preguntar "¿es la hora?" sino "¿qué venció?".** Pasa de temporizador a **reconciliador**: cada tick evalúa la ventana `(evaluadoHasta, ahora]` y aplica todas las ocurrencias que caigan adentro, en orden cronológico. Un corte de horas se recupera solo en el primer tick posterior.
+
+### Backend ejecutado (`session-service`, sin frontend, sin endpoints, sin eventos nuevos)
+- **Schema + migración** `20260727120000_scheduler_con_recuperacion`: `UltimoTickProcesado.minutoEpoch` (Int) → `evaluadoHasta` (DateTime?). Destructiva a propósito sobre una tabla **operacional** (sin `organizacionId`, se regenera sola) en vez de dejar una columna muerta que la doc describía como el mecanismo de idempotencia. Entra `NULL`: las filas preexistentes **no** disparan recuperación retroactiva al desplegar.
+- **`comun/cron.ts`**: nueva `ocurrenciasEntre(expresion, desde, hasta, tz, maximo)` — ventana **abierta en `desde`, cerrada en `hasta`**, que es lo que hace que ticks consecutivos no se solapen ni dejen huecos. `cronMatcheaMinuto` queda (ya no la usa el scheduler, sigue siendo la forma correcta de responder "¿este instante es una ocurrencia?").
+- **`scheduler/scheduler.service.ts`**: reescrito alrededor de `reconciliar()`. Lectura barata de la marca de agua fuera de la transacción; `identity.obtenerGrupo` **fuera** de la transacción (es I/O de red); adentro, advisory lock → re-lectura autoritativa → ventana → ocurrencias ordenadas → aplicación → `upsert` de `evaluadoHasta`, todo en la misma transacción.
+- **`config/env.schema.ts`**: `SCHEDULER_MAX_RECUPERACION_HORAS`, opcional, default 168 (7 días = un ciclo de Sección del caso Destino:Dorado).
+
+### Decisiones de implementación que importan
+1. **Las transiciones recuperadas se sellan con el instante PROGRAMADO, no con el de la recuperación.** Si el cron de las 00:00 se aplica a las 03:17, la Sección lleva `fechaFin = 00:00`. Si no, scoring vería una Sesión con 3 horas de más. Hay test dedicado.
+2. **Dos topes, con semánticas distintas**: la ventana máxima (`SCHEDULER_MAX_RECUPERACION_HORAS`, **descarta** lo anterior y loguea warning — fabricar meses de Secciones en silencio sería peor que no hacerlo) y el tope de 500 ocurrencias por tick (**no descarta**: deja `evaluadoHasta` en la última aplicada y el tick siguiente continúa desde ahí).
+3. **Advisory lock `pg_advisory_xact_lock(hashtext(grupoId))` por grupo.** `@Cron` de NestJS es in-process: con 2 réplicas ticknean las 2, y como la marca de agua se leía antes de aplicar las transiciones, con Read Committed podían duplicar Secciones. Se usa advisory lock y no `SELECT … FOR UPDATE` porque tiene que funcionar **también cuando la fila todavía no existe**.
+4. **Las extensiones se evalúan contra el instante de la ocurrencia**, no contra `ahora`: una extensión vigente a las 00:00 suprime ese autocierre aunque se recupere a las 03:17. El caso "extensión vencida sin cron que matchee" se sigue evaluando una vez por tick contra `ahora`.
+5. **La Sección vigente se re-lee en cada ocurrencia** dentro del bucle: `cerrarSeccion` crea la siguiente, así que una referencia en memoria quedaría vieja apenas se recuperan dos ocurrencias en el mismo tick.
+
+### El bug que SOLO apareció al verificar contra Postgres real
+La primera versión usaba `tx.$queryRaw` para el advisory lock. **Pasó los 74 unit tests, el lint, `tsc --noEmit` y el build de webpack** — y fallaba en el 100% de las ejecuciones reales:
+
+```
+Failed to deserialize column of type 'void'
+```
+
+`pg_advisory_xact_lock` devuelve `void` y el deserializador de `$queryRaw` no sabe mapear ese tipo. Como el lock es lo primero de la transacción, **el scheduler habría quedado completamente muerto en producción** — cada tick lanzando, cada grupo salteado. Arreglo: `$executeRaw` (no deserializa filas). Queda comentado en el código para que nadie lo revierta.
+
+**Lección para la próxima sesión**: el fake en memoria (`comun/testing/bd-en-memoria.ts`) no puede validar SQL crudo. Cualquier `$queryRaw`/`$executeRaw` nuevo hay que probarlo contra Postgres de verdad — el suite unit da falsa confianza ahí.
+
+### Cómo se verificó contra Postgres real (reproducible)
+Se escribió un spec temporal (`src/scheduler/__verificacion-real.spec.ts`, **borrado después**) que instanciaba `crearClientePrisma` contra `session_db` local y `SchedulerService` real, mockeando sólo `identity` y el publisher. Tres casos, los tres verdes:
+1. Advisory lock + `upsert` de `evaluadoHasta` commitean juntos.
+2. Transición perdida recuperada 90 s tarde, sellada con el instante programado.
+3. **Dos `procesarGrupo` en `Promise.all` sobre el mismo grupo → una sola transición** (el log mostró una única línea "1 ocurrencia aplicada"), que es la prueba de que el advisory lock serializa.
+
+Se borró y no se dejó en el repo porque `src/**/*.spec.ts` es el suite unit y no debe requerir una BD viva. Si se quiere reproducir, el procedimiento es ese.
+
+### Tests nuevos (14 en session-service: 74 totales, antes 60)
+- `cron.spec.ts` (+6): ocurrencias de un corte de 3 días en orden; la ventana abierta-en-`desde`/cerrada-en-`hasta` (la propiedad que garantiza ni duplicados ni huecos); corte sin ocurrencias; tope; ventana vacía/invertida; expresión inválida.
+- `scheduler.service.spec.ts` (+8, y se reescribieron los existentes): el bug original (proceso caído en el minuto del cron → el tick siguiente lo aplica); 3 días caído → 3 aperturas en orden; sellado con el instante programado; lunes recuperado con el orden sesión→sección; sin marca de agua no se replica historia; recorte a la ventana máxima; tope de 500 con continuación; dos ticks en el mismo minuto sin duplicar; extensión evaluada contra el instante de la ocurrencia; identity caído → el reintento **sí** recupera.
+
+**Los tests preexistentes hubo que ajustarlos**: casi todos necesitan ahora una marca de agua previa (`tickPrevio(...)`), porque sin ella el primer tick sólo fija `evaluadoHasta = ahora` sin aplicar nada. Eso **es** el comportamiento correcto (decisión 3 de la spec), no un workaround del test.
+
+### Qué falta / verificar la próxima sesión
+1. **E2E del modo automático con un cron corto** (`*/2 * * * *`): levantar session-service, matarlo durante un ciclo, volver a levantarlo y confirmar que el tick siguiente recupera la transición. Es la única parte que no se probó con el proceso real corriendo (los 3 casos contra Postgres llamaban a `procesarGrupo` directo, sin el `@Cron`).
+2. **Desplegar la migración en el piloto** antes de que arranque el próximo ciclo de Sección. `prisma migrate deploy` para session-service; las filas existentes quedan con `evaluadoHasta = NULL` y el primer tick las inicializa sin efectos.
+3. **`SCHEDULER_MAX_RECUPERACION_HORAS` no está en el runbook de deploy** — es opcional con default 168, así que no rompe nada si falta, pero conviene documentarla junto al resto de las env de session-service.
+4. **El patrón queda establecido para el monorepo**: si aparece otro job periódico (recordatorios, expiración de recompensas, cortes de facturación), nace con ventana `(evaluadoHasta, ahora]` persistida, no con igualdad de minuto.
+
+## Ítem 17: El plan del día — las opcionales se eligen, no se muestran todas
+- **Estado**: EN_PROGRESO — **completo y verificado**. 185/185 tests de activity-service verdes (28 nuevos), 27/27 de app-web (10 nuevos), lint verde en los 3 proyectos tocados, `tsc --noEmit` limpio, build de app-web y de los servicios verde, migración aplicada contra `activity_db` local y **verificación contra Postgres real** (ver abajo).
+- **Fecha**: 2026-07-27 / **Spec**: `docs/phases/fase-14-17-plan-del-dia.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: pedido de José (2026-07-27): *"para evitar ruido visual, ¿no se podría hacer que todas las tareas opcionales individuales estén ocultas o inhabilitadas por defecto, para que el participante pueda seleccionar la tarea que quiere hacer para habilitarla y ponerla?"*.
+
+### El problema
+La lista del integrante mostraba **todo el catálogo ACTIVA del grupo, todos los días**. Con 20 opcionales cargadas eso son 20 tarjetas diarias, y las obligatorias —lo único innegociable— quedaban ahogadas entre opciones. El orden del #14 acomodaba el ruido pero no lo sacaba. El diagnóstico: el catálogo (un **menú**) y la lista de hoy (un **compromiso**) eran la misma pantalla.
+
+### Decisiones de José (elegidas sobre alternativas presentadas)
+1. **Alcance**: solo las OPCIONALES **individuales del catálogo del tutor**. Obligatorias, tareas de equipo y «Mis metas» siguen siempre visibles.
+2. **Duración**: por día (una Sesión). Cada día el plan arranca vacío.
+3. **Activación**: config por Grupo, **default apagado** (`planDelDiaActivo = false`).
+4. **Interacción**: ocultas + botón «＋ Elegir» que abre una hoja con el catálogo (descartadas: acordeón «Otras tareas» y tarjetas en gris con toggle).
+5. **Sin tope** de cuántas puede elegir por día — *pero José pidió explícitamente dejarlo anotado para más adelante con tope configurable* (ver deuda 1).
+6. **Se puede quitar mientras no la haya empezado**.
+7. **Flag `siempreVisible`** por actividad para que el tutor fije 2 o 3 sin volverlas obligatorias.
+
+### Decisiones de implementación que importan
+1. **`enPlan` viaja `true` cuando `requiereSeleccion = false`.** El cliente tiene una regla única (*se muestra si `enPlan`*) en vez de combinar dos flags en cada punto de la plantilla. Es la decisión que protege el default: el primer olvido de combinar los flags habría escondido algo que debía verse, y esconder es mucho peor que mostrar de más. Misma lógica en `core/plan-del-dia.ts`: las tres reglas **fallan hacia mostrar** si no llegó el estado del servidor.
+2. **`SeleccionPlanDia` no es ledger** — es estado operativo, como `CronometroActivo`: no vale puntos, no publica evento y **se borra físicamente** al sacarla del plan. La regla 6 de `CLAUDE.md` protege lo que sostiene el puntaje; esto no lo sostiene.
+3. **`completar` e `iniciar-cronometro` dan de alta el plan solos** (upsert idempotente, después del commit, con el error tragado y logueado). Sin esto, completar una actividad la haría **desaparecer** de la lista en vez de bajarla al tramo "Ya está", y un Tutor completando en nombre del integrante (`datos.usuarioId`) rompería con un plan que él no conoce.
+4. **El servidor NO rechaza completar algo fuera del plan** (decisión 10 de la spec). Habría sido un quinto caso de "el servidor rechaza lo que la pantalla ofrecía" —la familia de los ítems 12, 14 y 15— sin ganar nada: los puntos y los topes ya se validan por otro lado.
+5. **`DELETE /plan-dia` no chequea `planDelDiaActivo`** a propósito: si el Tutor apagó el modo, la fila ya no se lee y sacarla no hace daño; rechazar dejaría un botón que falla.
+6. **`SeleccionPlanDia` sí entra en `MODELOS_TENANT`** (a diferencia de `CronometroActivo`, que no tiene `organizacionId`): las lecturas por usuario+sesión quedan filtradas de arriba. El `upsert` no se intercepta (usa clave única), y ahí el grupo ya viene de la `Actividad` tenant-filtrada.
+7. **`siempreVisible` se recalcula en cada PATCH**, igual que `alcance` y `comportamientoAlCierre`: volver OBLIGATORIA o de EQUIPO una opcional fija apaga el flag aunque el request no lo mande.
+
+### Verificación contra Postgres real (reproducible)
+Mismo procedimiento que el #16: spec temporal (`src/plan-dia/__verificacion-real.spec.ts`, **borrado después**) con `crearClientePrisma` contra `activity_db` local y el `PlanDiaService` real, mockeando solo identity/session/config. Tres casos, los tres verdes: (a) el doble `upsert` no duplica —la `@@unique(usuarioId, actividadId, sesionId)` aguanta—, (b) `quitar` borra la fila de verdad, (c) `idsElegidos` (findMany con `select`) devuelve lo elegido **de esa Sesión** y nada de otra. Además `prisma migrate deploy` + `migrate status` → *"Database schema is up to date"*, que confirma que la migración escrita a mano coincide exactamente con el schema.
+
+### Tests nuevos (38 en total)
+- `plan-dia.service.spec.ts` (19): alta/idempotencia/`PLAN_DEL_DIA_INACTIVO`/no-elegibles (obligatoria, equipo, `siempreVisible`)/actividad personal de otro (404)/programada para otro día/sin Sesión abierta; quitar y sus tres bloqueos (completada viva, completada quitada por el tutor, cronómetro corriendo) + el no-op + el modo apagado; alta automática (elegible, modo apagado, no elegible, y que **nunca lanza**).
+- `elegibilidad-plan.spec.ts` (3): la familia que el plan esconde y la garantía de retro-compatibilidad.
+- `registro.service.spec.ts` (+6): `mi-estado-hoy` con el modo apagado (nada requiere selección, todo `enPlan`) y con el modo activo; elegirla; completarla sin elegirla; el Tutor completando en nombre del integrante; el cronómetro.
+- `app-web/core/plan-del-dia.spec.ts` (10): las tres reglas de visibilidad, incluido el "sin estado cargado se muestra".
+- En `registro.service.spec.ts` el helper ahora arma un **`PlanDiaService` real** contra la misma bd en memoria (solo la config del grupo va mockeada), para que los tests vean el alta automática tal como pasa en producción.
+
+### Qué falta / verificar la próxima sesión
+1. **Tope configurable de tareas por día — pedido explícito de José para más adelante.** Cuando llegue: `maxActividadesPlanDia Int?` en `ConfiguracionContenidoGrupo` (nullable = sin tope, el comportamiento de hoy), validado en `PlanDiaService.agregar` y expuesto en `MiEstadoHoyDto` para que la hoja «Elegir» deshabilite el tilde al llegar al tope. Nada de lo implementado lo bloquea.
+2. ~~**E2E**~~ — **HECHO (2026-07-27)**: se agregó `apps/e2e/src/plan-del-dia.e2e.ts` (4 tests) y la suite completa corre **14/14 verde, dos veces seguidas** contra el stack local. Cubre: el interruptor del Grupo en sus tres estados (apagado = nada cambia y `POST /plan-dia` da 400 `PLAN_DEL_DIA_INACTIVO`; encendido = se esconden; apagar y volver a encender **no** pierde el plan ya armado), qué se puede elegir (obligatoria y `siempreVisible` → 400 `ACTIVIDAD_NO_ELEGIBLE_PARA_EL_PLAN`; elegir es idempotente), quitar lo no empezado **con verificación por SQL de que la fila se borra** (decisión 8: no es ledger) y el 409 `ACTIVIDAD_YA_EMPEZADA` una vez completada, el alta automática al completar —incluido el Tutor marcando en nombre del integrante— y que la Sesión siguiente arranca con el plan vacío. **Falta solo el paseo visual por la UI** (la hoja «Elegir», el ✕, el vacío «Armá tu día»): la suite es API-first y verifica el contrato de `mi-estado-hoy`, que es de donde la home saca todo lo que pinta.
+
+   **Efecto colateral que hubo que resolver**: sumar una suite hizo fallar por **429** dos tests de `seguridad-inmutabilidad` — el Gateway limita a 100 req/min por IP y el setup de cada escenario cuesta ~10 requests. No era un bug del ítem. Se arregló por el lado del test, sin tocar el límite de producción (está fijado en la spec de fase-03): los 7 tests del plan del día se agruparon en **4 escenarios**, se sacaron los umbrales de zona del setup (4 POST por escenario que no se assertaban), y el reintento ante 429 de `support/api.ts` pasó de 20 s a **~66 s** para cubrir la ventana entera del limiter. Queda anotado en `apps/e2e/README.md` como techo de crecimiento de la suite.
+3. **Desplegar la migración en el piloto** (`prisma migrate deploy` para activity-service). Es retro-compatible: las dos columnas nuevas arrancan en `false` y la tabla nueva vacía, así que ningún grupo cambia de comportamiento hasta que un Tutor encienda el modo.
+4. **Deuda menor de tests**: el filtro de la home vive en `bloques()` (computed del componente) y app-web no tiene tests de componentes; lo puro se extrajo a `core/plan-del-dia.ts` y **sí** está testeado, igual que el comparador del #14.

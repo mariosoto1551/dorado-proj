@@ -70,6 +70,8 @@ interface FormActividad {
   bonoJefePuntos: number;
   /** fase-14-11: días en que se puede hacer (0=domingo…6=sábado); vacío = todos. */
   diasSemana: number[];
+  /** fase-14-17: solo para OPCIONAL individual; con el plan del día activo, se ve sin elegirla. */
+  siempreVisible: boolean;
 }
 
 const FORM_VACIO: FormActividad = {
@@ -85,6 +87,7 @@ const FORM_VACIO: FormActividad = {
   alcance: AlcanceActividad.INDIVIDUAL,
   bonoJefePuntos: 0,
   diasSemana: [],
+  siempreVisible: false,
 };
 
 /** CRUD de Actividades (fase-10). Form con campos condicionales por tipoLimiteTiempo. */
@@ -213,6 +216,29 @@ const FORM_VACIO: FormActividad = {
             </div>
           </div>
         }
+      </div>
+
+      <!-- ===== fase-14-17: plan del día ===== -->
+      <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <label class="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            [checked]="planDelDiaActivo()"
+            [disabled]="guardandoPlan()"
+            (change)="alternarPlanDelDia(!planDelDiaActivo())"
+            class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 disabled:opacity-50 dark:border-slate-600"
+          />
+          <span class="min-w-0">
+            <span class="block text-sm font-semibold text-slate-900 dark:text-white">
+              Plan del día
+            </span>
+            <span class="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+              Las opcionales dejan de aparecer en la lista del integrante hasta que él las elige
+              (cada día arranca de cero). Las obligatorias, las de equipo y las que marques
+              «siempre a la vista» se ven igual.
+            </span>
+          </span>
+        </label>
       </div>
 
       <!-- ===== Pestañas ===== -->
@@ -386,6 +412,14 @@ const FORM_VACIO: FormActividad = {
                 @if (a.alcance === 'EQUIPO') {
                   <span class="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-300">
                     👥 Equipo@if (a.bonoJefePuntos > 0) { · jefe +{{ a.bonoJefePuntos }} }
+                  </span>
+                }
+                @if (a.siempreVisible) {
+                  <span
+                    class="rounded-full bg-marca-100 px-2 py-0.5 font-semibold text-marca-700 dark:bg-marca-500/20 dark:text-marca-300"
+                    title="Con el plan del día activo, esta no hay que elegirla"
+                  >
+                    📌 Siempre a la vista
                   </span>
                 }
                 @if (a.diasSemana.length > 0) {
@@ -633,6 +667,30 @@ const FORM_VACIO: FormActividad = {
                 }
               </p>
             </div>
+
+            <!-- fase-14-17: solo tiene efecto con el plan del día del grupo activo -->
+            @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
+              <label
+                class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
+              >
+                <input
+                  [(ngModel)]="form.siempreVisible"
+                  name="siempreVisible"
+                  type="checkbox"
+                  class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+                />
+                <span class="text-xs text-slate-600 dark:text-slate-300">
+                  <span class="font-semibold text-slate-700 dark:text-slate-100">📌 Siempre a la vista</span>
+                  <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
+                    @if (planDelDiaActivo()) {
+                      Aparece en la lista del integrante sin que tenga que elegirla.
+                    } @else {
+                      Solo aplica si activás el «Plan del día» del grupo (arriba).
+                    }
+                  </span>
+                </span>
+              </label>
+            }
           </div>
 
           <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -705,6 +763,11 @@ export class ActividadesPage {
   protected readonly modoElegido = signal<ModoCreacionContenidoUsuario>(
     ModoCreacionContenidoUsuario.RESTRICTIVO
   );
+
+  // ---- fase-14-17: plan del día ----
+  protected readonly planDelDiaActivo = signal(false);
+
+  protected readonly guardandoPlan = signal(false);
 
   protected readonly propuestas = signal<PropuestaActividadDto[]>([]);
 
@@ -798,6 +861,34 @@ export class ActividadesPage {
       });
   }
 
+  /**
+   * fase-14-17: enciende/apaga el plan del día del grupo. Guarda al instante (es
+   * un solo interruptor, no un formulario) y revierte el switch si falla.
+   */
+  protected alternarPlanDelDia(activo: boolean): void {
+    this.guardandoPlan.set(true);
+    this.planDelDiaActivo.set(activo);
+
+    this.api
+      .actualizarConfiguracionContenido(this.grupoId(), { planDelDiaActivo: activo })
+      .subscribe({
+        next: (config) => {
+          this.aplicarConfig(config);
+          this.guardandoPlan.set(false);
+          this.toasts.exito(
+            activo
+              ? 'Plan del día activado: cada integrante elige sus opcionales.'
+              : 'Plan del día desactivado: vuelven a verse todas.'
+          );
+        },
+        error: (e) => {
+          this.planDelDiaActivo.set(!activo);
+          this.toasts.error(mensajeDeError(e));
+          this.guardandoPlan.set(false);
+        },
+      });
+  }
+
   protected aprobar(p: PropuestaActividadDto): void {
     this.resolviendo.set(p.id);
 
@@ -871,6 +962,7 @@ export class ActividadesPage {
       alcance: a.alcance,
       bonoJefePuntos: a.bonoJefePuntos,
       diasSemana: [...a.diasSemana],
+      siempreVisible: a.siempreVisible,
     };
     this.formAbierto.set(true);
   }
@@ -970,6 +1062,9 @@ export class ActividadesPage {
       repeticionesMaximasSesion: Number(f.repeticionesMaximasSesion),
       // fase-14-11: vacío = todos los días (el backend normaliza igual).
       diasSemana: [...f.diasSemana],
+      // fase-14-17: solo significa algo en una OPCIONAL individual; en cualquier
+      // otro caso el backend lo fuerza a false igual.
+      siempreVisible: !esEquipo && f.tipoPuntaje === TipoPuntaje.OPCIONAL && f.siempreVisible,
       // Solo una OBLIGATORIA puede requerir confirmación; para OPCIONAL el
       // backend fuerza ASUME_HECHA igual (fase-14-08).
       comportamientoAlCierre:
@@ -1013,6 +1108,7 @@ export class ActividadesPage {
   private aplicarConfig(config: ConfiguracionContenidoGrupoDto): void {
     this.modoActual.set(config.modoCreacionUsuario);
     this.modoElegido.set(config.modoCreacionUsuario);
+    this.planDelDiaActivo.set(config.planDelDiaActivo);
     this.formConfig = {
       maxPuntosActividadUsuario: config.maxPuntosActividadUsuario,
       maxActividadesActivasPorUsuario: config.maxActividadesActivasPorUsuario,

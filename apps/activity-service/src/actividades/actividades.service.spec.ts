@@ -43,6 +43,7 @@ const ACTIVIDAD_BASE: Actividad = {
   origen: 'TUTOR',
   creadaPorUsuarioId: null,
   diasSemana: [],
+  siempreVisible: false,
   estado: 'ACTIVA',
   creadaPorTutorId: 'tutor-1',
   createdAt: new Date(),

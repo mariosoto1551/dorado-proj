@@ -105,6 +105,10 @@ model Actividad {
   // sábado (misma convención que los cron de session-service). Vacío = todos
   // los días, que es el default y el comportamiento previo al ítem 11.
   diasSemana                 Int[]            @default([])
+  // fase-14-17: la opcional aparece en la lista del integrante SIN que él la
+  // elija. Solo relevante con `planDelDiaActivo`; default false = se elige,
+  // que con el modo apagado da igual (comportamiento previo intacto).
+  siempreVisible             Boolean          @default(false)
   estado                     EstadoCatalogo   @default(ACTIVA)
   // fase-14-10: default TUTOR + autor nulo ⇒ toda actividad preexistente
   // conserva el comportamiento actual (migración retro-compatible).
@@ -135,10 +139,34 @@ model ConfiguracionContenidoGrupo {
   // un agujero de puntaje (crear "Respirar = 100 pts" y autocompletarla).
   maxPuntosActividadUsuario       Int                          @default(5)
   maxActividadesActivasPorUsuario Int                          @default(5)
+  // fase-14-17: con true, las OPCIONALES individuales del catálogo del tutor se
+  // ocultan de la lista hasta que el integrante las mete en su plan del día.
+  // Default false ⇒ ningún grupo existente cambia de comportamiento.
+  planDelDiaActivo                Boolean                      @default(false)
   createdAt                       DateTime                     @default(now())
   updatedAt                       DateTime                     @updatedAt
 
   @@index([organizacionId])
+}
+
+// fase-14-17: qué opcionales eligió hacer HOY un integrante. Estado OPERATIVO,
+// no ledger (misma naturaleza que CronometroActivo): no vale puntos, no viaja a
+// scoring y se BORRA físicamente al sacarla del plan — la regla 6 de CLAUDE.md
+// protege lo que sostiene el puntaje, y esto no lo sostiene.
+// Lleva organizacionId igual (regla 3): es una fila por usuario de un grupo.
+model SeleccionPlanDia {
+  id             String   @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  actividadId    String
+  sesionId       String
+  createdAt      DateTime @default(now())
+
+  // Hace idempotente el alta automática al completar (spec, decisión 9).
+  @@unique([usuarioId, actividadId, sesionId])
+  @@index([organizacionId])
+  @@index([usuarioId, sesionId])
 }
 
 // Propuesta de actividad de un integrante (fase-14-10, Parte B). Objeto de

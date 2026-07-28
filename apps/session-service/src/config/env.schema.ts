@@ -54,6 +54,16 @@ export class EnvSchema {
   })
   IDENTITY_INTERNAL_URL!: string;
 
+  // fase-14-16: ventana máxima que el scheduler recupera de una vez cuando
+  // vuelve después de un corte. Default 168 h (7 días = un ciclo completo de
+  // Sección en el caso Destino:Dorado). Más allá de eso se recorta y se
+  // loguea: fabricar meses de Secciones en silencio sería peor que no hacerlo.
+  @IsOptional()
+  @Transform(({ value }) => parseInt(String(value), 10))
+  @IsInt()
+  @Min(1)
+  SCHEDULER_MAX_RECUPERACION_HORAS?: number;
+
   @IsOptional()
   @IsString()
   LOG_LEVEL?: string;

@@ -75,16 +75,21 @@ export class Api {
    * muchas suites seguidas desde una sola IP— así que se absorbe transparente
    * esperando la ventana. El registro de organización, con su límite estricto
    * de 10/min, se saltea el Gateway (ver `crearOrganizacion`).
+   *
+   * La espera acumulada (6 × 11 s ≈ 66 s) tiene que **cubrir la ventana entera**
+   * del limiter (60 s): con 20 s, agregar una suite más al run hacía fallar
+   * tests de otras suites por presupuesto agotado, no por un bug. Los tests que
+   * pueden comerse esta espera están marcados `test.slow()` (timeout ×3).
    */
   private async conReintento429(hacer: () => Promise<APIResponse>): Promise<APIResponse> {
-    for (let intento = 0; intento < 4; intento++) {
+    for (let intento = 0; intento < 6; intento++) {
       const res = await hacer();
 
       if (res.status() !== 429) {
         return res;
       }
 
-      await new Promise((resolver) => setTimeout(resolver, 5000));
+      await new Promise((resolver) => setTimeout(resolver, 11_000));
     }
 
     return await hacer();

@@ -90,6 +90,11 @@ export class ActividadesService {
         alcance: equipo.alcance,
         bonoJefePuntos: equipo.bonoJefePuntos,
         diasSemana: normalizarDiasSemana(datos.diasSemana),
+        siempreVisible: this.resolverSiempreVisible(
+          datos.tipoPuntaje,
+          equipo.alcance,
+          datos.siempreVisible
+        ),
         creadaPorTutorId: tenant.principalId,
       },
     });
@@ -207,6 +212,15 @@ export class ActividadesService {
         ...(datos.diasSemana !== undefined && {
           diasSemana: normalizarDiasSemana(datos.diasSemana),
         }),
+        // fase-14-17: se recalcula siempre (igual que alcance y comportamiento):
+        // volver OBLIGATORIA o de EQUIPO una opcional fija tiene que apagar el
+        // flag, aunque el PATCH no lo mande.
+        siempreVisible: this.resolverSiempreVisible(
+          tipoPuntajeEfectivo,
+          equipo.alcance,
+          datos.siempreVisible,
+          existente.siempreVisible
+        ),
       },
     });
 
@@ -287,6 +301,25 @@ export class ActividadesService {
     }
 
     return { alcance: alcanceEfectivo, bonoJefePuntos: bonoJefePuntos ?? 0 };
+  }
+
+  /**
+   * `siempreVisible` efectivo (fase-14-17). El flag solo significa algo en una
+   * OPCIONAL INDIVIDUAL —que es lo único que el plan del día esconde—, así que
+   * en cualquier otro caso se fuerza a false en vez de rechazar el request:
+   * mismo criterio que `bonoJefePuntos` en una actividad INDIVIDUAL.
+   */
+  private resolverSiempreVisible(
+    tipoPuntaje: TipoPuntaje,
+    alcance: AlcanceActividad,
+    pedido: boolean | undefined,
+    fallback = false
+  ): boolean {
+    if (tipoPuntaje !== TipoPuntaje.OPCIONAL || alcance !== AlcanceActividad.INDIVIDUAL) {
+      return false;
+    }
+
+    return pedido ?? fallback;
   }
 
   /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */

@@ -39,6 +39,62 @@ export function cronMatcheaMinuto(expresion: string, instante: Date, timezone: s
 }
 
 /**
+ * Ocurrencias del cron en la ventana `(desde, hasta]` — abierta en `desde`,
+ * cerrada en `hasta` —, en orden ascendente y evaluadas en `timezone`.
+ *
+ * Es la base del scheduler con recuperación (fase-14-16): un tick no pregunta
+ * "¿este minuto ES el del cron?" sino "¿qué venció desde la última vez que
+ * miré?", así que un disparo que cayó mientras el proceso estaba caído se
+ * aplica igual en cuanto vuelve. Ventanas consecutivas no se solapan ni dejan
+ * huecos, que es lo que da la idempotencia entre ticks.
+ *
+ * Corta al llegar a `maximo` ocurrencias (el llamador detecta el corte
+ * comparando la longitud y continúa en el tick siguiente). Devuelve `[]` si la
+ * expresión es inválida — mismo criterio defensivo que `cronMatcheaMinuto`: el
+ * guard duro está en el PUT de configuración.
+ */
+export function ocurrenciasEntre(
+  expresion: string,
+  desde: Date,
+  hasta: Date,
+  timezone: string,
+  maximo: number
+): Date[] {
+  const ocurrencias: Date[] = [];
+
+  if (desde.getTime() >= hasta.getTime()) {
+    return ocurrencias;
+  }
+
+  let iterador: ReturnType<typeof CronExpressionParser.parse>;
+
+  try {
+    iterador = CronExpressionParser.parse(expresion, { currentDate: desde, tz: timezone });
+  } catch {
+    return [];
+  }
+
+  while (ocurrencias.length < maximo) {
+    let siguiente: Date;
+
+    try {
+      siguiente = iterador.next().toDate();
+    } catch {
+      // Iterador agotado (cron con rango finito): lo ya recolectado es válido.
+      break;
+    }
+
+    if (siguiente.getTime() > hasta.getTime()) {
+      break;
+    }
+
+    ocurrencias.push(siguiente);
+  }
+
+  return ocurrencias;
+}
+
+/**
  * Próxima ocurrencia del cron ESTRICTAMENTE posterior a `desde`, en la
  * timezone dada. Base del cálculo de `extender` (posponer el autocierre).
  * `null` si la expresión no tiene próxima ocurrencia computable.

@@ -98,15 +98,21 @@ model Sesion {
   @@index([grupoId])
 }
 
-// Idempotencia del scheduler ante reinicios dentro del mismo minuto — la spec
-// ofrece "memoria o tabla"; tabla para que un reinicio del proceso no
-// re-dispare transiciones ya aplicadas. Operacional, no de negocio (sin
+// Marca de agua del scheduler por grupo. Operacional, no de negocio (sin
 // organizacionId a propósito: se escribe junto a las transiciones, dentro de
 // la misma transacción).
+//
+// fase-14-16: era `minutoEpoch` (Int) y sólo cubría "dos ticks en el mismo
+// minuto"; ahora es un instante y define la ventana `(evaluadoHasta, ahora]`
+// que cada tick evalúa. Ventanas consecutivas no se solapan ni dejan huecos:
+// de ahí sale la idempotencia Y la recuperación de disparos perdidos mientras
+// el proceso estaba caído.
 model UltimoTickProcesado {
-  grupoId     String   @id
-  // floor(epoch ms / 60000) del último minuto procesado para el grupo
-  minutoEpoch Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  grupoId       String    @id
+  // NULL = grupo nunca evaluado: el primer tick lo fija en `ahora` sin
+  // replicar historia (decisión 3 de la sub-spec). Las filas que existían
+  // antes de la migración quedan en NULL por eso mismo.
+  evaluadoHasta DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }

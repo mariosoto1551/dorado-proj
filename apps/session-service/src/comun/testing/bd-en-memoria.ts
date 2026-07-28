@@ -77,19 +77,31 @@ function crearDelegado<T extends Fila>(filas: T[], defaults: () => Partial<T>) {
  * queries bajo test — el cast a los tipos reales del cliente es el mismo
  * criterio `as unknown as X` de los mocks de los demás specs del monorepo.
  */
-export type TxEnMemoria = Pick<ClientePrisma, 'seccion' | 'sesion' | 'ultimoTickProcesado'>;
+export type TxEnMemoria = Pick<
+  ClientePrisma,
+  'seccion' | 'sesion' | 'ultimoTickProcesado' | '$executeRaw'
+>;
+
+export interface Tick {
+  grupoId: string;
+  evaluadoHasta: Date | null;
+}
 
 export interface BdEnMemoria {
   secciones: Seccion[];
   sesiones: Sesion[];
-  ticks: Map<string, { grupoId: string; minutoEpoch: number }>;
+  ticks: Map<string, Tick>;
   tx: TxEnMemoria;
 }
 
-export function crearBdEnMemoria(datos: { secciones?: Seccion[]; sesiones?: Sesion[] } = {}): BdEnMemoria {
+export function crearBdEnMemoria(
+  datos: { secciones?: Seccion[]; sesiones?: Sesion[]; ticks?: Tick[] } = {}
+): BdEnMemoria {
   const secciones: Seccion[] = [...(datos.secciones ?? [])];
   const sesiones: Sesion[] = [...(datos.sesiones ?? [])];
-  const ticks = new Map<string, { grupoId: string; minutoEpoch: number }>();
+  const ticks = new Map<string, Tick>(
+    (datos.ticks ?? []).map((tick) => [tick.grupoId, { ...tick }])
+  );
 
   const tx = {
     seccion: crearDelegado<Seccion>(secciones, () => ({
@@ -117,16 +129,21 @@ export function crearBdEnMemoria(datos: { secciones?: Seccion[]; sesiones?: Sesi
         create,
       }: {
         where: { grupoId: string };
-        create: { grupoId: string; minutoEpoch: number };
-        update: { minutoEpoch: number };
+        create: { grupoId: string; evaluadoHasta: Date | null };
+        update: { evaluadoHasta: Date | null };
       }) => {
-        const fila = { grupoId: where.grupoId, minutoEpoch: create.minutoEpoch };
+        const fila: Tick = { grupoId: where.grupoId, evaluadoHasta: create.evaluadoHasta };
 
         ticks.set(where.grupoId, fila);
 
         return fila;
       },
     },
+    // El scheduler toma un pg_advisory_xact_lock por grupo; en memoria no hay
+    // concurrencia real que serializar, así que es un no-op. OJO: este fake no
+    // puede validar el SQL — que la sentencia del lock sea correcta se
+    // verifica contra Postgres real (ver docs/progreso/fase-14-16).
+    $executeRaw: async () => 0,
   } as unknown as TxEnMemoria;
 
   return { secciones, sesiones, ticks, tx };

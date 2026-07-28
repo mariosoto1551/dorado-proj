@@ -50,6 +50,7 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     origen: actividad.origen as OrigenActividad,
     creadaPorUsuarioId: actividad.creadaPorUsuarioId,
     diasSemana: actividad.diasSemana,
+    siempreVisible: actividad.siempreVisible,
     estado: actividad.estado,
   };
 }

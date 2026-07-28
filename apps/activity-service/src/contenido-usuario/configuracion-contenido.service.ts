@@ -20,6 +20,9 @@ const DEFAULTS = {
   modoCreacionUsuario: ModoCreacionContenidoUsuario.RESTRICTIVO,
   maxPuntosActividadUsuario: 5,
   maxActividadesActivasPorUsuario: 5,
+  // fase-14-17: apagado por default ⇒ ningún grupo existente cambia de
+  // comportamiento con la migración (mismo criterio que RESTRICTIVO acá arriba).
+  planDelDiaActivo: false,
 } as const;
 
 /**
@@ -66,6 +69,7 @@ export class ConfiguracionContenidoService {
         fila.modoCreacionUsuario as ConfiguracionContenidoGrupoDto['modoCreacionUsuario'],
       maxPuntosActividadUsuario: fila.maxPuntosActividadUsuario,
       maxActividadesActivasPorUsuario: fila.maxActividadesActivasPorUsuario,
+      planDelDiaActivo: fila.planDelDiaActivo,
     };
   }
 
@@ -85,6 +89,7 @@ export class ConfiguracionContenidoService {
         datos.maxPuntosActividadUsuario ?? antes.maxPuntosActividadUsuario,
       maxActividadesActivasPorUsuario:
         datos.maxActividadesActivasPorUsuario ?? antes.maxActividadesActivasPorUsuario,
+      planDelDiaActivo: datos.planDelDiaActivo ?? antes.planDelDiaActivo,
     };
 
     await this.prisma.client.configuracionContenidoGrupo.upsert({
@@ -96,11 +101,13 @@ export class ConfiguracionContenidoService {
         modoCreacionUsuario: despues.modoCreacionUsuario,
         maxPuntosActividadUsuario: despues.maxPuntosActividadUsuario,
         maxActividadesActivasPorUsuario: despues.maxActividadesActivasPorUsuario,
+        planDelDiaActivo: despues.planDelDiaActivo,
       },
       update: {
         modoCreacionUsuario: despues.modoCreacionUsuario,
         maxPuntosActividadUsuario: despues.maxPuntosActividadUsuario,
         maxActividadesActivasPorUsuario: despues.maxActividadesActivasPorUsuario,
+        planDelDiaActivo: despues.planDelDiaActivo,
       },
     });
 

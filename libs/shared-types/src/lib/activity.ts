@@ -74,6 +74,12 @@ export interface ActividadDto {
    * (0 = domingo … 6 = sábado). Vacío = todos los días.
    */
   diasSemana: number[];
+  /**
+   * fase-14-17: la opcional aparece en la lista del integrante sin que él la
+   * elija (y no se ofrece en la hoja «Elegir»: ya está). Solo tiene efecto con
+   * `planDelDiaActivo` en el Grupo, y solo en OPCIONAL + INDIVIDUAL.
+   */
+  siempreVisible: boolean;
   estado: 'ACTIVA' | 'ARCHIVADA';
 }
 
@@ -169,12 +175,41 @@ export interface MiEstadoActividadHoyDto {
   disponibleHoy: boolean;
   /** Días configurados (0 = domingo … 6 = sábado); vacío = todos. */
   diasSemana: number[];
+  /**
+   * fase-14-17: la actividad está sujeta al plan del día — es OPCIONAL +
+   * INDIVIDUAL + del catálogo del Tutor, no es `siempreVisible`, y el Grupo
+   * tiene el modo activo. Con el modo apagado viaja `false` para todas.
+   */
+  requiereSeleccion: boolean;
+  /**
+   * fase-14-17: el integrante la eligió para hoy. Con `requiereSeleccion =
+   * false` viaja SIEMPRE `true`, a propósito: así el cliente tiene una regla
+   * única («se muestra si `enPlan`») en vez de combinar dos flags en cada punto
+   * de la plantilla — donde el primer olvido escondería algo que debe verse.
+   */
+  enPlan: boolean;
 }
 
 export interface MiEstadoHoyDto {
   /** null si no hay Sesión ABIERTA (actividades queda vacío). */
   sesionId: string | null;
+  /** fase-14-17: el Grupo tiene el plan del día encendido. */
+  planDelDiaActivo: boolean;
   actividades: MiEstadoActividadHoyDto[];
+}
+
+/**
+ * Plan del día de un integrante (fase-14-17): las OPCIONALES que eligió hacer
+ * en la Sesión abierta. Lo devuelven `POST`/`DELETE /plan-dia` ya actualizado,
+ * para que la pantalla no tenga que re-consultar el estado entero.
+ */
+export interface PlanDelDiaDto {
+  sesionId: string;
+  actividadIds: string[];
+}
+
+export interface AgregarAlPlanDelDiaRequest {
+  actividadId: string;
 }
 
 /** Una completada individual de un usuario, para que el tutor la pueda quitar. */
@@ -340,12 +375,18 @@ export interface ConfiguracionContenidoGrupoDto {
   maxPuntosActividadUsuario: number;
   /** Tope de actividades propias vivas a la vez (ACTIVA + propuestas PENDIENTE). */
   maxActividadesActivasPorUsuario: number;
+  /**
+   * fase-14-17: con true, las OPCIONALES individuales del catálogo del Tutor se
+   * ocultan de la lista hasta que el integrante las mete en su plan del día.
+   */
+  planDelDiaActivo: boolean;
 }
 
 export interface ActualizarConfiguracionContenidoRequest {
   modoCreacionUsuario?: ModoCreacionContenidoUsuario;
   maxPuntosActividadUsuario?: number;
   maxActividadesActivasPorUsuario?: number;
+  planDelDiaActivo?: boolean;
 }
 
 /**

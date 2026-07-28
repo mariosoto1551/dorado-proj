@@ -7,6 +7,7 @@ import type {
   RegistroActividad,
   RegistroConducta,
   RegistroTareaEquipo,
+  SeleccionPlanDia,
 } from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -90,7 +91,11 @@ function crearDelegado<T extends Fila>(filas: T[], defaults: () => Partial<T>) {
   };
 }
 
-interface ClaveCronometro {
+/**
+ * Misma forma para el cronómetro y para la selección del plan del día
+ * (fase-14-17): las dos tablas se indexan por usuario + actividad + sesión.
+ */
+interface ClaveUsuarioActividadSesion {
   usuarioId: string;
   actividadId: string;
   sesionId: string;
@@ -104,6 +109,8 @@ export interface BdRegistroEnMemoria {
   cronometros: CronometroActivo[];
   /** fase-14-13: completadas de tareas de equipo (anulables por el Tutor). */
   registrosTareaEquipo: RegistroTareaEquipo[];
+  /** fase-14-17: qué opcionales eligió el integrante para hoy. */
+  seleccionesPlanDia: SeleccionPlanDia[];
   prisma: PrismaService;
 }
 
@@ -113,6 +120,7 @@ export function crearBdRegistroEnMemoria(datos: {
   registrosActividad?: RegistroActividad[];
   cronometros?: CronometroActivo[];
   registrosTareaEquipo?: RegistroTareaEquipo[];
+  seleccionesPlanDia?: SeleccionPlanDia[];
 } = {}): BdRegistroEnMemoria {
   const actividades: Actividad[] = [...(datos.actividades ?? [])];
   const conductas: Conducta[] = [...(datos.conductas ?? [])];
@@ -120,8 +128,9 @@ export function crearBdRegistroEnMemoria(datos: {
   const registrosConducta: RegistroConducta[] = [];
   const cronometros: CronometroActivo[] = [...(datos.cronometros ?? [])];
   const registrosTareaEquipo: RegistroTareaEquipo[] = [...(datos.registrosTareaEquipo ?? [])];
+  const seleccionesPlanDia: SeleccionPlanDia[] = [...(datos.seleccionesPlanDia ?? [])];
 
-  const buscarCronometro = (clave: ClaveCronometro): CronometroActivo | undefined =>
+  const buscarCronometro = (clave: ClaveUsuarioActividadSesion): CronometroActivo | undefined =>
     cronometros.find(
       (fila) =>
         fila.usuarioId === clave.usuarioId &&
@@ -165,14 +174,14 @@ export function crearBdRegistroEnMemoria(datos: {
       findUnique: async ({
         where,
       }: {
-        where: { usuarioId_actividadId_sesionId: ClaveCronometro };
+        where: { usuarioId_actividadId_sesionId: ClaveUsuarioActividadSesion };
       }) => buscarCronometro(where.usuarioId_actividadId_sesionId) ?? null,
       upsert: async ({
         where,
         create,
         update,
       }: {
-        where: { usuarioId_actividadId_sesionId: ClaveCronometro };
+        where: { usuarioId_actividadId_sesionId: ClaveUsuarioActividadSesion };
         create: Partial<CronometroActivo>;
         update: Partial<CronometroActivo>;
       }) => {
@@ -200,6 +209,47 @@ export function crearBdRegistroEnMemoria(datos: {
         return { count: eliminadas };
       },
     },
+    // fase-14-17: el plan del día. Mismo par upsert/deleteMany que el
+    // cronómetro, más las lecturas (`findMany`) que consume mi-estado-hoy.
+    seleccionPlanDia: {
+      findMany: async (args: { where?: Where } = {}) =>
+        seleccionesPlanDia.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+      upsert: async ({
+        where,
+        create,
+      }: {
+        where: { usuarioId_actividadId_sesionId: ClaveUsuarioActividadSesion };
+        create: Partial<SeleccionPlanDia>;
+        update: Partial<SeleccionPlanDia>;
+      }) => {
+        const clave = where.usuarioId_actividadId_sesionId;
+        const existente = seleccionesPlanDia.find(
+          (fila) =>
+            fila.usuarioId === clave.usuarioId &&
+            fila.actividadId === clave.actividadId &&
+            fila.sesionId === clave.sesionId
+        );
+
+        if (existente) {
+          return existente;
+        }
+
+        const fila = { id: randomUUID(), createdAt: new Date(), ...create } as SeleccionPlanDia;
+
+        seleccionesPlanDia.push(fila);
+
+        return fila;
+      },
+      deleteMany: async ({ where }: { where: Where }) => {
+        const restantes = seleccionesPlanDia.filter((fila) => !matchea(fila, where));
+        const eliminadas = seleccionesPlanDia.length - restantes.length;
+
+        seleccionesPlanDia.length = 0;
+        seleccionesPlanDia.push(...restantes);
+
+        return { count: eliminadas };
+      },
+    },
     $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
       // Sin rollback: suficiente para los flujos bajo test.
       return await fn(client);
@@ -213,6 +263,7 @@ export function crearBdRegistroEnMemoria(datos: {
     registrosConducta,
     cronometros,
     registrosTareaEquipo,
+    seleccionesPlanDia,
     prisma: { client } as unknown as PrismaService,
   };
 }
@@ -236,6 +287,8 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     bonoJefePuntos: 0,
     // fase-14-11: sin programación = disponible todos los días.
     diasSemana: [],
+    // fase-14-17: por defecto se elige (solo importa con el plan del día activo).
+    siempreVisible: false,
     estado: 'ACTIVA',
     // fase-14-10: por defecto es del catálogo del tutor (visible para todos).
     origen: 'TUTOR',

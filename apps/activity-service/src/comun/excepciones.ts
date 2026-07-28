@@ -242,6 +242,38 @@ export class AutorYaNoEstaEnElGrupoException extends DomainException {
   }
 }
 
+// --- Plan del día (fase-14-17) ---
+
+export class PlanDelDiaInactivoException extends DomainException {
+  constructor() {
+    super(
+      'PLAN_DEL_DIA_INACTIVO',
+      'El grupo no usa el plan del día — todas las actividades ya se ven en la lista',
+      400
+    );
+  }
+}
+
+export class ActividadNoElegibleParaElPlanException extends DomainException {
+  constructor() {
+    super(
+      'ACTIVIDAD_NO_ELEGIBLE_PARA_EL_PLAN',
+      'Esta actividad no se elige: ya aparece siempre en tu lista',
+      400
+    );
+  }
+}
+
+export class ActividadYaEmpezadaException extends DomainException {
+  constructor() {
+    super(
+      'ACTIVIDAD_YA_EMPEZADA',
+      'Ya empezaste esta actividad hoy — no se puede sacar del plan del día',
+      409
+    );
+  }
+}
+
 export class ActividadPersonalDeOtroUsuarioException extends DomainException {
   constructor() {
     super(

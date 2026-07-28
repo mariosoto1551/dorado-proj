@@ -11,6 +11,7 @@ import { ContenidoUsuarioModule } from '../contenido-usuario/contenido-usuario.m
 import { EquiposModule } from '../equipos/equipos.module';
 import { EventosModule } from '../eventos/eventos.module';
 import { InternalModule } from '../internal/internal.module';
+import { PlanDiaModule } from '../plan-dia/plan-dia.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RegistroModule } from '../registro/registro.module';
 
@@ -31,6 +32,7 @@ import { RegistroModule } from '../registro/registro.module';
     RegistroModule,
     EquiposModule,
     ContenidoUsuarioModule,
+    PlanDiaModule,
     ConsumoModule,
     InternalModule,
   ],
