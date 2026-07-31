@@ -8,16 +8,22 @@ import {
 import { ActividadDto, Rol, TenantContext } from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
-import { TareaEquipoDebeSerOpcionalException } from '../comun/excepciones';
+import {
+  RestriccionRolSoloIndividualException,
+  RolGrupoInexistenteException,
+  TareaEquipoDebeSerOpcionalException,
+} from '../comun/excepciones';
 import { asegurarLimiteActividadesDelGrupo } from '../comun/limite-plan-actividades';
 import { validarCamposLimiteTiempo } from '../comun/limite-tiempo';
 import { normalizarDiasSemana } from '../comun/programacion';
 import { actividadADto } from '../comun/mapeadores';
+import { esDeSuRol, hayRestriccionesDeRol } from '../comun/restriccion-rol';
 import {
   esVisiblePara,
   filtroVisibilidadUsuario,
 } from '../comun/visibilidad-actividad';
 import { BillingClientService } from '../clientes/billing-client.service';
+import { IdentityClientService } from '../clientes/identity-client.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
 import {
@@ -41,7 +47,8 @@ export class ActividadesService {
     private readonly prisma: PrismaService,
     private readonly billing: BillingClientService,
     private readonly acceso: AccesoGrupoService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly identity: IdentityClientService
   ) {}
 
   async crear(
@@ -70,6 +77,15 @@ export class ActividadesService {
     const comportamiento = this.resolverComportamiento(
       datos.tipoPuntaje,
       datos.comportamientoAlCierre
+    );
+
+    // fase-14-19: valida contra el catálogo de roles de identity. Va antes del
+    // límite de plan por el mismo motivo que los campos condicionales: un
+    // request malformado no debería gastar la llamada a billing.
+    const rolesPermitidos = await this.resolverRolesPermitidos(
+      grupoId,
+      equipo.alcance,
+      datos.rolesPermitidos
     );
 
     await this.asegurarLimiteActividades(tenant.organizacionId, grupoId);
@@ -105,6 +121,7 @@ export class ActividadesService {
           equipo.alcance,
           datos.siempreVisible
         ),
+        rolesPermitidos,
         creadaPorTutorId: tenant.principalId,
       },
     });
@@ -141,7 +158,18 @@ export class ActividadesService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return actividades.map(actividadADto);
+    // fase-14-19: las restringidas a un rol ajeno se ocultan (decisión 6). El
+    // cruce REST se paga solo si el catálogo tiene alguna restricción, y solo
+    // para un USUARIO — el Tutor ve todo, que es lo que necesita para gestionar.
+    if (!esUsuario || !hayRestriccionesDeRol(actividades)) {
+      return actividades.map(actividadADto);
+    }
+
+    const rolGrupoId = await this.identity.rolDeUsuario(grupoId, tenant.principalId);
+
+    return actividades
+      .filter((actividad) => esDeSuRol(actividad, rolGrupoId))
+      .map(actividadADto);
   }
 
   async detalle(tenant: TenantContext, id: string): Promise<ActividadDto> {
@@ -197,6 +225,16 @@ export class ActividadesService {
       datos.bonoJefePuntos ?? existente.bonoJefePuntos
     );
 
+    // fase-14-19: se revalida contra el alcance efectivo — pasar una actividad
+    // restringida a alcance EQUIPO tiene que fallar, no restringir un equipo por
+    // rol a escondidas. Un PATCH que no manda el campo conserva la restricción.
+    const rolesPermitidos = await this.resolverRolesPermitidos(
+      existente.grupoId,
+      equipo.alcance,
+      datos.rolesPermitidos,
+      existente.rolesPermitidos
+    );
+
     // updateMany (no update): pasa por el filtro automático de tenant.
     await this.prisma.client.actividad.updateMany({
       where: { id },
@@ -240,6 +278,7 @@ export class ActividadesService {
           datos.siempreVisible,
           existente.siempreVisible
         ),
+        rolesPermitidos,
       },
     });
 
@@ -342,6 +381,45 @@ export class ActividadesService {
   }
 
   /**
+   * `rolesPermitidos` efectivo (fase-14-19). A diferencia de `siempreVisible` o
+   * `bonoJefePuntos` —que se fuerzan a su valor neutro cuando no aplican— acá se
+   * RECHAZA el request: restringir por rol es una decisión explícita del Tutor y
+   * silenciarla dejaría una actividad visible para todo el grupo creyendo lo
+   * contrario. Vaciarla sí es válido (es "que la vean todos").
+   *
+   * La existencia de cada rol se valida contra identity por REST interno (regla
+   * 2: sin FK entre bases). Es escritura del catálogo, camino frío — el camino
+   * caliente no paga nada de esto.
+   */
+  private async resolverRolesPermitidos(
+    grupoId: string,
+    alcance: AlcanceActividad,
+    pedido: string[] | undefined,
+    fallback: string[] = []
+  ): Promise<string[]> {
+    const roles = [...new Set(pedido ?? fallback)];
+
+    if (roles.length === 0) {
+      return [];
+    }
+
+    if (alcance !== AlcanceActividad.INDIVIDUAL) {
+      throw new RestriccionRolSoloIndividualException();
+    }
+
+    const catalogo = await this.identity.rolesDelGrupo(grupoId);
+    const activos = new Set(
+      catalogo.filter((rol) => rol.estado === 'ACTIVO').map((rol) => rol.id)
+    );
+
+    if (roles.some((rolId) => !activos.has(rolId))) {
+      throw new RolGrupoInexistenteException();
+    }
+
+    return roles;
+  }
+
+  /**
    * `puntosPorCumplir` efectivo (fase-14-20). Solo significa algo en una
    * OBLIGATORIA con `REQUIERE_CONFIRMACION`: es lo que gana el integrante al
    * confirmarla. Sin confirmación no hay acción que registrar, así que un valor
@@ -401,6 +479,20 @@ export class ActividadesService {
       (esUsuario && !esVisiblePara(actividad, tenant.principalId))
     ) {
       throw new NotFoundException('Actividad no encontrada');
+    }
+
+    // fase-14-19: para el integrante, una actividad de otro rol no existe — 404
+    // y no 403, igual que el resto de este método (el detalle no revela nada que
+    // la lista no muestre).
+    if (esUsuario && actividad.rolesPermitidos.length > 0) {
+      const rolGrupoId = await this.identity.rolDeUsuario(
+        actividad.grupoId,
+        tenant.principalId
+      );
+
+      if (!esDeSuRol(actividad, rolGrupoId)) {
+        throw new NotFoundException('Actividad no encontrada');
+      }
     }
 
     return actividad;

@@ -4,7 +4,9 @@ import { InternalSecretGuard } from '@dorado/shared-auth';
 import {
   EquipoInternoDto,
   GrupoDto,
+  RolAsignadoDto,
   RolEquipoMiembro,
+  RolGrupoInternoDto,
   TutorDto,
   UsuarioDto,
 } from '@dorado/shared-types';
@@ -152,6 +154,61 @@ export class InternalController {
     });
 
     return equipos.map((equipo) => equipoInternoADto(equipo));
+  }
+
+  /**
+   * Catálogo de roles del grupo (fase-14-19). Lo consume activity para validar
+   * `Actividad.rolesPermitidos` al crear/editar — escritura del catálogo, que es
+   * fría. Incluye los archivados a propósito: un registro viejo igual tiene que
+   * poder mostrar el nombre del rol al que estuvo restringido.
+   */
+  @Get('grupos/:grupoId/roles')
+  async rolesDelGrupo(@Param('grupoId') grupoId: string): Promise<RolGrupoInternoDto[]> {
+    const roles = await this.prisma.client.rolGrupo.findMany({
+      where: { grupoId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return roles.map((rol) => ({
+      id: rol.id,
+      organizacionId: rol.organizacionId,
+      grupoId: rol.grupoId,
+      nombre: rol.nombre,
+      colorHex: rol.colorHex,
+      estado: rol.estado as RolGrupoInternoDto['estado'],
+    }));
+  }
+
+  /**
+   * Quién tiene qué rol en el grupo (fase-14-19). Es el que entra al CAMINO
+   * CALIENTE de activity (`mi-estado-hoy`, plan del día, registro y el castigo
+   * al cerrar la sesión), así que devuelve el payload más chico posible: dos ids
+   * por participante, una llamada por request, nunca una por fila.
+   *
+   * Solo participantes ACTIVO, igual que `usuariosDelGrupo`.
+   */
+  @Get('grupos/:grupoId/roles-asignados')
+  async rolesAsignados(@Param('grupoId') grupoId: string): Promise<RolAsignadoDto[]> {
+    const membresias = await this.prisma.client.usuarioGrupo.findMany({
+      where: { grupoId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const activos = await this.prisma.client.usuario.findMany({
+      where: {
+        id: { in: membresias.map((membresia) => membresia.usuarioId) },
+        estado: EstadoCuenta.ACTIVO,
+      },
+      select: { id: true },
+    });
+    const idsActivos = new Set(activos.map((usuario) => usuario.id));
+
+    return membresias
+      .filter((membresia) => idsActivos.has(membresia.usuarioId))
+      .map((membresia) => ({
+        usuarioId: membresia.usuarioId,
+        rolGrupoId: membresia.rolGrupoId,
+      }));
   }
 
   @Get('usuarios/:id')

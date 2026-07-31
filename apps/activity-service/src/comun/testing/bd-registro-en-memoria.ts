@@ -6,8 +6,10 @@ import type {
   CronometroActivo,
   RegistroActividad,
   RegistroConducta,
+  AsignacionTurno,
   RegistroTareaEquipo,
   SeleccionPlanDia,
+  TurnoActividad,
 } from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -111,6 +113,10 @@ export interface BdRegistroEnMemoria {
   registrosTareaEquipo: RegistroTareaEquipo[];
   /** fase-14-17: qué opcionales eligió el integrante para hoy. */
   seleccionesPlanDia: SeleccionPlanDia[];
+  /** fase-14-21: rotaciones configuradas; vacío = ninguna actividad rota. */
+  turnos: TurnoActividad[];
+  /** fase-14-21: a quién le tocó cada actividad en cada ámbito. */
+  asignacionesTurno: AsignacionTurno[];
   prisma: PrismaService;
 }
 
@@ -121,6 +127,8 @@ export function crearBdRegistroEnMemoria(datos: {
   cronometros?: CronometroActivo[];
   registrosTareaEquipo?: RegistroTareaEquipo[];
   seleccionesPlanDia?: SeleccionPlanDia[];
+  turnos?: TurnoActividad[];
+  asignacionesTurno?: AsignacionTurno[];
 } = {}): BdRegistroEnMemoria {
   const actividades: Actividad[] = [...(datos.actividades ?? [])];
   const conductas: Conducta[] = [...(datos.conductas ?? [])];
@@ -129,6 +137,8 @@ export function crearBdRegistroEnMemoria(datos: {
   const cronometros: CronometroActivo[] = [...(datos.cronometros ?? [])];
   const registrosTareaEquipo: RegistroTareaEquipo[] = [...(datos.registrosTareaEquipo ?? [])];
   const seleccionesPlanDia: SeleccionPlanDia[] = [...(datos.seleccionesPlanDia ?? [])];
+  const turnos: TurnoActividad[] = [...(datos.turnos ?? [])];
+  const asignacionesTurno: AsignacionTurno[] = [...(datos.asignacionesTurno ?? [])];
 
   const buscarCronometro = (clave: ClaveUsuarioActividadSesion): CronometroActivo | undefined =>
     cronometros.find(
@@ -250,6 +260,21 @@ export function crearBdRegistroEnMemoria(datos: {
         return { count: eliminadas };
       },
     },
+    // fase-14-21: turnos rotativos. Con las listas vacías —el default— toda
+    // obligatoria sigue siendo "de todos", que es el comportamiento previo al
+    // ítem y el que asumen los tests que ya existían.
+    turnoActividad: {
+      findFirst: async ({ where }: { where: Where }) =>
+        turnos.find((fila) => matchea(fila, where)) ?? null,
+      findMany: async (args: { where?: Where } = {}) =>
+        turnos.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+    },
+    asignacionTurno: {
+      findFirst: async ({ where }: { where: Where }) =>
+        asignacionesTurno.find((fila) => matchea(fila, where)) ?? null,
+      findMany: async (args: { where?: Where } = {}) =>
+        asignacionesTurno.filter((args_) => (args.where ? matchea(args_, args.where) : true)),
+    },
     $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
       // Sin rollback: suficiente para los flujos bajo test.
       return await fn(client);
@@ -264,6 +289,8 @@ export function crearBdRegistroEnMemoria(datos: {
     cronometros,
     registrosTareaEquipo,
     seleccionesPlanDia,
+    turnos,
+    asignacionesTurno,
     prisma: { client } as unknown as PrismaService,
   };
 }
@@ -291,6 +318,8 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     diasSemana: [],
     // fase-14-17: por defecto se elige (solo importa con el plan del día activo).
     siempreVisible: false,
+    // fase-14-19: sin restricción de rol = la ven todos los del grupo.
+    rolesPermitidos: [],
     estado: 'ACTIVA',
     // fase-14-10: por defecto es del catálogo del tutor (visible para todos).
     origen: 'TUTOR',

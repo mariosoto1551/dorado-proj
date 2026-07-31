@@ -17,12 +17,16 @@ import {
   EstadoPropuesta,
   ModoCreacionContenidoUsuario,
   type PropuestaActividadDto,
+  type RolGrupoDto,
+  type TurnoActividadDto,
+  type UsuarioDto,
   TipoLimiteTiempo,
   TipoPuntaje,
 } from '@dorado/shared-types';
 import { ConfirmDialogComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { TurnosActividadComponent } from './turnos-actividad.component';
 import { IconoComponent } from '../../componentes/icono.component';
 import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
@@ -30,6 +34,7 @@ import type { CrearActividadRequest } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { describirDias, DIAS_SEMANA } from '../../core/dias-semana';
+import { sinIntegrantesConEsosRoles } from '../../core/roles-grupo';
 
 /** Las 3 opciones del ítem 10, con el texto que ve el tutor. */
 const OPCIONES_MODO: ReadonlyArray<{
@@ -74,6 +79,8 @@ interface FormActividad {
   diasSemana: number[];
   /** fase-14-17: solo para OPCIONAL individual; con el plan del día activo, se ve sin elegirla. */
   siempreVisible: boolean;
+  /** fase-14-19: ids de RolGrupo que la pueden ver; vacío = la ven todos. */
+  rolesPermitidos: string[];
 }
 
 const FORM_VACIO: FormActividad = {
@@ -91,6 +98,7 @@ const FORM_VACIO: FormActividad = {
   bonoJefePuntos: 0,
   diasSemana: [],
   siempreVisible: false,
+  rolesPermitidos: [],
 };
 
 /** CRUD de Actividades (fase-10). Form con campos condicionales por tipoLimiteTiempo. */
@@ -102,6 +110,7 @@ const FORM_VACIO: FormActividad = {
     EncabezadoPaginaComponent,
     IconoComponent,
     ConfirmDialogComponent,
+    TurnosActividadComponent,
   ],
   template: `
     <section class="mx-auto max-w-4xl px-4 py-6">
@@ -437,6 +446,24 @@ const FORM_VACIO: FormActividad = {
                     📌 Siempre a la vista
                   </span>
                 }
+                <!-- fase-14-19: a qué roles está restringida -->
+                @for (rolId of a.rolesPermitidos; track rolId) {
+                  <span
+                    class="rounded-full px-2 py-0.5 font-semibold text-white"
+                    [style.background-color]="rolDe(rolId)?.colorHex ?? '#64748B'"
+                    title="Solo la ven los integrantes con este rol"
+                  >
+                    🏷 {{ rolDe(rolId)?.nombre ?? 'rol archivado' }}
+                  </span>
+                }
+                @if (sinNadieConEsosRoles(a)) {
+                  <span
+                    class="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                    title="Ningún integrante tiene los roles que pide"
+                  >
+                    ⚠ hoy no la ve nadie
+                  </span>
+                }
                 @if (a.diasSemana.length > 0) {
                   <span
                     class="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
@@ -707,6 +734,58 @@ const FORM_VACIO: FormActividad = {
               </p>
             </div>
 
+            <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual, y
+                 solo al editar: hace falta el id de la actividad para guardar -->
+            @if (
+              editando();
+              as actividadEnEdicion
+            ) {
+              @if (form.tipoPuntaje === TP.OBLIGATORIA && form.alcance === AA.INDIVIDUAL) {
+                <app-turnos-actividad
+                  [actividadId]="actividadEnEdicion.id"
+                  [usuarios]="usuariosDelGrupo()"
+                  [roles]="roles()"
+                  [turno]="turnoDeLaActividad()"
+                  (guardado)="turnoDeLaActividad.set($event)"
+                />
+              }
+            }
+
+            <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
+            @if (roles().length > 0 && form.alcance === AA.INDIVIDUAL) {
+              <div class="animate-fade-in">
+                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Restringir a roles
+                </span>
+                <div class="mt-1.5 flex flex-wrap gap-1.5">
+                  @for (rol of roles(); track rol.id) {
+                    <button
+                      type="button"
+                      (click)="alternarRol(rol.id)"
+                      [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
+                      class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+                      [class]="form.rolesPermitidos.includes(rol.id)
+                        ? 'border-transparent text-white'
+                        : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
+                      [style.background-color]="
+                        form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
+                      "
+                    >
+                      {{ rol.nombre }}
+                    </button>
+                  }
+                </div>
+                <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                  @if (form.rolesPermitidos.length === 0) {
+                    Sin marcar ninguno, la ven todos los integrantes.
+                  } @else {
+                    Solo la ven quienes tengan alguno de esos roles — al resto no
+                    le aparece, y tampoco se les descuenta si es obligatoria.
+                  }
+                </p>
+              </div>
+            }
+
             <!-- fase-14-17: solo tiene efecto con el plan del día del grupo activo -->
             @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
               <label
@@ -802,6 +881,16 @@ export class ActividadesPage {
   protected readonly modoElegido = signal<ModoCreacionContenidoUsuario>(
     ModoCreacionContenidoUsuario.RESTRICTIVO
   );
+
+  // ---- fase-14-19: roles del grupo (vacío = el grupo no usa roles) ----
+  protected readonly roles = signal<RolGrupoDto[]>([]);
+
+  // ---- fase-14-21: turnos ----
+  /** Integrantes del grupo, para armar la secuencia de turnos. */
+  protected readonly usuariosDelGrupo = signal<UsuarioDto[]>([]);
+
+  /** Rotación de la actividad en edición; null = no rota. */
+  protected readonly turnoDeLaActividad = signal<TurnoActividadDto | null>(null);
 
   // ---- fase-14-17: plan del día ----
   protected readonly planDelDiaActivo = signal(false);
@@ -987,6 +1076,17 @@ export class ActividadesPage {
 
   protected abrirEditar(a: ActividadDto): void {
     this.editando.set(a);
+    // fase-14-21: la rotación se pide aparte (404 = la actividad no rota, que
+    // es lo normal). Falla en silencio: es un bloque accesorio del formulario.
+    this.turnoDeLaActividad.set(null);
+
+    if (a.tipoPuntaje === TipoPuntaje.OBLIGATORIA) {
+      this.api.obtenerTurno(a.id).subscribe({
+        next: (turno) => this.turnoDeLaActividad.set(turno),
+        error: () => this.turnoDeLaActividad.set(null),
+      });
+    }
+
     this.form = {
       nombre: a.nombre,
       descripcion: a.descripcion ?? '',
@@ -1003,6 +1103,7 @@ export class ActividadesPage {
       bonoJefePuntos: a.bonoJefePuntos,
       diasSemana: [...a.diasSemana],
       siempreVisible: a.siempreVisible,
+      rolesPermitidos: [...a.rolesPermitidos],
     };
     this.formAbierto.set(true);
   }
@@ -1014,6 +1115,25 @@ export class ActividadesPage {
     this.form.diasSemana = actuales.includes(valor)
       ? actuales.filter((dia) => dia !== valor)
       : [...actuales, valor];
+  }
+
+  /** fase-14-19: marca/desmarca un rol en el form (vacío = la ven todos). */
+  protected alternarRol(rolGrupoId: string): void {
+    const actuales = this.form.rolesPermitidos;
+
+    this.form.rolesPermitidos = actuales.includes(rolGrupoId)
+      ? actuales.filter((id) => id !== rolGrupoId)
+      : [...actuales, rolGrupoId];
+  }
+
+  /** Nombre y color de un rol, para los chips de la lista del catálogo. */
+  protected rolDe(rolGrupoId: string): RolGrupoDto | undefined {
+    return this.roles().find((rol) => rol.id === rolGrupoId);
+  }
+
+  /** fase-14-19: restringida a roles que hoy no tiene nadie (ver core/roles-grupo). */
+  protected sinNadieConEsosRoles(actividad: ActividadDto): boolean {
+    return sinIntegrantesConEsosRoles(actividad.rolesPermitidos, this.roles());
   }
 
   protected resumenDias(): string {
@@ -1105,6 +1225,9 @@ export class ActividadesPage {
       // fase-14-17: solo significa algo en una OPCIONAL individual; en cualquier
       // otro caso el backend lo fuerza a false igual.
       siempreVisible: !esEquipo && f.tipoPuntaje === TipoPuntaje.OPCIONAL && f.siempreVisible,
+      // fase-14-19: una tarea de equipo no se restringe por rol (el backend
+      // devolvería 400) — se manda vacío en vez de dejar que el form lo pida.
+      rolesPermitidos: esEquipo ? [] : [...f.rolesPermitidos],
       // Solo una OBLIGATORIA puede requerir confirmación; para OPCIONAL el
       // backend fuerza ASUME_HECHA igual (fase-14-08).
       comportamientoAlCierre:
@@ -1147,8 +1270,17 @@ export class ActividadesPage {
         this.nombresPorUsuario.set(
           Object.fromEntries(usuarios.map((u) => [u.id, u.nombre]))
         );
+        // fase-14-21: el armador de turnos necesita los DTO completos (el chip
+        // de rol del atajo «todos los del rol X» sale de ahí).
+        this.usuariosDelGrupo.set(usuarios);
       },
       error: () => undefined,
+    });
+    // fase-14-19: sin roles cargados el campo «Restringir a roles» no aparece,
+    // que es exactamente lo que corresponde en un grupo que no los usa.
+    this.identity.listarRolesGrupo(grupoId).subscribe({
+      next: (roles) => this.roles.set(roles),
+      error: () => this.roles.set([]),
     });
   }
 

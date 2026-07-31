@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import type { UsuarioDto } from '@dorado/shared-types';
+import type { RolGrupoDto, UsuarioDto } from '@dorado/shared-types';
 import { ConfirmDialogComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
@@ -42,6 +42,22 @@ import { mensajeDeError } from '../../core/api/errores';
               <div class="min-w-0 flex-1">
                 <p class="truncate font-semibold text-slate-900 dark:text-white">{{ u.nombre }}</p>
                 <p class="text-xs text-slate-400 dark:text-slate-500">&#64;{{ u.username }}</p>
+                <!-- fase-14-19: el rol se fija acá mismo, sin abrir nada -->
+                @if (roles().length > 0) {
+                  <select
+                    [ngModel]="u.rolGrupo?.id ?? ''"
+                    (ngModelChange)="cambiarRol(u, $event)"
+                    [name]="'rol-' + u.id"
+                    [disabled]="asignando() === u.id"
+                    [style.border-color]="u.rolGrupo?.colorHex"
+                    class="mt-1.5 w-full max-w-44 rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-200"
+                  >
+                    <option value="">Sin rol</option>
+                    @for (rol of roles(); track rol.id) {
+                      <option [value]="rol.id">{{ rol.nombre }}</option>
+                    }
+                  </select>
+                }
               </div>
               @if (u.estado === 'INACTIVO') {
                 <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-300">Inactivo</span>
@@ -144,11 +160,40 @@ export class UsuariosPage {
 
   protected nombreEdit = '';
 
+  /** fase-14-19: catálogo de roles ACTIVO del grupo; vacío = no se ofrece nada. */
+  protected readonly roles = signal<RolGrupoDto[]>([]);
+
+  /** id del participante cuyo rol se está guardando (deshabilita su selector). */
+  protected readonly asignando = signal<string | null>(null);
+
   constructor() {
     effect(() => {
       const g = this.grupoId();
       this.cargar(g);
     });
+  }
+
+  /**
+   * Asigna, cambia o quita el rol (fase-14-19). Un cambio = un PUT idempotente;
+   * la lista se refresca con la respuesta del servidor y no de forma optimista,
+   * porque el rol decide qué actividades ve el integrante y una pantalla que
+   * miente sobre eso es peor que una que tarda medio segundo.
+   */
+  protected cambiarRol(usuario: UsuarioDto, rolGrupoId: string): void {
+    this.asignando.set(usuario.id);
+    this.api
+      .asignarRolGrupo(this.grupoId(), usuario.id, { rolGrupoId: rolGrupoId || null })
+      .subscribe({
+        next: () => {
+          this.asignando.set(null);
+          this.cargar(this.grupoId());
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.asignando.set(null);
+          this.cargar(this.grupoId());
+        },
+      });
   }
 
   protected iniciales(nombre: string): string {
@@ -216,6 +261,13 @@ export class UsuariosPage {
         this.cargando.set(false);
       },
       error: () => this.cargando.set(false),
+    });
+
+    // Los roles van aparte y no bloquean la lista: si el grupo no usa roles, la
+    // pantalla queda exactamente como antes del ítem 19.
+    this.api.listarRolesGrupo(grupoId).subscribe({
+      next: (roles) => this.roles.set(roles),
+      error: () => this.roles.set([]),
     });
   }
 }

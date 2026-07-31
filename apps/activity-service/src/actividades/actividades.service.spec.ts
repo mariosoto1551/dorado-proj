@@ -4,8 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { EntitlementsDto, TenantContext } from '@dorado/shared-types';
 
 import type { BillingClientService } from '../clientes/billing-client.service';
+import type { IdentityClientService } from '../clientes/identity-client.service';
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
-import { LimitePlanAlcanzadoException } from '../comun/excepciones';
+import {
+  LimitePlanAlcanzadoException,
+  RestriccionRolSoloIndividualException,
+  RolGrupoInexistenteException,
+} from '../comun/excepciones';
 import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -46,6 +51,8 @@ const ACTIVIDAD_BASE: Actividad = {
   creadaPorUsuarioId: null,
   diasSemana: [],
   siempreVisible: false,
+  // fase-14-19: vacío = la ven todos (el default y el comportamiento previo).
+  rolesPermitidos: [],
   estado: 'ACTIVA',
   creadaPorTutorId: 'tutor-1',
   createdAt: new Date(),
@@ -79,6 +86,12 @@ interface OpcionesMock {
   entitlements?: EntitlementsDto | null;
   actividadesActuales?: number;
   existente?: Actividad | null;
+  /** fase-14-19: catálogo de roles que devuelve identity por REST interno. */
+  rolesDelGrupo?: Array<{ id: string; estado: 'ACTIVO' | 'INACTIVO' }>;
+  /** fase-14-19: rol del participante que consulta. */
+  rolDeUsuario?: string | null;
+  /** fase-14-19: filas que devuelve el listado del catálogo. */
+  filas?: Actividad[];
 }
 
 function crearServicio(opciones: OpcionesMock = {}) {
@@ -89,7 +102,7 @@ function crearServicio(opciones: OpcionesMock = {}) {
     );
   const actualizar = vi.fn().mockResolvedValue({ count: 1 });
   const buscarPrimera = vi.fn().mockResolvedValue(opciones.existente ?? null);
-  const listarFilas = vi.fn().mockResolvedValue([ACTIVIDAD_BASE]);
+  const listarFilas = vi.fn().mockResolvedValue(opciones.filas ?? [ACTIVIDAD_BASE]);
   const contar = vi.fn().mockResolvedValue(opciones.actividadesActuales ?? 0);
 
   const prisma = {
@@ -120,8 +133,14 @@ function crearServicio(opciones: OpcionesMock = {}) {
     publicarAccionAdministrativa: vi.fn(),
   } as unknown as EventosPublisherService;
 
+  // fase-14-19: el cruce REST hacia identity. Los espías permiten verificar que
+  // NO se llama cuando el catálogo no tiene restricciones (decisión 13).
+  const rolesDelGrupo = vi.fn().mockResolvedValue(opciones.rolesDelGrupo ?? []);
+  const rolDeUsuario = vi.fn().mockResolvedValue(opciones.rolDeUsuario ?? null);
+  const identity = { rolesDelGrupo, rolDeUsuario } as unknown as IdentityClientService;
+
   return {
-    servicio: new ActividadesService(prisma, billing, acceso, eventos),
+    servicio: new ActividadesService(prisma, billing, acceso, eventos, identity),
     crear,
     actualizar,
     buscarPrimera,
@@ -129,6 +148,8 @@ function crearServicio(opciones: OpcionesMock = {}) {
     contar,
     resolveEntitlements,
     asegurarAccesoEscritura,
+    rolesDelGrupo,
+    rolDeUsuario,
   };
 }
 
@@ -500,5 +521,171 @@ describe('ActividadesService — puntos por cumplir (fase-14-20)', () => {
     await servicio.editar(tenantDePrueba(), 'act-1', { nombre: 'Otro nombre' });
 
     expect(actualizar.mock.calls[0][0].data).toMatchObject({ puntosPorCumplir: 2 });
+  });
+});
+
+describe('ActividadesService — restricción por rol (spec fase-14-19, Parte B)', () => {
+  const ROLES = [
+    { id: '11111111-1111-4111-8111-111111111111', estado: 'ACTIVO' as const },
+    { id: '22222222-2222-4222-8222-222222222222', estado: 'INACTIVO' as const },
+  ];
+  const ROL_COCINA = ROLES[0].id;
+  const ROL_ARCHIVADO = ROLES[1].id;
+
+  it('guarda los roles válidos, sin duplicados', async () => {
+    const { servicio, crear } = crearServicio({ rolesDelGrupo: ROLES });
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ rolesPermitidos: [ROL_COCINA, ROL_COCINA] })
+    );
+
+    expect(crear.mock.calls[0][0].data).toMatchObject({ rolesPermitidos: [ROL_COCINA] });
+  });
+
+  it('400 ROL_GRUPO_INEXISTENTE si el rol no existe en el grupo', async () => {
+    const { servicio, crear } = crearServicio({ rolesDelGrupo: [] });
+
+    await expect(
+      servicio.crear(
+        tenantDePrueba(),
+        'grupo-1',
+        requestDePrueba({ rolesPermitidos: [ROL_COCINA] })
+      )
+    ).rejects.toBeInstanceOf(RolGrupoInexistenteException);
+    expect(crear).not.toHaveBeenCalled();
+  });
+
+  it('400 ROL_GRUPO_INEXISTENTE si el rol está archivado', async () => {
+    const { servicio } = crearServicio({ rolesDelGrupo: ROLES });
+
+    await expect(
+      servicio.crear(
+        tenantDePrueba(),
+        'grupo-1',
+        requestDePrueba({ rolesPermitidos: [ROL_ARCHIVADO] })
+      )
+    ).rejects.toBeInstanceOf(RolGrupoInexistenteException);
+  });
+
+  it('400 RESTRICCION_ROL_SOLO_INDIVIDUAL sobre una tarea de equipo (decisión 10)', async () => {
+    const { servicio } = crearServicio({ rolesDelGrupo: ROLES });
+
+    await expect(
+      servicio.crear(
+        tenantDePrueba(),
+        'grupo-1',
+        requestDePrueba({ alcance: 'EQUIPO', rolesPermitidos: [ROL_COCINA] })
+      )
+    ).rejects.toBeInstanceOf(RestriccionRolSoloIndividualException);
+  });
+
+  it('sin roles pedidos no consulta el catálogo de identity', async () => {
+    const { servicio, rolesDelGrupo } = crearServicio();
+
+    await servicio.crear(tenantDePrueba(), 'grupo-1', requestDePrueba());
+
+    expect(rolesDelGrupo).not.toHaveBeenCalled();
+  });
+
+  it('un PATCH que no toca el campo conserva la restricción existente', async () => {
+    const existente = { ...ACTIVIDAD_BASE, rolesPermitidos: [ROL_COCINA] } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente, rolesDelGrupo: ROLES });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', { nombre: 'Otro nombre' });
+
+    expect(actualizar.mock.calls[0][0].data).toMatchObject({
+      rolesPermitidos: [ROL_COCINA],
+    });
+  });
+
+  it('un PATCH con lista vacía la libera para todo el grupo', async () => {
+    const existente = { ...ACTIVIDAD_BASE, rolesPermitidos: [ROL_COCINA] } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente, rolesDelGrupo: ROLES });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', { rolesPermitidos: [] });
+
+    expect(actualizar.mock.calls[0][0].data).toMatchObject({ rolesPermitidos: [] });
+  });
+
+  it('pasar a alcance EQUIPO una actividad restringida falla (no la restringe a escondidas)', async () => {
+    const existente = { ...ACTIVIDAD_BASE, rolesPermitidos: [ROL_COCINA] } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente, rolesDelGrupo: ROLES });
+
+    await expect(
+      servicio.editar(tenantDePrueba(), 'act-1', { alcance: 'EQUIPO' })
+    ).rejects.toBeInstanceOf(RestriccionRolSoloIndividualException);
+    expect(actualizar).not.toHaveBeenCalled();
+  });
+});
+
+describe('ActividadesService — listado filtrado por rol (decisión 6)', () => {
+  const ROL_COCINA = '11111111-1111-4111-8111-111111111111';
+  const RESTRINGIDA = {
+    ...ACTIVIDAD_BASE,
+    id: 'act-restringida',
+    rolesPermitidos: [ROL_COCINA],
+  } as Actividad;
+
+  function tenantUsuario(): TenantContext {
+    return {
+      ...tenantDePrueba(),
+      rol: 'USUARIO',
+      principalId: 'usuario-1',
+      principalType: 'USUARIO',
+    } as TenantContext;
+  }
+
+  it('el integrante con el rol la ve', async () => {
+    const { servicio } = crearServicio({
+      filas: [ACTIVIDAD_BASE, RESTRINGIDA],
+      rolDeUsuario: ROL_COCINA,
+    });
+
+    const lista = await servicio.listar(tenantUsuario(), 'grupo-1', {});
+
+    expect(lista.map((actividad) => actividad.id)).toEqual(['act-1', 'act-restringida']);
+  });
+
+  it('el integrante de otro rol NO la ve', async () => {
+    const { servicio } = crearServicio({
+      filas: [ACTIVIDAD_BASE, RESTRINGIDA],
+      rolDeUsuario: '99999999-9999-4999-8999-999999999999',
+    });
+
+    const lista = await servicio.listar(tenantUsuario(), 'grupo-1', {});
+
+    expect(lista.map((actividad) => actividad.id)).toEqual(['act-1']);
+  });
+
+  it('el integrante SIN rol tampoco la ve', async () => {
+    const { servicio } = crearServicio({
+      filas: [ACTIVIDAD_BASE, RESTRINGIDA],
+      rolDeUsuario: null,
+    });
+
+    const lista = await servicio.listar(tenantUsuario(), 'grupo-1', {});
+
+    expect(lista.map((actividad) => actividad.id)).toEqual(['act-1']);
+  });
+
+  it('el Tutor las ve todas y no paga la llamada a identity', async () => {
+    const { servicio, rolDeUsuario } = crearServicio({
+      filas: [ACTIVIDAD_BASE, RESTRINGIDA],
+    });
+
+    const lista = await servicio.listar(tenantDePrueba(), 'grupo-1', {});
+
+    expect(lista).toHaveLength(2);
+    expect(rolDeUsuario).not.toHaveBeenCalled();
+  });
+
+  it('COSTO CERO: sin restricciones en el catálogo no se llama a identity (decisión 13)', async () => {
+    const { servicio, rolDeUsuario } = crearServicio({ filas: [ACTIVIDAD_BASE] });
+
+    await servicio.listar(tenantUsuario(), 'grupo-1', {});
+
+    expect(rolDeUsuario).not.toHaveBeenCalled();
   });
 });

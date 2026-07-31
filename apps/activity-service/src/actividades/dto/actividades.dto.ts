@@ -1,5 +1,6 @@
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -8,6 +9,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -113,6 +115,15 @@ export class CrearActividadRequest {
   @IsOptional()
   @IsBoolean()
   siempreVisible?: boolean;
+
+  // fase-14-19: ids de RolGrupo (identity) que pueden verla y registrarla.
+  // Vacío u omitido = la ven todos. El service valida que existan y estén
+  // ACTIVO en el grupo, y que la actividad sea INDIVIDUAL.
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  rolesPermitidos?: string[];
 }
 
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
@@ -195,6 +206,15 @@ export class EditarActividadRequest {
   @IsOptional()
   @IsBoolean()
   siempreVisible?: boolean;
+
+  // fase-14-19: ids de RolGrupo (identity) que pueden verla y registrarla.
+  // Vacío u omitido = la ven todos. El service valida que existan y estén
+  // ACTIVO en el grupo, y que la actividad sea INDIVIDUAL.
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  rolesPermitidos?: string[];
 }
 
 // GET /activity/grupos/:grupoId/actividades?estado= — solo tutores; para

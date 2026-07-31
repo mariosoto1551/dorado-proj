@@ -22,8 +22,8 @@
 | `ReporteMiembroCreado` | `activity.reporte_miembro_creado` | Activity Catalog | Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
 | `ActividadPropuestaCreada` | `activity.actividad_propuesta_creada` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
 | `ActividadPropuestaResuelta` | `activity.actividad_propuesta_resuelta` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
-| `SesionAbierta` | `session.sesion_abierta` | Session/Section | Notification | EXTENSIÓN |
-| `SesionCerrada` | `session.sesion_cerrada` | Session/Section | Scoring (si `evaluarUmbralesEn = CADA_SESION`), Notification | EXTENSIÓN |
+| `SesionAbierta` | `session.sesion_abierta` | Session/Section | Notification, **Activity** (fase-14-21: sella el turno rotativo del día) | EXTENSIÓN |
+| `SesionCerrada` | `session.sesion_cerrada` | Session/Section | Scoring (si `evaluarUmbralesEn = CADA_SESION`), Notification, Activity (fase-14-08: castigo automático) | EXTENSIÓN |
 | `SeccionAbierta` | `session.seccion_abierta` | Session/Section | Notification | EXTENSIÓN |
 | `SeccionEntroEvaluacion` | `session.seccion_entro_evaluacion` | Session/Section | Scoring, Notification | EXTENSIÓN |
 | `SeccionCerrada` | `session.seccion_cerrada` | Session/Section | Scoring, Rewards, Notification | MÍNIMO |

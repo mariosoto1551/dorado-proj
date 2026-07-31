@@ -88,6 +88,13 @@ export interface ActividadDto {
    * `planDelDiaActivo` en el Grupo, y solo en OPCIONAL + INDIVIDUAL.
    */
   siempreVisible: boolean;
+  /**
+   * fase-14-19: ids de `RolGrupo` (identity) que pueden verla y registrarla.
+   * Vacío = la ven todos, que es el default. Un participante cuyo rol no esté en
+   * la lista NO la ve (decisión 6: se oculta, no se muestra deshabilitada).
+   * Solo aplica a actividades INDIVIDUAL del catálogo del Tutor.
+   */
+  rolesPermitidos: string[];
   estado: 'ACTIVA' | 'ARCHIVADA';
 }
 
@@ -196,6 +203,12 @@ export interface MiEstadoActividadHoyDto {
    * de la plantilla — donde el primer olvido escondería algo que debe verse.
    */
   enPlan: boolean;
+  /**
+   * fase-14-21: a quién le toca hoy esta obligatoria rotativa. `null` = la
+   * actividad no rota (el caso de todas las que existían antes del ítem), y
+   * entonces es de todos como siempre.
+   */
+  turno: TurnoDeHoyDto | null;
 }
 
 export interface MiEstadoHoyDto {
@@ -539,4 +552,98 @@ export interface HistorialSesionDto {
   eventos: EventoHistorialDto[];
   /** null cuando no hay más páginas. */
   cursorSiguiente: string | null;
+}
+
+// --- Turnos rotativos (fase-14-21) ---
+//
+// El patrón es una SECUENCIA LITERAL, no un reparto parejo: `[José, Luciana,
+// José, Alejandra]` son 4 posiciones y 3 personas, y José recibe 2 de cada 4
+// turnos. La repetición vive en los datos, no en el algoritmo.
+
+export enum ModoTurno {
+  /** Se recorre la lista tal como la escribió el Tutor. */
+  ORDEN_FIJO = 'ORDEN_FIJO',
+  /** Se barajan las POSICIONES al empezar cada vuelta, no las personas. */
+  AZAR = 'AZAR',
+}
+
+export enum FrecuenciaTurno {
+  SESION = 'SESION',
+  SECCION = 'SECCION',
+}
+
+/** Por qué una posición no puede recibir el turno (se saltea al sellar). */
+export enum AvisoPosicionTurno {
+  YA_NO_ESTA_EN_EL_GRUPO = 'YA_NO_ESTA_EN_EL_GRUPO',
+  SIN_EL_ROL = 'SIN_EL_ROL',
+}
+
+export interface PosicionTurnoDto {
+  orden: number;
+  usuarioId: string;
+  nombre: string;
+  /** null = la posición está en condiciones de recibir el turno. */
+  aviso: AvisoPosicionTurno | null;
+}
+
+/** Lo que ve el participante en su lista (fase-14-21, decisión 5). */
+export interface TurnoDeHoyDto {
+  /** null = hoy no le toca a nadie (todas las posiciones quedaron inválidas). */
+  usuarioIdAsignado: string | null;
+  nombreAsignado: string | null;
+  /** false ⇒ la tarjeta se muestra SIN botón, con «hoy le toca a Ana». */
+  esMio: boolean;
+}
+
+export interface AsignacionTurnoDto {
+  actividadId: string;
+  usuarioId: string;
+  nombre: string;
+  vueltaNumero: number;
+  indice: number;
+  /** No null si el Tutor lo reasignó a mano (decisión 8). */
+  usuarioOriginalId: string | null;
+  nombreOriginal: string | null;
+  reasignadoEn: string | null;
+  motivoReasignacion: string | null;
+}
+
+export interface TurnoActividadDto {
+  actividadId: string;
+  modo: ModoTurno;
+  frecuencia: FrecuenciaTurno;
+  activo: boolean;
+  /** La secuencia tal como la definió el Tutor, en orden. */
+  posiciones: PosicionTurnoDto[];
+  /** Turno vigente del ámbito actual; null si todavía no se selló ninguno. */
+  asignacionVigente: AsignacionTurnoDto | null;
+  /**
+   * Los próximos turnos previstos de la vuelta en curso. Es una PREVISIÓN: la
+   * vuelta ya está sellada, pero un integrante que se va antes de su día hace
+   * que se saltee esa posición (decisión 14).
+   */
+  proximos: Array<{ usuarioId: string; nombre: string }>;
+}
+
+export interface ConfigurarTurnoRequest {
+  modo: ModoTurno;
+  frecuencia: FrecuenciaTurno;
+  activo?: boolean;
+  /** El ORDEN del array ES la secuencia. Se admiten repetidos a propósito. */
+  posiciones: Array<{ usuarioId: string }>;
+}
+
+export type ConfigurarTurnoResponse = TurnoActividadDto;
+
+export interface ReasignarTurnoRequest {
+  usuarioId: string;
+  motivo?: string;
+}
+
+/** Fila de `GET /activity/grupos/:grupoId/turnos-de-hoy` (panel del Tutor). */
+export interface TurnoDeHoyDelGrupoDto {
+  actividadId: string;
+  actividadNombre: string;
+  frecuencia: FrecuenciaTurno;
+  asignacion: AsignacionTurnoDto | null;
 }

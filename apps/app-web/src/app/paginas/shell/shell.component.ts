@@ -118,6 +118,7 @@ export class ShellComponent implements OnInit, OnDestroy {
         items: [
           { ruta: `${base}/usuarios`, etiqueta: 'Usuarios', icono: 'users' },
           { ruta: `${base}/equipos`, etiqueta: 'Equipos', icono: 'shield' },
+          { ruta: `${base}/roles`, etiqueta: 'Roles', icono: 'tag' },
           { ruta: `${base}/reportes`, etiqueta: 'Reportes', icono: 'flag' },
           { ruta: `${base}/tutores`, etiqueta: 'Tutores', icono: 'shield', soloAdmin: true },
           { ruta: `${base}/invitaciones`, etiqueta: 'Invitaciones', icono: 'link' },

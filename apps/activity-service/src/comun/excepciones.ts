@@ -307,3 +307,128 @@ export class NotaDeOtroTutorException extends DomainException {
     super('NOTA_DE_OTRO_TUTOR', 'Solo quien escribió la nota puede borrarla', 403);
   }
 }
+
+// --- Roles del participante dentro del Grupo (fase-14-19) ---
+
+export class ActividadNoEsDeTuRolException extends DomainException {
+  constructor() {
+    // La pantalla ya no la muestra (decisión 6: se oculta por completo), pero el
+    // servidor es el que decide — un cliente con la lista vieja en caché no
+    // puede colar el registro.
+    super(
+      'ACTIVIDAD_NO_ES_DE_TU_ROL',
+      'Esta actividad está asignada a otro rol del grupo',
+      403
+    );
+  }
+}
+
+export class ActividadNoEsDeSuRolException extends DomainException {
+  constructor() {
+    // La misma regla vista desde el Tutor: no puede registrarle un "no hizo" ni
+    // una marca roja al participante por algo que para él no existe.
+    super(
+      'ACTIVIDAD_NO_ES_DE_SU_ROL',
+      'La actividad está asignada a un rol que el participante no tiene',
+      400
+    );
+  }
+}
+
+export class RolGrupoInexistenteException extends DomainException {
+  constructor() {
+    super(
+      'ROL_GRUPO_INEXISTENTE',
+      'Alguno de los roles indicados no está activo en este grupo',
+      400
+    );
+  }
+}
+
+export class RestriccionRolSoloIndividualException extends DomainException {
+  constructor() {
+    // Decisión 10 de la spec: una tarea de equipo la completa el jefe en nombre
+    // del equipo — cruzar rol funcional con membresía de equipo abre preguntas
+    // que este ítem no necesita responder.
+    super(
+      'RESTRICCION_ROL_SOLO_INDIVIDUAL',
+      'Solo una actividad individual puede restringirse por rol',
+      400
+    );
+  }
+}
+
+export class ActividadPersonalSinRolesException extends DomainException {
+  constructor() {
+    // Decisión 11: su dueño ya es una sola persona, restringirla no significa nada.
+    super(
+      'ACTIVIDAD_PERSONAL_SIN_ROLES',
+      'Una actividad personal de un integrante no se restringe por rol',
+      400
+    );
+  }
+}
+
+// --- Turnos rotativos (fase-14-21) ---
+
+export class TurnoSoloObligatoriaException extends DomainException {
+  constructor() {
+    // Decisión 11 de la spec: rotar una opcional no tiene consecuencia (nadie
+    // pierde nada por no hacerla), así que la rotación no significa nada ahí.
+    super('TURNO_SOLO_OBLIGATORIA', 'Solo una actividad OBLIGATORIA puede rotar por turnos', 400);
+  }
+}
+
+export class TurnoSoloIndividualException extends DomainException {
+  constructor() {
+    // Una tarea de equipo ya tiene su jefe: cruzar las dos formas de "a quién le
+    // toca" abre preguntas que este ítem no necesita responder.
+    super('TURNO_SOLO_INDIVIDUAL', 'Una tarea de equipo no rota por turnos', 400);
+  }
+}
+
+export class SecuenciaVaciaException extends DomainException {
+  constructor() {
+    super('SECUENCIA_VACIA', 'La secuencia de turnos necesita al menos un integrante', 400);
+  }
+}
+
+export class TurnoNoConfiguradoException extends DomainException {
+  constructor() {
+    super('TURNO_NO_CONFIGURADO', 'La actividad no tiene turnos configurados', 404);
+  }
+}
+
+export class UsuarioNoEsDelGrupoException extends DomainException {
+  constructor() {
+    // La secuencia solo admite integrantes del grupo AL GUARDAR; después pueden
+    // irse, y ahí manda la decisión 14 (la lista no se edita sola, se saltea).
+    super('USUARIO_NO_ES_DEL_GRUPO', 'Ese participante no pertenece a este grupo', 400);
+  }
+}
+
+export class SinTurnoVigenteException extends DomainException {
+  constructor() {
+    // Pasa cuando la actividad no corre hoy (días programados del #11) o cuando
+    // ninguna posición de la vuelta quedó válida (decisión 19).
+    super('SIN_TURNO_VIGENTE', 'Hoy no hay ningún turno asignado para esta actividad', 409);
+  }
+}
+
+export class NoEsTuTurnoException extends DomainException {
+  constructor(nombreAsignado: string | null) {
+    super(
+      'NO_ES_TU_TURNO',
+      nombreAsignado ? `Hoy le toca a ${nombreAsignado}` : 'Hoy no te toca esta actividad',
+      403
+    );
+  }
+}
+
+export class NoEsSuTurnoException extends DomainException {
+  constructor() {
+    // La misma regla vista desde el Tutor: no puede confirmar ni castigar en
+    // nombre de alguien a quien hoy no le tocaba (decisiones 6 y 17).
+    super('NO_ES_SU_TURNO', 'Hoy no le toca a ese integrante', 400);
+  }
+}

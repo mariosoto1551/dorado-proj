@@ -32,6 +32,10 @@ interface OpcionesBd {
   actividades: Actividad[];
   registros?: Partial<RegistroActividad>[];
   procesados?: string[];
+  /** fase-14-21: rotaciones activas del grupo. */
+  turnos?: Fila[];
+  /** fase-14-21: a quién le tocó cada actividad en el ámbito de la sesión. */
+  asignaciones?: Fila[];
 }
 
 function crearBd(opciones: OpcionesBd) {
@@ -45,6 +49,16 @@ function crearBd(opciones: OpcionesBd) {
     actividad: {
       findMany: async ({ where }: { where: Fila }) =>
         opciones.actividades.filter((actividad) => matchea(actividad as Fila, where)),
+    },
+    // fase-14-21: con `turnos` vacío, toda obligatoria sigue siendo "de todos" —
+    // que es el comportamiento previo al ítem y el de casi todos estos tests.
+    turnoActividad: {
+      findMany: async ({ where }: { where: Fila }) =>
+        (opciones.turnos ?? []).filter((turno) => matchea(turno, where)),
+    },
+    asignacionTurno: {
+      findMany: async ({ where }: { where: Fila }) =>
+        (opciones.asignaciones ?? []).filter((asignacion) => matchea(asignacion, where)),
     },
     registroActividad: {
       findMany: async ({ where }: { where: Fila }) =>
@@ -117,10 +131,16 @@ function envelopeCierre(
   };
 }
 
-function crearServicio(bd: ReturnType<typeof crearBd>, usuarios: UsuarioDto[]) {
+function crearServicio(
+  bd: ReturnType<typeof crearBd>,
+  usuarios: UsuarioDto[],
+  // fase-14-19: quién tiene qué rol. Vacío = nadie tiene rol asignado.
+  rolesAsignados: Array<{ usuarioId: string; rolGrupoId: string | null }> = []
+) {
   const publicados: EventoAPublicar<unknown>[] = [];
   const identity = {
     usuariosDelGrupo: vi.fn().mockResolvedValue(usuarios),
+    rolesAsignados: vi.fn().mockResolvedValue(rolesAsignados),
     // fase-14-11: la timezone del Grupo decide qué día fue la Sesión.
     obtenerGrupo: vi.fn().mockResolvedValue({
       id: 'grupo-1',
@@ -310,5 +330,195 @@ describe('CierreService — obligatorias programadas (fase-14-11)', () => {
 
     expect(bd.registros).toHaveLength(1);
     expect(bd.registros[0]).toMatchObject({ actividadId: 'obl-1' });
+  });
+});
+
+describe('CierreService — el castigo respeta el rol del participante (fase-14-19)', () => {
+  const ROL_COCINA = 'rol-cocina';
+  const ROL_LIMPIEZA = 'rol-limpieza';
+
+  const OBLIGATORIA_DE_COCINA = () =>
+    actividadDePrueba({
+      id: 'obl-cocina',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 10,
+      rolesPermitidos: [ROL_COCINA],
+    });
+
+  it('solo castiga a quien tiene el rol — el resto del grupo no recibe nada', async () => {
+    // Es EL test del ítem: sin el filtro, Luis (limpieza) y Sol (sin rol)
+    // terminarían la sesión con -10 por no hacer algo que su lista nunca mostró,
+    // y no lo delataría ninguna pantalla.
+    const bd = crearBd({ actividades: [OBLIGATORIA_DE_COCINA()] });
+    const { servicio, publicados } = crearServicio(
+      bd,
+      [usuario('ana'), usuario('luis'), usuario('sol')],
+      [
+        { usuarioId: 'ana', rolGrupoId: ROL_COCINA },
+        { usuarioId: 'luis', rolGrupoId: ROL_LIMPIEZA },
+        { usuarioId: 'sol', rolGrupoId: null },
+      ]
+    );
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(1);
+    expect(bd.registros[0]).toMatchObject({ usuarioId: 'ana', valorPuntosSnapshot: -10 });
+    expect(publicados).toHaveLength(1);
+  });
+
+  it('una obligatoria sin restricción sigue castigando a todos', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE()] });
+    const { servicio } = crearServicio(
+      bd,
+      [usuario('ana'), usuario('luis')],
+      [{ usuarioId: 'ana', rolGrupoId: ROL_COCINA }]
+    );
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(2);
+  });
+
+  it('COSTO CERO: sin obligatorias restringidas no consulta los roles (decisión 13)', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE()] });
+    const { servicio, identity } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(identity.rolesAsignados).not.toHaveBeenCalled();
+  });
+
+  it('nadie con el rol = ningún castigo (caso del rol archivado, decisión 12)', async () => {
+    const bd = crearBd({ actividades: [OBLIGATORIA_DE_COCINA()] });
+    const { servicio, publicados } = crearServicio(
+      bd,
+      [usuario('ana'), usuario('luis')],
+      [
+        { usuarioId: 'ana', rolGrupoId: null },
+        { usuarioId: 'luis', rolGrupoId: null },
+      ]
+    );
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(0);
+    expect(publicados).toHaveLength(0);
+  });
+});
+
+describe('CierreService — el castigo alcanza SOLO al del turno (fase-14-21)', () => {
+  const OBLIGATORIA_ROTATIVA = () =>
+    actividadDePrueba({
+      id: 'obl-basura',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 10,
+    });
+
+  const TURNO = { actividadId: 'obl-basura', grupoId: 'grupo-1', activo: true };
+
+  function asignacionA(usuarioId: string) {
+    return { actividadId: 'obl-basura', ambitoId: 'sesion-1', usuarioId };
+  }
+
+  it('con turno activo, solo el asignado recibe el NO_HIZO', async () => {
+    // EL test del ítem: sin esto, José y Alejandra reciben −10 por una tarea que
+    // su pantalla les mostró sin botón, y no lo delata ninguna interfaz.
+    const bd = crearBd({
+      actividades: [OBLIGATORIA_ROTATIVA()],
+      turnos: [TURNO],
+      asignaciones: [asignacionA('luciana')],
+    });
+    const { servicio, publicados } = crearServicio(bd, [
+      usuario('jose'),
+      usuario('luciana'),
+      usuario('alejandra'),
+    ]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(1);
+    expect(bd.registros[0]).toMatchObject({ usuarioId: 'luciana', valorPuntosSnapshot: -10 });
+    expect(publicados).toHaveLength(1);
+  });
+
+  it('si el asignado YA confirmó, no se castiga a nadie', async () => {
+    const bd = crearBd({
+      actividades: [OBLIGATORIA_ROTATIVA()],
+      turnos: [TURNO],
+      asignaciones: [asignacionA('luciana')],
+      registros: [
+        {
+          organizacionId: 'org-1',
+          grupoId: 'grupo-1',
+          usuarioId: 'luciana',
+          actividadId: 'obl-basura',
+          sesionId: 'sesion-1',
+          tipo: 'COMPLETADA',
+        },
+      ],
+    });
+    const { servicio } = crearServicio(bd, [usuario('jose'), usuario('luciana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    const nuevos = bd.registros.filter((fila) => fila['registradoPorId'] === 'SYSTEM');
+    expect(nuevos).toHaveLength(0);
+  });
+
+  it('rota pero hoy no se selló turno: no se castiga a NADIE (decisiones 9 y 19)', async () => {
+    // Pasa cuando el día no le tocaba a la actividad (#11) o cuando ninguna
+    // posición de la vuelta quedó válida.
+    const bd = crearBd({
+      actividades: [OBLIGATORIA_ROTATIVA()],
+      turnos: [TURNO],
+      asignaciones: [],
+    });
+    const { servicio, publicados } = crearServicio(bd, [usuario('jose'), usuario('luciana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(0);
+    expect(publicados).toHaveLength(0);
+  });
+
+  it('una obligatoria SIN rotación sigue castigando a todo el grupo', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE()], turnos: [], asignaciones: [] });
+    const { servicio } = crearServicio(bd, [usuario('jose'), usuario('luciana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(2);
+  });
+
+  it('el turno APAGADO devuelve la obligatoria a «es de todos»', async () => {
+    const bd = crearBd({
+      actividades: [OBLIGATORIA_ROTATIVA()],
+      // `activo: false` ⇒ el where del service no lo trae.
+      turnos: [{ ...TURNO, activo: false }],
+      asignaciones: [asignacionA('luciana')],
+    });
+    const { servicio } = crearServicio(bd, [usuario('jose'), usuario('luciana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(2);
+  });
+
+  it('el castigo sigue al REASIGNADO, no a quien le tocaba originalmente', async () => {
+    const bd = crearBd({
+      actividades: [OBLIGATORIA_ROTATIVA()],
+      turnos: [TURNO],
+      // El tutor pasó el turno de Luciana a José; la fila guarda el original.
+      asignaciones: [{ ...asignacionA('jose'), usuarioOriginalId: 'luciana' }],
+    });
+    const { servicio } = crearServicio(bd, [usuario('jose'), usuario('luciana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(1);
+    expect(bd.registros[0]).toMatchObject({ usuarioId: 'jose' });
   });
 });

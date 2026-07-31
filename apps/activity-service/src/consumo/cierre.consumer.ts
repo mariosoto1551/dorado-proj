@@ -9,6 +9,7 @@ import {
 } from '@dorado/shared-events';
 import { correlationStorage } from '@dorado/shared-logging';
 
+import { SelladoTurnosService } from '../turnos/sellado-turnos.service';
 import { CierreService } from './cierre.service';
 
 /** Forma mínima del mensaje AMQP crudo necesaria para el manejo de errores. */
@@ -35,23 +36,33 @@ const OPCIONES_COLA = {
 export class CierreConsumer {
   private readonly logger = new Logger(CierreConsumer.name);
 
-  constructor(private readonly cierre: CierreService) {}
+  constructor(
+    private readonly cierre: CierreService,
+    private readonly sellado: SelladoTurnosService
+  ) {}
 
   @RabbitSubscribe({
     exchange: EXCHANGE_DORADO_EVENTS,
-    routingKey: [ROUTING_KEYS.SESION_CERRADA],
+    // fase-14-21: la misma cola pasa a escuchar también la APERTURA, para sellar
+    // el turno del día. Se suma la routing key al binding existente — sin cola
+    // nueva y sin cambiar las opciones, así que no hay nada que redeclarar.
+    routingKey: [ROUTING_KEYS.SESION_CERRADA, ROUTING_KEYS.SESION_ABIERTA],
     queue: 'activity.q.sesiones',
     queueOptions: OPCIONES_COLA,
   })
-  async onSesionCerrada(
+  async onEventoDeSesion(
     envelope: EventEnvelope<SesionEventoPayload>,
     mensaje: MensajeAmqp
   ): Promise<Nack | undefined> {
+    const esApertura = envelope.eventType === 'SesionAbierta';
+
     try {
-      // Scope de correlación del evento entrante (ADR-00 §5): los NoHizo que
-      // salgan de acá comparten el correlationId del SesionCerrada originante.
+      // Scope de correlación del evento entrante (ADR-00 §5): lo que salga de
+      // acá comparte el correlationId del evento de sesión originante.
       await correlationStorage.run({ correlationId: envelope.correlationId }, () =>
-        this.cierre.procesarSesionCerrada(envelope)
+        esApertura
+          ? this.sellado.procesarSesionAbierta(envelope)
+          : this.cierre.procesarSesionCerrada(envelope)
       );
 
       return undefined;
@@ -59,7 +70,7 @@ export class CierreConsumer {
       const reintentar = !mensaje.fields.redelivered;
 
       this.logger.error(
-        `Error procesando SesionCerrada ${envelope.eventId} (correlationId ${envelope.correlationId}) — ${
+        `Error procesando ${envelope.eventType} ${envelope.eventId} (correlationId ${envelope.correlationId}) — ${
           reintentar ? 'reintentando' : 'enviando a activity.dlq'
         }: ${error instanceof Error ? error.stack : String(error)}`
       );

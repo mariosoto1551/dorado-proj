@@ -121,3 +121,39 @@ export class JefeNoEsMiembroException extends DomainException {
     super('JEFE_NO_ES_MIEMBRO', 'El nuevo jefe debe ser un integrante del equipo', 400);
   }
 }
+
+// --- Roles del participante dentro del Grupo (fase-14-19) ---
+
+export class RolGrupoNoEncontradoException extends DomainException {
+  constructor() {
+    super('ROL_GRUPO_NO_ENCONTRADO', 'El rol no existe', 404);
+  }
+}
+
+export class RolGrupoDuplicadoException extends DomainException {
+  constructor() {
+    // Se compara normalizado (trim + minúsculas): sin esto "Cocina" y "cocina"
+    // conviven y nadie entiende cuál es cuál en el selector.
+    super('ROL_GRUPO_DUPLICADO', 'Ya existe un rol con ese nombre en este grupo', 409);
+  }
+}
+
+export class RolGrupoInexistenteException extends DomainException {
+  constructor() {
+    // Distinta de NO_ENCONTRADO: acá el rol puede existir pero no ser ACTIVO
+    // de ESTE grupo — asignarlo sería cruzar grupos (regla 3).
+    super('ROL_GRUPO_INEXISTENTE', 'Ese rol no está activo en este grupo', 400);
+  }
+}
+
+export class UsuarioNoEsDelGrupoException extends DomainException {
+  constructor() {
+    super('USUARIO_NO_ES_DEL_GRUPO', 'El participante no pertenece a este grupo', 404);
+  }
+}
+
+export class ColorInvalidoException extends DomainException {
+  constructor() {
+    super('COLOR_INVALIDO', 'El color debe tener el formato #RRGGBB', 400);
+  }
+}

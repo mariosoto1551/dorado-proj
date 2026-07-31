@@ -83,6 +83,7 @@ model Grupo {
   usuarioGrupos  UsuarioGrupo[]
   invitaciones   Invitacion[]
   equipos        Equipo[]
+  rolesGrupo     RolGrupo[]
 
   @@index([organizacionId])
 }
@@ -150,8 +151,45 @@ model UsuarioGrupo {
   grupoId   String
   grupo     Grupo    @relation(fields: [grupoId], references: [id])
   createdAt DateTime @default(now())
+  // fase-14-19: rol funcional del participante EN ESTE grupo. null = sin rol,
+  // que es el default y el comportamiento previo al ítem 19 (migración
+  // retro-compatible). Es un CAMPO y no una tabla de unión a propósito
+  // (decisión 9 de la spec): con un solo rol por participante, el invariante lo
+  // garantiza el esquema en vez de la lógica de aplicación — al revés de lo que
+  // pasó con "un solo JEFE por equipo" en fase-14-09.
+  rolGrupoId String?
+  rolGrupo   RolGrupo? @relation(fields: [rolGrupoId], references: [id])
 
   @@unique([usuarioId, grupoId])
+  @@index([grupoId])
+  @@index([rolGrupoId])
+}
+
+// Rol funcional de un participante DENTRO de un Grupo (fase-14-19). Nada que ver
+// con el `Rol` de plataforma de shared-types (TUTOR/USUARIO/ORG_ADMIN/
+// PLATFORM_ADMIN): esto es "cocina", "mascotas", "limpieza" — etiquetas que
+// define el Tutor de cada grupo para restringir qué actividades ve cada uno.
+// Espejo conceptual de Equipo, un escalón más simple: sin miembros propios, la
+// pertenencia vive como campo de UsuarioGrupo.
+model RolGrupo {
+  id             String         @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  grupo          Grupo          @relation(fields: [grupoId], references: [id])
+  nombre         String
+  // Color de la etiqueta, "#RRGGBB". Mismo criterio que UmbralZona.colorHex
+  // (Fase 7): el frontend NUNCA lo hardcodea, lo lee de la API.
+  colorHex       String
+  // reusa EstadoCuenta (ACTIVO/INACTIVO); INACTIVO = archivado. No hay borrado
+  // físico: activity guarda ids de rol sin FK (regla 2) y borrarlos dejaría
+  // referencias colgadas imposibles de explicar en una pantalla.
+  estado         EstadoCuenta   @default(ACTIVO)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  asignaciones   UsuarioGrupo[]
+
+  @@unique([grupoId, nombre])
+  @@index([organizacionId])
   @@index([grupoId])
 }
 

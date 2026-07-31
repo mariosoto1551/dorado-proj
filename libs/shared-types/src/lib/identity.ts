@@ -53,6 +53,12 @@ export interface UsuarioDto {
   avatarId: string;
   estado: 'ACTIVO' | 'INACTIVO';
   createdAt: string;
+  /**
+   * Rol funcional dentro del grupo de `grupoId` (fase-14-19). Solo viaja cuando
+   * el DTO se pide en contexto de un grupo — es un dato POR GRUPO, igual que
+   * `grupoId`. `null` = sin rol, que es el default de todo participante.
+   */
+  rolGrupo?: RolGrupoEtiquetaDto | null;
 }
 
 export interface InvitacionDto {
@@ -78,6 +84,12 @@ export interface EquipoMiembroDto {
   nombre: string;
   avatarId: string;
   rol: RolEquipoMiembro;
+  /**
+   * fase-14-19: rol funcional en el grupo (`RolGrupo`), para el chip junto al
+   * nombre. Ojo con la vecindad: `rol` de arriba es JEFE/MIEMBRO del equipo,
+   * esto es "cocina"/"mascotas". Son dos cosas distintas.
+   */
+  rolGrupo?: RolGrupoEtiquetaDto | null;
 }
 
 export interface EquipoDto {
@@ -130,4 +142,70 @@ export interface EquipoInternoDto {
   estado: 'ACTIVO' | 'INACTIVO';
   jefeUsuarioId: string;
   miembros: Array<{ usuarioId: string; rol: RolEquipoMiembro }>;
+}
+
+// --- Roles del participante dentro del Grupo (fase-14-19) ---
+//
+// OJO con el nombre: `RolGrupo` NO es el `Rol` de plataforma de auth.ts
+// (TUTOR/USUARIO/ORG_ADMIN/PLATFORM_ADMIN). Esto es una etiqueta funcional que
+// define el Tutor de cada grupo ("cocina", "mascotas") y que sirve para
+// restringir qué actividades ve cada participante. Nunca abreviar a `Rol`.
+
+/** Forma mínima para pintar el chip junto al nombre del participante. */
+export interface RolGrupoEtiquetaDto {
+  id: string;
+  nombre: string;
+  /** "#RRGGBB" — el frontend NUNCA lo hardcodea, lo lee de acá. */
+  colorHex: string;
+}
+
+export interface RolGrupoDto extends RolGrupoEtiquetaDto {
+  grupoId: string;
+  estado: 'ACTIVO' | 'INACTIVO';
+  /** Cuántos participantes lo tienen asignado. Solo para TUTOR/ORG_ADMIN. */
+  cantidadAsignados?: number;
+  createdAt: string;
+}
+
+export interface CrearRolGrupoRequest {
+  nombre: string;
+  colorHex: string;
+}
+
+export type CrearRolGrupoResponse = RolGrupoDto;
+
+export interface ActualizarRolGrupoRequest {
+  nombre?: string;
+  colorHex?: string;
+  /** INACTIVO = archivado; archivar DESASIGNA a todos sus participantes. */
+  estado?: 'ACTIVO' | 'INACTIVO';
+}
+
+/** `null` quita el rol. Un participante tiene un solo rol por grupo. */
+export interface AsignarRolGrupoRequest {
+  rolGrupoId: string | null;
+}
+
+/**
+ * Catálogo de roles de un grupo por REST interno (fase-14-19): lo consume
+ * activity para validar `Actividad.rolesPermitidos` al crear/editar. Incluye
+ * archivados — un registro viejo igual tiene que poder mostrar el nombre.
+ */
+export interface RolGrupoInternoDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  nombre: string;
+  colorHex: string;
+  estado: 'ACTIVO' | 'INACTIVO';
+}
+
+/**
+ * Quién tiene qué rol en un grupo (fase-14-19). Es el payload que entra al
+ * camino caliente (`mi-estado-hoy`, plan del día, registro, cierre de sesión),
+ * así que se mantiene deliberadamente mínimo: dos ids por participante.
+ */
+export interface RolAsignadoDto {
+  usuarioId: string;
+  rolGrupoId: string | null;
 }

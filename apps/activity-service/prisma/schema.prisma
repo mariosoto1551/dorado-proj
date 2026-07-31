@@ -124,6 +124,10 @@ model Actividad {
   // elija. Solo relevante con `planDelDiaActivo`; default false = se elige,
   // que con el modo apagado da igual (comportamiento previo intacto).
   siempreVisible             Boolean          @default(false)
+  // fase-14-19: ids de RolGrupo (identity) que pueden verla y registrarla. SIN
+  // FK: son de otra base (regla 2), se validan por REST interno al escribir.
+  // Vacío = la ven todos, que es el default y el comportamiento previo al ítem.
+  rolesPermitidos            String[]         @default([])
   estado                     EstadoCatalogo   @default(ACTIVA)
   // fase-14-10: default TUTOR + autor nulo ⇒ toda actividad preexistente
   // conserva el comportamiento actual (migración retro-compatible).
@@ -409,4 +413,101 @@ model EventoProcesado {
   eventId     String   @id
   consumidor  String
   procesadoEn DateTime @default(now())
+}
+
+// ---- Turnos rotativos (fase-14-21) ----
+
+enum ModoTurno {
+  ORDEN_FIJO // se recorre la lista tal como la escribió el Tutor
+  AZAR       // se barajan las POSICIONES al empezar cada vuelta (decisión 13)
+}
+
+enum FrecuenciaTurno {
+  SESION  // rota cada día
+  SECCION // rota cada semana
+}
+
+// Configuración de rotación de UNA actividad obligatoria (fase-14-21): a quién
+// le toca hacerla hoy. Mutable — es configuración del catálogo, no ledger.
+// `Actividad` NO cambia: toda actividad existente simplemente no tiene fila acá
+// y se comporta igual que antes (retro-compatible sin columnas nuevas).
+model TurnoActividad {
+  id             String          @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  // 1:1 con la actividad: una actividad tiene una sola rotación.
+  actividadId    String          @unique
+  modo           ModoTurno       @default(ORDEN_FIJO)
+  frecuencia     FrecuenciaTurno @default(SESION)
+  activo         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  posiciones     PosicionTurno[]
+  vueltas        VueltaTurno[]
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+// Una posición de la secuencia. SIN unique sobre usuarioId a propósito
+// (decisión 12): [José, Luciana, José, Alejandra] son 4 posiciones y 3 personas
+// — la repetición es el punto del ítem, no un error de carga.
+model PosicionTurno {
+  id               String         @id @default(uuid())
+  turnoActividadId String
+  turnoActividad   TurnoActividad @relation(fields: [turnoActividadId], references: [id], onDelete: Cascade)
+  orden            Int
+  usuarioId        String
+
+  @@unique([turnoActividadId, orden])
+  @@index([turnoActividadId])
+}
+
+// La permutación SELLADA de una vuelta (decisión 15). Se escribe una vez, al
+// empezarla, y no se toca: editar la secuencia afecta a la vuelta SIGUIENTE.
+// En ORDEN_FIJO es la copia literal de las posiciones — se guarda igual, para
+// que ambos modos se comporten idéntico ante una edición a mitad de vuelta.
+model VueltaTurno {
+  id               String         @id @default(uuid())
+  organizacionId   String
+  turnoActividadId String
+  turnoActividad   TurnoActividad @relation(fields: [turnoActividadId], references: [id], onDelete: Cascade)
+  numero           Int
+  // Los usuarioId en el orden en que les va a tocar, con repeticiones.
+  ordenUsuarioIds  String[]
+  createdAt        DateTime       @default(now())
+
+  @@unique([turnoActividadId, numero])
+  @@index([organizacionId])
+}
+
+// A quién le tocó, en un día (frecuencia SESION) o en una semana (SECCION).
+// Estado operativo, no ledger (decisión 16): reasignar ACTUALIZA la fila
+// dejando el rastro de quién lo hizo y a quién le tocaba. Los puntos que se
+// derivan de acá sí son ledger, y esos siguen las reglas de siempre.
+model AsignacionTurno {
+  id             String   @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  actividadId    String
+  // El ámbito: sesionId si frecuencia=SESION, seccionId si SECCION. Un solo
+  // campo para que el @@unique valga en los dos modos.
+  ambitoId       String
+  sesionId       String?
+  seccionId      String
+  // A quién le toca HOY (ya con la reasignación aplicada, si la hubo).
+  usuarioId      String
+  vueltaNumero   Int
+  // Índice dentro de `VueltaTurno.ordenUsuarioIds` que consumió esta asignación.
+  indice         Int
+  // Rastro de la reasignación manual del Tutor (decisión 8).
+  usuarioOriginalId    String?
+  reasignadoPorTutorId String?
+  reasignadoEn         DateTime?
+  motivoReasignacion   String?
+  createdAt      DateTime @default(now())
+
+  @@unique([actividadId, ambitoId])
+  @@index([organizacionId])
+  @@index([grupoId, usuarioId])
 }

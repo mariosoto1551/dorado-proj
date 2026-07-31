@@ -168,8 +168,13 @@ const MINUTOS_URGENTE = 60;
                 <p class="font-semibold text-slate-900 dark:text-white" [class.line-through]="resaltado(a)">
                   {{ a.nombre }}
                 </p>
-                <!-- fase-14-11: programada para otro día — se ve, pero apagada -->
-                @if (!disponibleHoy(a)) {
+                <!-- fase-14-21: hoy le toca a otro — se ve, pero sin botón -->
+                @if (turnoAjeno(a); as nombre) {
+                  <p class="mt-0.5 text-xs font-semibold text-violet-600 dark:text-violet-400">
+                    🔁 hoy le toca a {{ nombre }}
+                  </p>
+                } @else if (!disponibleHoy(a)) {
+                  <!-- fase-14-11: programada para otro día — se ve, pero apagada -->
                   <p class="mt-0.5 text-xs font-semibold text-sky-600 dark:text-sky-400">
                     🗓 solo {{ describirDias(diasDe(a)) }}
                   </p>
@@ -259,7 +264,13 @@ const MINUTOS_URGENTE = 60;
                 </button>
               }
 
-              @if (!disponibleHoy(a)) {
+              @if (turnoAjeno(a)) {
+                <!-- fase-14-21: le toca a otro. Sin botón, igual que una tarea
+                     de equipo: se ve para que el reparto quede a la vista. -->
+                <span class="shrink-0 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                  Su turno
+                </span>
+              } @else if (!disponibleHoy(a)) {
                 <!-- Sin acción: hoy no le toca. La verdad del día la decide el
                      servidor (conoce la timezone del Grupo), no el navegador. -->
                 <span class="shrink-0 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
@@ -570,7 +581,9 @@ export class HomeUsuarioPage {
    * hacer hoy, así que se queda arriba (fase-14-14).
    */
   protected terminada(a: ActividadDto): boolean {
-    if (!this.disponibleHoy(a) || this.bloqueada(a) || this.vencida(a)) {
+    // fase-14-21: si hoy le toca a otro, para mí ya no requiere acción — baja
+    // al fondo de la lista como el resto de lo que no tengo que hacer.
+    if (!this.disponibleHoy(a) || this.bloqueada(a) || this.vencida(a) || this.turnoAjeno(a)) {
       return true;
     }
 
@@ -692,6 +705,21 @@ export class HomeUsuarioPage {
   /** fase-14-12: el tutor marcó que no la hizo (obligatoria denegada). */
   protected denegada(a: ActividadDto): boolean {
     return this.estadoPorActividad().get(a.id)?.denegada ?? false;
+  }
+
+  /**
+   * fase-14-21: nombre de quien tiene el turno hoy, si NO soy yo. `null` cuando
+   * la actividad no rota, cuando me toca a mí, o cuando hoy no le toca a nadie
+   * — en los tres casos la tarjeta se comporta como siempre.
+   */
+  protected turnoAjeno(a: ActividadDto): string | null {
+    const turno = this.estadoPorActividad().get(a.id)?.turno;
+
+    if (!turno || turno.esMio || !turno.usuarioIdAsignado) {
+      return null;
+    }
+
+    return turno.nombreAsignado ?? 'otro integrante';
   }
 
   protected motivoTutor(a: ActividadDto): string | null {

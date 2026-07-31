@@ -53,6 +53,7 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     creadaPorUsuarioId: actividad.creadaPorUsuarioId,
     diasSemana: actividad.diasSemana,
     siempreVisible: actividad.siempreVisible,
+    rolesPermitidos: actividad.rolesPermitidos,
     estado: actividad.estado,
   };
 }

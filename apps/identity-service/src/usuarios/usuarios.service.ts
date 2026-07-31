@@ -21,10 +21,14 @@ export class UsuariosService {
   async listarPorGrupo(tenant: TenantContext, grupoId: string): Promise<UsuarioDto[]> {
     await this.accesoGrupo.asegurarAcceso(tenant, grupoId);
 
-    // Membresía por UsuarioGrupo (fase-14, usuario multi-grupo).
+    // Membresía por UsuarioGrupo (fase-14, usuario multi-grupo). El `include`
+    // trae el rol del participante EN ESTE grupo (fase-14-19): es la pantalla
+    // donde el Tutor los asigna, así que el chip tiene que venir en la misma
+    // respuesta y no en una llamada por participante.
     const membresias = await this.prisma.client.usuarioGrupo.findMany({
       where: { grupoId },
       orderBy: { createdAt: 'asc' },
+      include: { rolGrupo: true },
     });
 
     const usuarios = await this.prisma.client.usuario.findMany({
@@ -32,7 +36,20 @@ export class UsuariosService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return usuarios.map((u) => usuarioADto(u, grupoId));
+    const rolPorUsuario = new Map(
+      membresias.map((membresia) => [
+        membresia.usuarioId,
+        membresia.rolGrupo
+          ? {
+              id: membresia.rolGrupo.id,
+              nombre: membresia.rolGrupo.nombre,
+              colorHex: membresia.rolGrupo.colorHex,
+            }
+          : null,
+      ])
+    );
+
+    return usuarios.map((u) => usuarioADto(u, grupoId, rolPorUsuario.get(u.id) ?? null));
   }
 
   /**

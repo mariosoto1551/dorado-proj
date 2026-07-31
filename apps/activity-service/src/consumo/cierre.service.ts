@@ -9,6 +9,7 @@ import { ROUTING_KEYS } from '@dorado/shared-events';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { estaDisponibleEn } from '../comun/programacion';
+import { esDeSuRol, hayRestriccionesDeRol } from '../comun/restriccion-rol';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, RegistroActividad } from '../generated/prisma/client';
 import {
@@ -77,6 +78,8 @@ export class CierreService {
       organizacionId,
       grupoId,
       sesionId,
+      // fase-14-21: hace falta para resolver el turno con frecuencia SECCION.
+      seccionId,
     });
 
     let creados: NoHizoCreado[] = [];
@@ -153,7 +156,12 @@ export class CierreService {
   /** Pares (usuarioId, actividad) sin registro de esta sesión — a penalizar. */
   private async paresPendientes(
     obligatorias: Actividad[],
-    scope: { organizacionId: string; grupoId: string; sesionId: string }
+    scope: {
+      organizacionId: string;
+      grupoId: string;
+      sesionId: string;
+      seccionId?: string;
+    }
   ): Promise<{ usuarioId: string; actividad: Actividad }[]> {
     if (obligatorias.length === 0) {
       return [];
@@ -178,17 +186,101 @@ export class CierreService {
       registros.map((registro) => `${registro.usuarioId}::${registro.actividadId}`)
     );
 
+    // fase-14-19: una obligatoria restringida por rol solo castiga a quien tiene
+    // ese rol. Es el punto de aplicación que NO se ve en ninguna pantalla — si
+    // se olvida, el sistema resta puntos por no hacer algo que para ese
+    // participante nunca existió, y aparece al día siguiente como un puntaje
+    // negativo inexplicable. Se paga una sola llamada, y solo si el catálogo del
+    // grupo tiene alguna restricción (decisión 13).
+    const rolPorUsuario = hayRestriccionesDeRol(obligatorias)
+      ? new Map(
+          (await this.identity.rolesAsignados(scope.grupoId)).map((fila) => [
+            fila.usuarioId,
+            fila.rolGrupoId,
+          ])
+        )
+      : new Map<string, string | null>();
+
+    // fase-14-21: para una obligatoria con turno activo, el ÚNICO candidato es
+    // el asignado del ámbito — el resto del grupo ni se evalúa (decisiones 6 y
+    // 17). Es el mismo punto ciego que el rol del #19: si esto falta, cinco
+    // personas reciben −10 por algo que su pantalla mostró sin botón.
+    const asignadoPorActividad = await this.asignadosDelAmbito(obligatorias, scope);
+
     const pendientes: { usuarioId: string; actividad: Actividad }[] = [];
 
-    for (const usuario of usuarios) {
-      for (const actividad of obligatorias) {
-        if (!yaResuelto.has(`${usuario.id}::${actividad.id}`)) {
+    for (const actividad of obligatorias) {
+      const conTurno = asignadoPorActividad.has(actividad.id);
+      // `null` = tiene turnos pero hoy no le tocó a nadie (día no programado o
+      // ninguna posición válida): no se castiga a nadie.
+      const asignado = asignadoPorActividad.get(actividad.id) ?? null;
+
+      if (conTurno && !asignado) {
+        continue;
+      }
+
+      const candidatos = asignado
+        ? usuarios.filter((usuario) => usuario.id === asignado)
+        : usuarios;
+
+      for (const usuario of candidatos) {
+        const rolGrupoId = rolPorUsuario.get(usuario.id) ?? null;
+
+        if (
+          !yaResuelto.has(`${usuario.id}::${actividad.id}`) &&
+          esDeSuRol(actividad, rolGrupoId)
+        ) {
           pendientes.push({ usuarioId: usuario.id, actividad });
         }
       }
     }
 
     return pendientes;
+  }
+
+  /**
+   * A quién le tocaba cada obligatoria con turno en el ámbito de esta Sesión
+   * (fase-14-21). Las actividades **sin** turno activo no entran al mapa, y esa
+   * ausencia es la que las mantiene como «de todos».
+   *
+   * El valor `null` significa algo distinto de «no está»: la actividad rota
+   * pero hoy no se selló turno (el día no le tocaba por el #11, o ninguna
+   * posición quedó válida) — y entonces no se castiga a nadie.
+   */
+  private async asignadosDelAmbito(
+    obligatorias: Actividad[],
+    scope: { grupoId: string; sesionId: string; seccionId?: string }
+  ): Promise<Map<string, string | null>> {
+    const turnos = await this.prisma.client.turnoActividad.findMany({
+      where: { grupoId: scope.grupoId, activo: true },
+    });
+
+    const porActividad = new Map<string, string | null>();
+    const conTurno = turnos.filter((turno) =>
+      obligatorias.some((actividad) => actividad.id === turno.actividadId)
+    );
+
+    if (conTurno.length === 0) {
+      return porActividad;
+    }
+
+    const asignaciones = await this.prisma.client.asignacionTurno.findMany({
+      where: {
+        actividadId: { in: conTurno.map((turno) => turno.actividadId) },
+        // Cubre las dos frecuencias: con SESION el ámbito es la sesión, con
+        // SECCION es la sección, y una sola consulta resuelve ambas.
+        ambitoId: { in: [scope.sesionId, ...(scope.seccionId ? [scope.seccionId] : [])] },
+      },
+    });
+    const asignadoPorActividad = new Map(
+      asignaciones.map((asignacion) => [asignacion.actividadId, asignacion.usuarioId])
+    );
+
+    for (const turno of conTurno) {
+      porActividad.set(turno.actividadId, asignadoPorActividad.get(turno.actividadId) ?? null);
+    }
+
+    return porActividad;
   }
 
   /**

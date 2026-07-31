@@ -70,6 +70,8 @@ export interface CrearActividadRequest {
   diasSemana?: number[];
   /** fase-14-17: la opcional se ve siempre, sin que el integrante la elija. */
   siempreVisible?: boolean;
+  /** fase-14-19: ids de RolGrupo que la ven; vacío u omitido = la ven todos. */
+  rolesPermitidos?: string[];
 }
 
 export type EditarActividadRequest = Partial<CrearActividadRequest>;

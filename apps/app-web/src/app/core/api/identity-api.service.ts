@@ -3,13 +3,17 @@ import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 
 import type {
+  ActualizarRolGrupoRequest,
   AgregarMiembroEquipoRequest,
+  AsignarRolGrupoRequest,
   CrearEquipoRequest,
+  CrearRolGrupoRequest,
   EditarEquipoRequest,
   EquipoDto,
   GrupoDto,
   InvitacionDto,
   MiEquipoDto,
+  RolGrupoDto,
   SustituirJefeEquipoRequest,
   TutorDto,
   UsuarioDto,
@@ -115,5 +119,44 @@ export class IdentityApiService {
   /** Equipos del participante autenticado (uno por grupo). */
   misEquipos(): Observable<MiEquipoDto[]> {
     return this.http.get<MiEquipoDto[]>(`${this.base}/mis-equipos`);
+  }
+
+  // ---- Roles del participante dentro del Grupo (fase-14-19) ----
+  //
+  // `RolGrupo` no es el `Rol` de plataforma: es la etiqueta funcional que define
+  // el Tutor ("cocina", "mascotas") y que restringe qué actividades ve cada uno.
+
+  /**
+   * Catálogo de roles del grupo. Sirve al Tutor (con `cantidadAsignados`) y al
+   * participante (solo los ACTIVO, para pintar los chips de sus compañeros).
+   */
+  listarRolesGrupo(grupoId: string, incluirArchivados = false): Observable<RolGrupoDto[]> {
+    const query = incluirArchivados ? '?incluirArchivados=true' : '';
+
+    return this.http.get<RolGrupoDto[]>(`${this.base}/grupos/${grupoId}/roles${query}`);
+  }
+
+  crearRolGrupo(grupoId: string, datos: CrearRolGrupoRequest): Observable<RolGrupoDto> {
+    return this.http.post<RolGrupoDto>(`${this.base}/grupos/${grupoId}/roles`, datos);
+  }
+
+  /** Renombrar, recolorear o archivar. Archivar desasigna a sus participantes. */
+  actualizarRolGrupo(
+    rolGrupoId: string,
+    datos: ActualizarRolGrupoRequest
+  ): Observable<RolGrupoDto> {
+    return this.http.patch<RolGrupoDto>(`${this.base}/roles/${rolGrupoId}`, datos);
+  }
+
+  /** Asignar, cambiar o quitar (`rolGrupoId: null`) el rol de un participante. */
+  asignarRolGrupo(
+    grupoId: string,
+    usuarioId: string,
+    datos: AsignarRolGrupoRequest
+  ): Observable<RolGrupoDto | null> {
+    return this.http.put<RolGrupoDto | null>(
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/rol`,
+      datos
+    );
   }
 }

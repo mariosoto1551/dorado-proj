@@ -110,6 +110,11 @@ export const appRoutes: Route[] = [
               import('./paginas/tutor/equipos.page').then((m) => m.EquiposPage),
           },
           {
+            path: 'roles',
+            loadComponent: () =>
+              import('./paginas/tutor/roles-grupo.page').then((m) => m.RolesGrupoPage),
+          },
+          {
             path: 'reportes',
             loadComponent: () =>
               import('./paginas/tutor/reportes.page').then((m) => m.ReportesPage),

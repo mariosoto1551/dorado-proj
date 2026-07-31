@@ -288,10 +288,31 @@ export class EquiposService {
   }
 
   private async construirDto(equipo: EquipoConMiembros): Promise<EquipoDto> {
-    const usuarios = await this.prisma.client.usuario.findMany({
-      where: { id: { in: equipo.miembros.map((m) => m.usuarioId) } },
-    });
+    const usuarioIds = equipo.miembros.map((m) => m.usuarioId);
+
+    const [usuarios, membresias] = await Promise.all([
+      this.prisma.client.usuario.findMany({ where: { id: { in: usuarioIds } } }),
+      // fase-14-19: el rol funcional de cada uno EN ESTE grupo, para el chip
+      // junto al nombre (decisión 5: el rol es visible para todo el grupo).
+      this.prisma.client.usuarioGrupo.findMany({
+        where: { grupoId: equipo.grupoId, usuarioId: { in: usuarioIds } },
+        include: { rolGrupo: true },
+      }),
+    ]);
+
     const porId = new Map(usuarios.map((u) => [u.id, u]));
+    const rolPorUsuario = new Map(
+      membresias.map((membresia) => [
+        membresia.usuarioId,
+        membresia.rolGrupo
+          ? {
+              id: membresia.rolGrupo.id,
+              nombre: membresia.rolGrupo.nombre,
+              colorHex: membresia.rolGrupo.colorHex,
+            }
+          : null,
+      ])
+    );
 
     const miembros: EquipoMiembroDto[] = equipo.miembros
       // Jefe primero, luego por antigüedad de la membresía.
@@ -311,6 +332,7 @@ export class EquiposService {
           nombre: usuario?.nombre ?? '',
           avatarId: usuario?.avatarId ?? '',
           rol: m.rol as RolEquipoMiembro,
+          rolGrupo: rolPorUsuario.get(m.usuarioId) ?? null,
         };
       });
 

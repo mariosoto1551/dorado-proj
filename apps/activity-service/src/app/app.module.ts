@@ -15,6 +15,7 @@ import { InternalModule } from '../internal/internal.module';
 import { PlanDiaModule } from '../plan-dia/plan-dia.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RegistroModule } from '../registro/registro.module';
+import { TurnosModule } from '../turnos/turnos.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { RegistroModule } from '../registro/registro.module';
     EquiposModule,
     ContenidoUsuarioModule,
     PlanDiaModule,
+    TurnosModule,
     ConsumoModule,
     InternalModule,
   ],

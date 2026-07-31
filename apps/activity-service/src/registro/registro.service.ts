@@ -23,6 +23,7 @@ import {
   Rol,
   TenantContext,
   TipoMarcaRoja,
+  TurnoDeHoyDto,
 } from '@dorado/shared-types';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
@@ -32,6 +33,8 @@ import { requiereSeleccionDelPlan } from '../comun/elegibilidad-plan';
 import {
   ActividadDenegadaPorTutorException,
   ActividadNoDisponibleHoyException,
+  ActividadNoEsDeSuRolException,
+  ActividadNoEsDeTuRolException,
   ActividadPersonalDeOtroUsuarioException,
   CronometroNoIniciadoException,
   CronometroVencidoException,
@@ -39,11 +42,15 @@ import {
   EsTareaDeEquipoException,
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
+  NoEsSuTurnoException,
+  NoEsTuTurnoException,
   NoHaySesionAbiertaException,
   ObligatoriaNoSeCompletaException,
+  SinTurnoVigenteException,
 } from '../comun/excepciones';
 import { registroActividadADto, registroConductaADto } from '../comun/mapeadores';
 import { estaDisponibleEn } from '../comun/programacion';
+import { esDeSuRol, hayRestriccionesDeRol } from '../comun/restriccion-rol';
 import {
   esVisiblePara,
   filtroVisibilidadUsuario,
@@ -60,6 +67,7 @@ import {
 } from '../generated/prisma/enums';
 import { PlanDiaService } from '../plan-dia/plan-dia.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TurnosService } from '../turnos/turnos.service';
 import type {
   CompletarActividadRequest,
   IniciarCronometroResponse,
@@ -125,7 +133,8 @@ export class RegistroService {
     private readonly identity: IdentityClientService,
     private readonly session: SessionClientService,
     private readonly eventos: EventosPublisherService,
-    private readonly planDia: PlanDiaService
+    private readonly planDia: PlanDiaService,
+    private readonly turnos: TurnosService
   ) {}
 
   /** POST /activity/actividades/:id/iniciar-cronometro — USUARIO (self). */
@@ -145,7 +154,7 @@ export class RegistroService {
     // tenant (su grupo), así que el usuario objetivo es siempre él mismo.
     const usuarioId = tenant.principalId;
 
-    this.asegurarActividadVisible(actividad, tenant, usuarioId);
+    await this.asegurarActividadVisible(actividad, tenant, usuarioId);
 
     const sesion = await this.resolverSesionAbierta(actividad.grupoId);
 
@@ -219,7 +228,7 @@ export class RegistroService {
 
     const usuarioId = await this.resolverUsuarioObjetivo(tenant, actividad.grupoId, datos.usuarioId);
 
-    this.asegurarActividadVisible(actividad, tenant, usuarioId);
+    await this.asegurarActividadVisible(actividad, tenant, usuarioId);
 
     const sesion = await this.resolverSesionAbierta(actividad.grupoId);
 
@@ -376,6 +385,24 @@ export class RegistroService {
       this.planDia.idsElegidos(usuarioId, sesionAbierta.id),
     ]);
 
+    // fase-14-19: las actividades restringidas a un rol que el integrante no
+    // tiene se OCULTAN por completo (decisión 6). El cruce REST hacia identity
+    // se paga solo si el catálogo del grupo tiene alguna restricción (decisión
+    // 13): en un grupo que no usa roles esto no agrega ni una llamada.
+    const visibles = hayRestriccionesDeRol(actividades)
+      ? await this.filtrarPorRol(actividades, grupoId, usuarioId)
+      : actividades;
+
+    // fase-14-21: a quién le toca cada obligatoria rotativa hoy. Una consulta
+    // para todas (no una por actividad), y ninguna si el grupo no usa turnos.
+    const turnosDeHoy = await this.turnosDeLasActividades(
+      visibles,
+      grupoId,
+      sesionAbierta.id,
+      sesionAbierta.seccionId,
+      usuarioId
+    );
+
     const vecesPorActividad = new Map(
       conteos.map((conteo) => [conteo.actividadId, conteo._count._all])
     );
@@ -384,7 +411,7 @@ export class RegistroService {
     // La timezone del Grupo se pide UNA vez por request, y solo si hace falta:
     // para evaluar actividades programadas (fase-14-11) o para resolver el
     // instante del deadline (fase-14-14). Sin ninguna de las dos no se paga.
-    const necesitaTimezone = actividades.some(
+    const necesitaTimezone = visibles.some(
       (actividad) =>
         actividad.diasSemana.length > 0 ||
         actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE
@@ -394,7 +421,7 @@ export class RegistroService {
       : undefined;
     const inicioSesion = new Date(sesionAbierta.fechaInicio);
 
-    const items: MiEstadoActividadHoyDto[] = actividades.map((actividad) => {
+    const items: MiEstadoActividadHoyDto[] = visibles.map((actividad) => {
       const vecesHechas = vecesPorActividad.get(actividad.id) ?? 0;
       const esConfirmable =
         actividad.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
@@ -443,6 +470,8 @@ export class RegistroService {
         diasSemana: actividad.diasSemana,
         requiereSeleccion,
         enPlan: requiereSeleccion ? elegidas.has(actividad.id) : true,
+        // fase-14-21: null = la actividad no rota (es de todos, como siempre).
+        turno: turnosDeHoy.get(actividad.id) ?? null,
       };
     });
 
@@ -468,7 +497,7 @@ export class RegistroService {
     // Defensa en profundidad: el contenido de integrante es siempre OPCIONAL
     // (fase-14-10, decisión 8), así que acá no debería llegar ninguno — si algún
     // día eso cambia, el dueño sigue siendo el único alcanzado.
-    this.asegurarActividadVisible(actividad, tenant, usuarioId);
+    await this.asegurarActividadVisible(actividad, tenant, usuarioId);
 
     const sesion = await this.resolverSesionAbierta(actividad.grupoId);
 
@@ -960,20 +989,176 @@ export class RegistroService {
    * Tutor registrando en nombre de alguien es 403 con code propio — él sí la ve
    * en el listado del grupo, así que un 404 sería engañoso.
    */
-  private asegurarActividadVisible(
+  /**
+   * fase-14-21: con turno activo, la obligatoria **no es de todos** — solo la
+   * registra quien tiene el turno del ámbito vigente (decisiones 6 y 17). Se
+   * consulta una sola vez y solo si la actividad rota, así que una actividad sin
+   * turnos no paga nada.
+   */
+  private async asegurarEsSuTurno(
     actividad: Actividad,
     tenant: TenantContext,
     usuarioObjetivo: string
-  ): void {
-    if (esVisiblePara(actividad, usuarioObjetivo)) {
+  ): Promise<void> {
+    // Una consulta local barata primero: sin rotación no se paga nada más, que
+    // es el caso de todas las actividades anteriores al ítem.
+    if (!(await this.turnos.tieneTurnoActivo(actividad.id))) {
+      return;
+    }
+
+    const asignacion = await this.turnos.asignacionVigente(actividad);
+
+    if (!asignacion) {
+      // Rota, pero hoy no se selló turno (día no programado por el #11, o
+      // ninguna posición quedó válida): no se le exige a nadie ni se confirma.
+      throw new SinTurnoVigenteException();
+    }
+
+    if (asignacion.usuarioId === usuarioObjetivo) {
       return;
     }
 
     if (tenant.rol === Rol.USUARIO) {
-      throw new NotFoundException('Actividad no encontrada');
+      const nombre = (await this.identity.obtenerUsuario(asignacion.usuarioId))?.nombre ?? null;
+
+      throw new NoEsTuTurnoException(nombre);
     }
 
-    throw new ActividadPersonalDeOtroUsuarioException();
+    throw new NoEsSuTurnoException();
+  }
+
+  /**
+   * Quita de la lista las actividades restringidas a un rol que el integrante no
+   * tiene (fase-14-19, decisión 6: se ocultan, no se muestran deshabilitadas).
+   * Una sola llamada a identity para toda la lista, nunca una por actividad.
+   */
+  private async filtrarPorRol(
+    actividades: Actividad[],
+    grupoId: string,
+    usuarioId: string
+  ): Promise<Actividad[]> {
+    const rolGrupoId = await this.identity.rolDeUsuario(grupoId, usuarioId);
+
+    return actividades.filter((actividad) => esDeSuRol(actividad, rolGrupoId));
+  }
+
+  /**
+   * Las TRES reglas de "esta actividad le corresponde hoy a este participante":
+   * autoría (fase-14-10), rol (fase-14-19) y turno (fase-14-21). Van juntas
+   * porque los tres flujos de registro —cronómetro, completar/confirmar y el
+   * "no hizo" del tutor— tienen que aplicar exactamente las mismas.
+   *
+   * Las dos últimas cuestan consultas, y cada una **solo se paga cuando la
+   * actividad efectivamente la usa**: sin roles ni rotación, esto es un chequeo
+   * en memoria — que es el caso de todo lo anterior a esos ítems.
+   */
+  private async asegurarActividadVisible(
+    actividad: Actividad,
+    tenant: TenantContext,
+    usuarioObjetivo: string
+  ): Promise<void> {
+    if (!esVisiblePara(actividad, usuarioObjetivo)) {
+      if (tenant.rol === Rol.USUARIO) {
+        throw new NotFoundException('Actividad no encontrada');
+      }
+
+      throw new ActividadPersonalDeOtroUsuarioException();
+    }
+
+    await this.asegurarEsDeSuRol(actividad, tenant, usuarioObjetivo);
+    await this.asegurarEsSuTurno(actividad, tenant, usuarioObjetivo);
+  }
+
+  /**
+   * A quién le toca hoy cada actividad rotativa de la lista (fase-14-21). El
+   * participante que no tiene el turno igual ve la tarea, sin botón y con «hoy
+   * le toca a Ana» (decisión 5) — por eso esto viaja en `mi-estado-hoy` en vez
+   * de filtrar la actividad como hace el rol.
+   *
+   * Costo: una consulta de turnos + una de asignaciones + una de nombres, y
+   * **cero** si el grupo no tiene ninguna actividad con rotación.
+   */
+  private async turnosDeLasActividades(
+    actividades: Actividad[],
+    grupoId: string,
+    sesionId: string,
+    seccionId: string,
+    usuarioId: string
+  ): Promise<Map<string, TurnoDeHoyDto>> {
+    const porActividad = new Map<string, TurnoDeHoyDto>();
+
+    const turnos = await this.prisma.client.turnoActividad.findMany({
+      where: {
+        grupoId,
+        activo: true,
+        actividadId: { in: actividades.map((actividad) => actividad.id) },
+      },
+    });
+
+    if (turnos.length === 0) {
+      return porActividad;
+    }
+
+    const asignaciones = await this.prisma.client.asignacionTurno.findMany({
+      where: {
+        actividadId: { in: turnos.map((turno) => turno.actividadId) },
+        // Cubre las dos frecuencias de una sola vez (SESION y SECCION).
+        ambitoId: { in: [sesionId, seccionId] },
+      },
+    });
+    const asignadoPorActividad = new Map(
+      asignaciones.map((asignacion) => [asignacion.actividadId, asignacion.usuarioId])
+    );
+
+    // Los nombres solo si hay algún turno de OTRO (el propio no se muestra).
+    const hayAjeno = asignaciones.some((asignacion) => asignacion.usuarioId !== usuarioId);
+    const nombres = hayAjeno
+      ? new Map(
+          (await this.identity.usuariosDelGrupo(grupoId)).map((usuario) => [
+            usuario.id,
+            usuario.nombre,
+          ])
+        )
+      : new Map<string, string>();
+
+    for (const turno of turnos) {
+      const asignado = asignadoPorActividad.get(turno.actividadId) ?? null;
+
+      porActividad.set(turno.actividadId, {
+        usuarioIdAsignado: asignado,
+        nombreAsignado: asignado ? (nombres.get(asignado) ?? null) : null,
+        esMio: asignado === usuarioId,
+      });
+    }
+
+    return porActividad;
+  }
+
+  /** fase-14-19, extraída para que el turno no quede detrás de un early return. */
+  private async asegurarEsDeSuRol(
+    actividad: Actividad,
+    tenant: TenantContext,
+    usuarioObjetivo: string
+  ): Promise<void> {
+    if (actividad.rolesPermitidos.length === 0) {
+      return;
+    }
+
+    const rolGrupoId = await this.identity.rolDeUsuario(actividad.grupoId, usuarioObjetivo);
+
+    if (esDeSuRol(actividad, rolGrupoId)) {
+      return;
+    }
+
+    // La pantalla ya no la muestra (decisión 6), pero el servidor es el que
+    // decide: un cliente con la lista vieja en caché no puede colar el registro.
+    if (tenant.rol === Rol.USUARIO) {
+      throw new ActividadNoEsDeTuRolException();
+    }
+
+    // Vista desde el Tutor: tampoco puede castigar a alguien por una actividad
+    // que para él no existe.
+    throw new ActividadNoEsDeSuRolException();
   }
 
   private async buscarConductaActiva(id: string): Promise<Conducta> {

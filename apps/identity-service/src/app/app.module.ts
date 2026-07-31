@@ -13,6 +13,7 @@ import { InvitacionesModule } from '../invitaciones/invitaciones.module';
 import { MeModule } from '../me/me.module';
 import { PlatformAdminModule } from '../platform-admin/platform-admin.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { RolesGrupoModule } from '../roles-grupo/roles-grupo.module';
 import { TutoresModule } from '../tutores/tutores.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
 
@@ -32,6 +33,7 @@ import { UsuariosModule } from '../usuarios/usuarios.module';
     InvitacionesModule,
     GruposModule,
     EquiposModule,
+    RolesGrupoModule,
     UsuariosModule,
     TutoresModule,
     MeModule,

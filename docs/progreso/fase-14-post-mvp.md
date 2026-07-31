@@ -668,3 +668,95 @@ Es coherente con la filosofía del #12 (revertir devuelve los puntos, no el inte
 1. **Decidir qué hace «deshacer» con la confirmación premiada** (el hallazgo de arriba): hoy devuelve el castigo pero no el premio, y el intento queda quemado. Si José quiere que revertir restaure la confirmación, es un ítem propio — hay que decidir cómo identificar qué confirmaciones dio de baja *ese* «no hizo».
 2. **Paseo visual**: el campo nuevo del form y los dos números en la tarjeta se verificaron por build y por contrato de API, no en el navegador.
 3. **Desplegar la migración en el piloto**. Retro-compatible: una columna con default 0.
+
+## Ítem 19: Roles del participante dentro del Grupo
+- **Estado**: EN_PROGRESO — **completo y verificado**. 244/244 tests de activity-service (27 nuevos), 48/48 de identity (14 nuevos), 39/39 de app-web (5 nuevos), lint y build verdes en los 18 proyectos del workspace (el único fallo del run completo es `admin-web:test`, que no tiene ningún `.spec.ts` — deuda declarada del #5, no una regresión), **ambas migraciones aplicadas contra Postgres real y verificadas sin drift**, y **suite E2E nueva 4/4 verde**, con la suite completa **25/25 en dos corridas seguidas**.
+- **Fecha**: 2026-07-31 / **Spec**: `docs/phases/fase-14-19-roles-del-participante.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: tercera de las cuatro ideas de José del 2026-07-30. Se ejecutó después del #18 y el #20, siguiendo el orden justificado al pie de `fase-14-post-mvp.md`.
+
+### La spec se escribió en esta sesión
+A diferencia del #18 y el #20 —que llegaron con su `fase-14-NN-*.md` ya escrito—, el #19 solo tenía las 5 decisiones de alcance del índice. Antes de tocar código se escribió la spec completa, cerrando con José tres huecos que cambiaban materialmente el trabajo:
+
+1. **Una actividad restringida se OCULTA** para quien no tiene el rol (no se muestra deshabilitada). Es el criterio opuesto al del #15/#21 —tareas de equipo y turnos, que sí se ven sin botón— y la razón quedó anotada en la spec: ahí la visibilidad comunica que el reparto es parejo; acá comunicaría ruido permanente, porque el rol no rota.
+2. **El catálogo arranca vacío**, sin roles de seed: ningún grupo estrena roles sin pedirlos.
+3. **Nombre + `colorHex`**, sin emoji (mismo patrón que `UmbralZona.colorHex`).
+
+Y una cuarta cerrada antes del frontend: **el rol se asigna con un selector en la lista de integrantes**, no desde un panel por rol.
+
+### Desviación de nomenclatura, deliberada
+El índice de la fase nombraba `RolGrupo` / **`UsuarioRolGrupo`**. La spec conservó `RolGrupo` pero **la asignación quedó como campo `UsuarioGrupo.rolGrupoId`, no como tabla de unión** (decisión 9, con su justificación escrita). Con un solo rol por participante (decisión 2 del índice) una tabla N:N sería una 1:1 disfrazada, y el invariante habría que sostenerlo con lógica de aplicación — exactamente el dolor que dejó el «un solo JEFE por equipo» del #9, que no se pudo expresar como `@@unique` parcial. Como campo, lo garantiza el esquema. Si algún día se abre multi-rol, la migración es la habitual (tabla nueva + backfill), igual que se hizo con multi-grupo.
+
+### Lo ejecutado
+- **identity**: modelo `RolGrupo` (nombre, `colorHex`, archivable, `@@unique([grupoId, nombre])`) + `UsuarioGrupo.rolGrupoId`; `RolesGrupoService`/`RolesGrupoController` con catálogo (el `GET` acepta también sesión USUARIO, decisión 5), alta, edición/archivado y **un solo `PUT` idempotente** para asignar/cambiar/quitar; dos internos nuevos; `UsuarioDto.rolGrupo` y `EquipoMiembroDto.rolGrupo` poblados solo en los endpoints que alimentan pantallas.
+- **activity**: `Actividad.rolesPermitidos String[] @default([])` (sin FK — regla 2, se valida por REST interno al escribir), `comun/restriccion-rol.ts` con la regla en un solo lugar, y su aplicación en los **cinco** caminos.
+- **app-web**: pantalla «Roles» (junto a «Equipos»), selector de rol por integrante en «Usuarios», campo «Restringir a roles» en el form de Actividad, chips de rol en el catálogo del Tutor y en «Mi equipo», y el aviso «⚠ hoy no la ve nadie».
+- **Sin tocar scoring, session, rewards ni notification**, y **sin eventos de dominio nuevos**: las mutaciones de rol se auditan con `AccionAdministrativaRegistrada`, que ya existía (`ROL_GRUPO_CREADO`/`_ACTUALIZADO`/`_ARCHIVADO`, `ROL_PARTICIPANTE_ASIGNADO`).
+
+### Decisiones de implementación que importan
+1. **El punto de aplicación que duele es el quinto**: el castigo automático al cerrar la Sesión (`consumo/cierre.service.ts`). Los otros cuatro —lista, detalle, registro, plan del día— fallan a la vista; este no se manifiesta en ninguna pantalla, se manifiesta como puntos negativos inexplicables al día siguiente para alguien que nunca vio esa actividad. Se escribió su test primero, tal como pedía la spec, y tiene además un E2E propio contra el ledger real.
+2. **Costo cero cuando el grupo no usa roles** (decisión 13). El cruce REST se paga **solo** si el catálogo consultado tiene alguna actividad restringida — mismo gate que el `necesitaTimezone` que ya vivía en `mi-estado-hoy`. Hay tres tests que lo verifican con espías sobre `IdentityClientService`, uno por camino caliente (listado, `mi-estado-hoy`, cierre de sesión). En los grupos que existen hoy, este ítem no agrega **ni una** llamada.
+3. **Un solo interno para el camino caliente**: `GET /internal/identity/grupos/:grupoId/roles-asignados` devuelve `[{ usuarioId, rolGrupoId }]` y nada más. El catálogo completo (`.../roles`) queda para la escritura del catálogo de actividades, que es camino frío. El del payload chico es además el que va a reusar el #21 para el atajo «todos los del rol X».
+4. **Archivar desasigna** (decisión 12). Se eligió eso en vez de bloquear el archivado con un 409 `ROL_EN_USO` porque identity **no puede** preguntarle a activity si el rol está en uso sin invertir la dirección de las llamadas internas (hoy activity→identity, nunca al revés). El costo es que la actividad queda pedida por un rol que ya no tiene nadie: por eso el catálogo del Tutor la marca con «⚠ hoy no la ve nadie».
+5. **Duplicados normalizados en el service, no solo por `@@unique`**: Postgres distingue mayúsculas, así que «Cocina» y «cocina» pasarían el índice sin problema y nadie entendería cuál es cuál en el selector.
+6. **La decisión 11 salió gratis**: una actividad personal del integrante (#10) no puede llevar `rolesPermitidos` porque `datosActividadDesdePropuesta` no toca el campo y el default es `[]`. No hizo falta código de validación — queda anotado acá para que un cambio futuro en ese mapeo no lo rompa en silencio.
+7. **El PUT de asignación no es optimista en la UI**: el rol decide qué actividades ve el integrante, y una pantalla que miente sobre eso es peor que una que tarda medio segundo.
+
+### Verificación contra Postgres real
+`prisma migrate deploy` aplicó `20260731090000_roles_grupo_fase14` (identity) y `20260731130000_roles_permitidos_fase14` (activity). Ambas se escribieron a mano, así que además se corrió **`prisma migrate diff --from-config-datasource --to-schema`** contra las dos bases: *"No difference detected"* en las dos — el SQL a mano es exactamente lo que Prisma habría generado. Sobre datos reales: las **161 actividades** ya existentes en `activity_db` quedaron todas con `rolesPermitidos = ARRAY[]` y ninguna nula, que es la garantía de retro-compatibilidad del ítem.
+
+### Tests nuevos (46 unit + 4 E2E)
+- `roles-grupo.service.spec.ts` (14, nuevo): alta con normalización de nombre y color, duplicado ignorando mayúsculas y espacios, `cantidadAsignados` en el listado del Tutor y su ausencia en el del participante, el participante de otro grupo rechazado, archivar **desasignando** (y no desasignando al renombrar ni al re-archivar), asignar/cambiar/quitar, rol de otro grupo rechazado, y la acción administrativa con el rol anterior.
+- `actividades.service.spec.ts` (+13): validación de `rolesPermitidos` contra el catálogo (inexistente, archivado, duplicados), el 400 sobre tarea de equipo, el PATCH que conserva o libera la restricción, el PATCH a EQUIPO que falla en vez de restringir a escondidas, y el filtrado del listado para USUARIO (con rol, con otro rol, sin rol, Tutor ve todo) **incluido el test de costo cero**.
+- `cierre.service.spec.ts` (+4): **el test del ítem** — solo castiga a quien tiene el rol, las no restringidas siguen castigando a todos, costo cero sin restricciones, y «nadie con el rol = ningún castigo» (el caso del rol archivado).
+- `registro.service.spec.ts` (+7): `mi-estado-hoy` oculta o muestra según el rol, el integrante sin rol, costo cero, el 403 al completar y el 400 del Tutor al marcar «no hizo» fuera del rol.
+- `plan-dia.service.spec.ts` (+3): la hoja «＋ Elegir» no es una puerta lateral a lo que la lista oculta.
+- `app-web/core/roles-grupo.spec.ts` (5, nuevo): la regla del aviso «hoy no la ve nadie», incluido el rol archivado y el «sin catálogo cargado no afirma nada».
+- `apps/e2e/src/roles-del-participante.e2e.ts` (4): la restricción aplicada en lista + catálogo del Tutor + registro a la vez; **el castigo al cierre alcanzando solo a quien tiene el rol** (verificado contra el ledger: Ana −10, Luis 0); archivar desasignando y escondiendo, con el rol archivado ya no asignable; y el aislamiento (rol de otra organización rechazado al asignar y al restringir una actividad, duplicado normalizado, mismo nombre válido en otro grupo).
+
+### Qué falta / verificar la próxima sesión
+1. **Paseo visual**: la pantalla «Roles», el selector en la lista de integrantes y los chips se verificaron por build, lint y contrato de API, no en el navegador.
+2. **Desplegar las dos migraciones en el piloto**. Retro-compatibles por construcción: tabla nueva vacía + una columna con default.
+3. **Fuera de alcance a propósito, anotado para no «aprovechar el viaje»**: rol sobre tareas de equipo (`alcance = EQUIPO` lo rechaza con 400) y rol sobre conductas y recompensas (decisión 4 del índice).
+4. **Enganche con el #21**: el atajo «todos los del rol X» para precargar el pozo de turnos ya tiene su interno listo (`roles-asignados`). El #21 no depende de esto para salir, pero sale más barato ahora.
+
+## Ítem 21: Turnos rotativos — a quién le toca la obligatoria
+- **Estado**: EN_PROGRESO — **completo y verificado**. 279/279 tests de activity-service (35 nuevos), 44/44 de app-web (5 nuevos), lint y build verdes, **migración aplicada contra `activity_db` real y verificada sin drift**, **suite E2E nueva 5/5 verde** y la suite completa **30/30 en dos corridas seguidas**.
+- **Fecha**: 2026-07-31 / **Spec**: `docs/phases/fase-14-21-turnos-rotativos.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: última de las cuatro ideas de José del 2026-07-30, ejecutada en el orden acordado (18 → 20 → 19 → 21).
+
+### El pedido que cambió el modelo
+El índice de la fase describía el turno como **un pozo de participantes que rota uno por uno**. Al empezar la sesión, José pidió que el patrón pudiera ser `José - Luciana - José - Alejandra`: una persona con **más turnos que otra**.
+
+Eso obligó a cambiar el modelo mental antes de escribir una línea: la secuencia pasó a ser **una lista ORDENADA de posiciones**, no un conjunto de participantes. `[José, Luciana, José, Alejandra]` son 4 posiciones y 3 personas, y José recibe 2 de cada 4 turnos **porque aparece dos veces** — la repetición vive en los datos, no en una regla de pesos. Resultó más simple que la rotación pareja, no más complejo.
+
+### Decisiones cerradas con José en esta sesión (12 a 14 de la spec)
+1. **Secuencia literal**, no pesos: el Tutor arma la lista tal cual y ve exactamente lo que va a pasar. Con pesos, `[José, Luciana, José, Alejandra]` y `[José, José, Luciana, Alejandra]` serían indistinguibles, y son repartos distintos.
+2. **El azar baraja las POSICIONES, no las personas**: cada vuelta sigue teniendo 4 turnos y José sigue teniendo 2, lo que cambia es cuáles. Barajar personas destruiría el patrón apenas se enciende el modo azar.
+3. **Las altas y bajas del grupo NO editan la lista sola**: el sistema avisa y saltea, pero la secuencia es del Tutor. Ajustarla automáticamente cambiaría el reparto sin que él lo decidiera.
+4. Del frontend: **armador con lista + botón «agregar»** (repetir a alguien es elegirlo de nuevo) y la tarjeta del que no tiene el turno **apagada con «hoy le toca a Ana»**.
+
+### Decisiones de implementación que importan
+1. **La vuelta se sella entera al empezarla** (`VueltaTurno.ordenUsuarioIds`), no turno por turno. Es lo que hace el azar auditable —la vuelta ya está decidida y escrita— y lo que resuelve limpio el caso de editar la secuencia a mitad de vuelta: no toca la vuelta en curso, entra en la siguiente. Se guarda **también en modo ORDEN_FIJO**, a propósito, para que los dos modos se comporten idéntico ante una edición.
+2. **El turno nunca se deriva de una fórmula sobre la fecha** (decisión 1 del índice): sale siempre de la última `AsignacionTurno` escrita. Si se derivara, cambiar la lista reescribiría el pasado y sería imposible auditar por qué se castigó a alguien.
+3. **Sin cola nueva**: `activity.q.sesiones` (creada por el #8) pasa a escuchar también `session.sesion_abierta`. Se suma la routing key al binding existente, sin cambiar las opciones de la cola.
+4. **Con turno activo, la obligatoria deja de ser de todos**: en `cierre.service.ts` el único par candidato es (asignado, actividad). Es el mismo punto ciego que el rol del #19 —no se ve en ninguna pantalla— y por eso tiene test propio y E2E contra el ledger.
+5. **Rol (#19) y turno se combinan por intersección**: una posición de alguien que perdió el rol se saltea igual que la de alguien que se fue. Si ninguna queda válida, ese día no hay turno y **nadie es castigado** — preferible a elegir un reemplazante que el Tutor no decidió.
+6. **Idempotencia con un hueco cerrado a mano**: la creación de la vuelta tolera `P2002` y reusa la permutación existente. Sin eso, una reentrega tras un fallo parcial moriría en el unique y —peor— en modo AZAR volvería a barajar, cambiando el reparto a mitad de vuelta.
+7. **Costo cero cuando no se usa**: sin rotaciones activas, el consumidor no consulta identity y el registro no resuelve ni Sesión ni asignación (una consulta local barata primero). Verificado con tests.
+
+### Tests nuevos (35 unit + 5 E2E)
+- `rotacion-turnos.spec.ts` (12, nuevo): la aritmética pura — el recorrido `José, Luciana, José, Alejandra`, la proporción conservada en AZAR, los dos motivos de salteo, la vuelta sin nadie válido y el corte al final de la vuelta.
+- `sellado-turnos.service.spec.ts` (13, nuevo): cuatro días seguidos con el patrón, la vuelta 2 arrancando en José, la vuelta sellada entera, los salteos por baja y por rol, el día no programado que **no consume turno**, la reentrega que no avanza dos veces, el caso del #16 (varias sesiones seguidas), la frecuencia SECCION y el costo cero.
+- `cierre.service.spec.ts` (+6): **el test del ítem** — solo el asignado recibe el NO_HIZO; el asignado que ya confirmó; el día sin turno que no castiga a nadie; la obligatoria sin rotación que sigue castigando a todos; el turno apagado; y el castigo siguiendo al **reasignado**.
+- `registro.service.spec.ts` (+6): confirmar del asignado (con el premio del #20), 403 `NO_ES_TU_TURNO`, 409 `SIN_TURNO_VIGENTE`, 400 `NO_ES_SU_TURNO` para el Tutor, y `mi-estado-hoy` con `esMio` en ambos sentidos.
+- `app-web/core/turnos.spec.ts` (5, nuevo): el resumen «José: 2 de cada 4», que no repite lo obvio cuando nadie está repetido.
+- `apps/e2e/src/turnos-rotativos.e2e.ts` (5): el patrón día por día contra el bus real, la tarjeta visible pero no confirmable, el castigo del cierre contra el ledger, la reasignación con su rastro, y la validación + apagado.
+
+### Hallazgo de la verificación (no es un bug del ítem)
+Al escribir la E2E quedó a la vista que en **modo MANUAL cerrar una sesión no abre la siguiente**: `forzar-cierre` solo publica `SesionCerrada`, y hace falta `abrir-siguiente` para que salga el `SesionAbierta`. Es el comportamiento correcto de la Fase 6 (en manual el Tutor decide cuándo empieza el día), pero conviene tenerlo presente: **un grupo en modo manual no sella turnos hasta que alguien abre la sesión del día**. En modo automático lo hace el scheduler (con la recuperación del #16), que es el caso normal del piloto.
+
+### Qué falta / verificar la próxima sesión
+1. **Paseo visual**: el armador de la secuencia y la tarjeta «hoy le toca a…» se verificaron por build, lint y contrato de API, no en el navegador.
+2. **Desplegar la migración en el piloto**. Retro-compatible por construcción: **no toca la tabla `Actividad`** — una actividad sin fila en `TurnoActividad` se comporta exactamente como antes.
+3. **Turnos sobre opcionales**: la spec lo deja fuera (decisión 11 del índice) y el endpoint lo rechaza con 400. Extenderlo sería una validación menos, no un rediseño.
+4. **El armador solo aparece al EDITAR una actividad**, no al crearla: guardar la secuencia necesita el id, que todavía no existe. Si molesta, se resuelve guardando la actividad primero y abriendo el bloque después — es cambio de flujo de UI, no de backend.

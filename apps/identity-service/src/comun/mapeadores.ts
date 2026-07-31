@@ -3,6 +3,7 @@ import type {
   InvitacionDto,
   OrganizacionDto,
   PlatformAdminDto,
+  RolGrupoEtiquetaDto,
   TutorDto,
   UsuarioDto,
 } from '@dorado/shared-types';
@@ -67,8 +68,18 @@ export function tutorADto(tutor: Tutor, grupoIds: string[]): TutorDto {
  * `grupoIdContexto` (fase-14, usuario multi-grupo): cuando el usuario se lista
  * dentro de un grupo puntual, el DTO refleja ESE grupo, no necesariamente el de
  * origen. Sin contexto cae al grupo de origen (compat con llamadas por id).
+ *
+ * `rolGrupo` (fase-14-19) lo pueblan solo los endpoints que alimentan PANTALLAS
+ * (lista de participantes del grupo, miembros de un equipo): es el chip de color
+ * junto al nombre. Los endpoints internos no lo pagan — para eso está
+ * `GET /internal/identity/grupos/:grupoId/roles-asignados`, que devuelve dos ids
+ * por participante en vez de un DTO entero.
  */
-export function usuarioADto(usuario: Usuario, grupoIdContexto?: string): UsuarioDto {
+export function usuarioADto(
+  usuario: Usuario,
+  grupoIdContexto?: string,
+  rolGrupo?: RolGrupoEtiquetaDto | null
+): UsuarioDto {
   return {
     id: usuario.id,
     organizacionId: usuario.organizacionId,
@@ -78,6 +89,7 @@ export function usuarioADto(usuario: Usuario, grupoIdContexto?: string): Usuario
     avatarId: usuario.avatarId,
     estado: usuario.estado as UsuarioDto['estado'],
     createdAt: usuario.createdAt.toISOString(),
+    ...(rolGrupo !== undefined && { rolGrupo }),
   };
 }
 

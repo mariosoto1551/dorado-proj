@@ -45,11 +45,11 @@ export interface TenantContext {
 export interface OrganizacionDto { id: string; nombre: string; emailContacto: string; estado: EstadoOrganizacion; createdAt: string; }
 export interface GrupoDto { id: string; organizacionId: string; nombre: string; timezone: string; createdAt: string; }
 export interface TutorDto { id: string; organizacionId: string; email: string; nombre: string; rol: Rol.ORG_ADMIN | Rol.TUTOR; grupoIds: string[]; estado: 'ACTIVO' | 'INACTIVO'; createdAt: string; }
-export interface UsuarioDto { id: string; organizacionId: string; grupoId: string; username: string; nombre: string; avatarId: string; estado: 'ACTIVO' | 'INACTIVO'; createdAt: string; }
+export interface UsuarioDto { id: string; organizacionId: string; grupoId: string; username: string; nombre: string; avatarId: string; estado: 'ACTIVO' | 'INACTIVO'; createdAt: string; rolGrupo?: RolGrupoEtiquetaDto | null; /* fase-14-19: solo lo pueblan los endpoints que alimentan pantallas */ }
 export interface InvitacionDto { id: string; organizacionId: string; grupoId: string; tipoInvitado: TipoInvitado; codigo: string; estado: EstadoInvitacion; expiraEn: string; creadoPorTutorId: string; }
 // Equipos de trabajo (fase-14-09)
 export enum RolEquipoMiembro { JEFE = 'JEFE', MIEMBRO = 'MIEMBRO' }
-export interface EquipoMiembroDto { usuarioId: string; nombre: string; avatarId: string; rol: RolEquipoMiembro; }
+export interface EquipoMiembroDto { usuarioId: string; nombre: string; avatarId: string; rol: RolEquipoMiembro; rolGrupo?: RolGrupoEtiquetaDto | null; /* fase-14-19: `rol` es JEFE/MIEMBRO del equipo; `rolGrupo` es "cocina"/"mascotas" */ }
 export interface EquipoDto { id: string; organizacionId: string; grupoId: string; nombre: string; estado: 'ACTIVO' | 'INACTIVO'; jefeUsuarioId: string; miembros: EquipoMiembroDto[]; createdAt: string; }
 export interface MiEquipoDto extends EquipoDto { esJefe: boolean; }
 export interface EquipoInternoDto { equipoId: string; organizacionId: string; grupoId: string; nombre: string; estado: 'ACTIVO' | 'INACTIVO'; jefeUsuarioId: string; miembros: Array<{ usuarioId: string; rol: RolEquipoMiembro }>; }
@@ -57,6 +57,16 @@ export interface CrearEquipoRequest { nombre: string; jefeUsuarioId: string; mie
 export interface EditarEquipoRequest { nombre?: string; estado?: 'ACTIVO' | 'INACTIVO'; }
 export interface AgregarMiembroEquipoRequest { usuarioId: string; }
 export interface SustituirJefeEquipoRequest { nuevoJefeUsuarioId: string; }
+// Roles del participante dentro del Grupo (fase-14-19). OJO: `RolGrupo` NO es el `Rol` de plataforma
+// (TUTOR/USUARIO/ORG_ADMIN/PLATFORM_ADMIN) — es una etiqueta funcional por grupo que define el Tutor.
+export interface RolGrupoEtiquetaDto { id: string; nombre: string; colorHex: string; }
+export interface RolGrupoDto extends RolGrupoEtiquetaDto { grupoId: string; estado: 'ACTIVO' | 'INACTIVO'; cantidadAsignados?: number; createdAt: string; }
+export interface CrearRolGrupoRequest { nombre: string; colorHex: string; }
+export type CrearRolGrupoResponse = RolGrupoDto;
+export interface ActualizarRolGrupoRequest { nombre?: string; colorHex?: string; estado?: 'ACTIVO' | 'INACTIVO'; }
+export interface AsignarRolGrupoRequest { rolGrupoId: string | null; } // null quita el rol
+export interface RolGrupoInternoDto { id: string; organizacionId: string; grupoId: string; nombre: string; colorHex: string; estado: 'ACTIVO' | 'INACTIVO'; }
+export interface RolAsignadoDto { usuarioId: string; rolGrupoId: string | null; } // payload del camino caliente
 
 // ---------- Billing ----------
 export interface PlanDto { id: string; codigo: CodigoPlan; nombre: string; limiteTutores: number | null; limiteUsuarios: number | null; limiteGrupos: number | null; limiteActividadesPorGrupo: number | null; whiteLabel: boolean; reportesAvanzados: boolean; }
@@ -64,7 +74,20 @@ export interface SuscripcionDto { id: string; organizacionId: string; planId: st
 export interface EntitlementsDto { plan: CodigoPlan; limites: { tutores: number | null; usuarios: number | null; grupos: number | null; actividadesPorGrupo: number | null; }; features: { whiteLabel: boolean; reportesAvanzados: boolean; }; }
 
 // ---------- Activity Catalog ----------
-export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; puntosPorCumplir: number; /* fase-14-20: lo que suma cumplir una obligatoria confirmable; 0 en el resto */ tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; estado: 'ACTIVA' | 'ARCHIVADA'; }
+export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; puntosPorCumplir: number; /* fase-14-20: lo que suma cumplir una obligatoria confirmable; 0 en el resto */ tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; rolesPermitidos: string[]; /* fase-14-19: ids de RolGrupo que la ven; vacío = todos */ estado: 'ACTIVA' | 'ARCHIVADA'; }
+// Turnos rotativos (fase-14-21). La secuencia es una LISTA ORDENADA de posiciones y admite repetidos:
+// con [José, Luciana, José, Alejandra] a José le tocan 2 de cada 4 turnos. No cuelga de ActividadDto.
+export enum ModoTurno { ORDEN_FIJO = 'ORDEN_FIJO', AZAR = 'AZAR' }
+export enum FrecuenciaTurno { SESION = 'SESION', SECCION = 'SECCION' }
+export enum AvisoPosicionTurno { YA_NO_ESTA_EN_EL_GRUPO = 'YA_NO_ESTA_EN_EL_GRUPO', SIN_EL_ROL = 'SIN_EL_ROL' }
+export interface PosicionTurnoDto { orden: number; usuarioId: string; nombre: string; aviso: AvisoPosicionTurno | null; }
+export interface TurnoDeHoyDto { usuarioIdAsignado: string | null; nombreAsignado: string | null; esMio: boolean; }
+export interface AsignacionTurnoDto { actividadId: string; usuarioId: string; nombre: string; vueltaNumero: number; indice: number; usuarioOriginalId: string | null; nombreOriginal: string | null; reasignadoEn: string | null; motivoReasignacion: string | null; }
+export interface TurnoActividadDto { actividadId: string; modo: ModoTurno; frecuencia: FrecuenciaTurno; activo: boolean; posiciones: PosicionTurnoDto[]; asignacionVigente: AsignacionTurnoDto | null; proximos: Array<{ usuarioId: string; nombre: string }>; }
+export interface ConfigurarTurnoRequest { modo: ModoTurno; frecuencia: FrecuenciaTurno; activo?: boolean; posiciones: Array<{ usuarioId: string }>; } // el ORDEN del array ES la secuencia
+export type ConfigurarTurnoResponse = TurnoActividadDto;
+export interface ReasignarTurnoRequest { usuarioId: string; motivo?: string; }
+export interface TurnoDeHoyDelGrupoDto { actividadId: string; actividadNombre: string; frecuencia: FrecuenciaTurno; asignacion: AsignacionTurnoDto | null; }
 // Tareas de equipo y reportes del jefe (fase-14-09)
 export enum AlcanceActividad { INDIVIDUAL = 'INDIVIDUAL', EQUIPO = 'EQUIPO' }
 export enum EstadoReporte { PENDIENTE = 'PENDIENTE', APROBADO = 'APROBADO', RECHAZADO = 'RECHAZADO' }

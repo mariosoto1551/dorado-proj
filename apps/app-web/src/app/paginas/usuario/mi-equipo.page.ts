@@ -157,6 +157,15 @@ type EstadoSegmentoEquipo = 'hecho' | 'libre' | 'anulado';
               <span class="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-100">
                 {{ m.nombre }}
                 @if (m.usuarioId === miId()) { <span class="text-xs text-slate-400 dark:text-slate-500">(vos)</span> }
+                <!-- fase-14-19: el rol funcional en el grupo, con su color de la API -->
+                @if (m.rolGrupo; as rolGrupo) {
+                  <span
+                    class="ml-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white align-middle"
+                    [style.background-color]="rolGrupo.colorHex"
+                  >
+                    {{ rolGrupo.nombre }}
+                  </span>
+                }
               </span>
               @if (m.rol === 'JEFE') {
                 <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Jefe</span>

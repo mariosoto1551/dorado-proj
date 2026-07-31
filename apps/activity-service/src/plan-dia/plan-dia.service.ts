@@ -9,10 +9,12 @@ import { esElegibleParaElPlan } from '../comun/elegibilidad-plan';
 import {
   ActividadNoDisponibleHoyException,
   ActividadNoElegibleParaElPlanException,
+  ActividadNoEsDeTuRolException,
   ActividadYaEmpezadaException,
   PlanDelDiaInactivoException,
 } from '../comun/excepciones';
 import { estaDisponibleEn } from '../comun/programacion';
+import { esDeSuRol } from '../comun/restriccion-rol';
 import { resolverSesionAbierta } from '../comun/sesion-abierta';
 import { esVisiblePara } from '../comun/visibilidad-actividad';
 import { ConfiguracionContenidoService } from '../contenido-usuario/configuracion-contenido.service';
@@ -200,6 +202,16 @@ export class PlanDiaService {
 
     if (!esElegibleParaElPlan(actividad)) {
       throw new ActividadNoElegibleParaElPlanException();
+    }
+
+    // fase-14-19: sin esto la hoja «＋ Elegir» sería una puerta lateral a lo que
+    // la lista oculta. Solo cuesta una llamada si la actividad está restringida.
+    if (actividad.rolesPermitidos.length > 0) {
+      const rolGrupoId = await this.identity.rolDeUsuario(grupoId, usuarioId);
+
+      if (!esDeSuRol(actividad, rolGrupoId)) {
+        throw new ActividadNoEsDeTuRolException();
+      }
     }
 
     return actividad;

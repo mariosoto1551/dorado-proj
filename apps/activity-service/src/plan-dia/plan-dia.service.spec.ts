@@ -103,6 +103,8 @@ function crearServicio(
     registrosActividad?: RegistroActividad[];
     planDelDiaActivo?: boolean;
     seccionActual?: SeccionActualInterna | null;
+    /** fase-14-19: rol del participante en el grupo. null = sin rol. */
+    rolDeUsuario?: string | null;
   } = {}
 ): { servicio: PlanDiaService; bd: BdRegistroEnMemoria } {
   const bd = crearBdRegistroEnMemoria({
@@ -120,6 +122,8 @@ function crearServicio(
 
   const identity = {
     obtenerGrupo: vi.fn().mockResolvedValue(GRUPO),
+    // fase-14-19: el rol del integrante, para las actividades restringidas.
+    rolDeUsuario: vi.fn().mockResolvedValue(opciones.rolDeUsuario ?? null),
   } as unknown as IdentityClientService;
 
   const config = {
@@ -356,5 +360,47 @@ describe('PlanDiaService — alta automática al registrar (fase-14-17, decisió
     await expect(
       servicio.asegurarEnPlan('org-1', actividadDePrueba(), 'usuario-1', 'sesion-1')
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('PlanDiaService — la hoja «Elegir» respeta el rol (fase-14-19)', () => {
+  const ROL_COCINA = 'rol-cocina';
+
+  const RESTRINGIDA = () =>
+    actividadDePrueba({ id: 'actividad-cocina', rolesPermitidos: [ROL_COCINA] });
+
+  it('403 ACTIVIDAD_NO_ES_DE_TU_ROL al elegir una actividad de otro rol', async () => {
+    // Sin esto, «＋ Elegir» sería una puerta lateral a lo que la lista oculta.
+    const { servicio, bd } = crearServicio({
+      actividades: [RESTRINGIDA()],
+      rolDeUsuario: 'rol-limpieza',
+    });
+
+    await expect(
+      servicio.agregar(tenantUsuario(), 'grupo-1', { actividadId: 'actividad-cocina' })
+    ).rejects.toMatchObject({ code: 'ACTIVIDAD_NO_ES_DE_TU_ROL' });
+    expect(bd.seleccionesPlanDia).toHaveLength(0);
+  });
+
+  it('quien tiene el rol la elige normalmente', async () => {
+    const { servicio, bd } = crearServicio({
+      actividades: [RESTRINGIDA()],
+      rolDeUsuario: ROL_COCINA,
+    });
+
+    await servicio.agregar(tenantUsuario(), 'grupo-1', { actividadId: 'actividad-cocina' });
+
+    expect(bd.seleccionesPlanDia).toHaveLength(1);
+  });
+
+  it('el integrante sin rol tampoco puede elegirla', async () => {
+    const { servicio } = crearServicio({
+      actividades: [RESTRINGIDA()],
+      rolDeUsuario: null,
+    });
+
+    await expect(
+      servicio.agregar(tenantUsuario(), 'grupo-1', { actividadId: 'actividad-cocina' })
+    ).rejects.toMatchObject({ code: 'ACTIVIDAD_NO_ES_DE_TU_ROL' });
   });
 });

@@ -27,6 +27,11 @@ import type {
   ReporteMiembroDto,
   TareaEquipoDeHoyDto,
   TipoRegistroHistorial,
+  AsignacionTurnoDto,
+  ConfigurarTurnoRequest,
+  ReasignarTurnoRequest,
+  TurnoActividadDto,
+  TurnoDeHoyDelGrupoDto,
 } from '@dorado/shared-types';
 
 import { environment } from '../../../environments/environment';
@@ -373,5 +378,43 @@ export class ActivityApiService {
 
   archivarMiActividad(actividadId: string): Observable<ActividadDto> {
     return this.http.delete<ActividadDto>(`${this.base}/mis-actividades/${actividadId}`);
+  }
+
+  // ---- Turnos rotativos (fase-14-21) ----
+  //
+  // La secuencia es una lista ORDENADA de posiciones y admite repetidos: con
+  // `[José, Luciana, José, Alejandra]`, a José le toca 2 de cada 4 días.
+
+  obtenerTurno(actividadId: string): Observable<TurnoActividadDto> {
+    return this.http.get<TurnoActividadDto>(`${this.base}/actividades/${actividadId}/turno`);
+  }
+
+  configurarTurno(
+    actividadId: string,
+    datos: ConfigurarTurnoRequest
+  ): Observable<TurnoActividadDto> {
+    return this.http.put<TurnoActividadDto>(
+      `${this.base}/actividades/${actividadId}/turno`,
+      datos
+    );
+  }
+
+  apagarTurno(actividadId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/actividades/${actividadId}/turno`);
+  }
+
+  reasignarTurno(
+    actividadId: string,
+    datos: ReasignarTurnoRequest
+  ): Observable<AsignacionTurnoDto> {
+    return this.http.post<AsignacionTurnoDto>(
+      `${this.base}/actividades/${actividadId}/turno/reasignar`,
+      datos
+    );
+  }
+
+  /** A quién le toca cada actividad rotativa hoy — panel operativo del Tutor. */
+  turnosDeHoy(grupoId: string): Observable<TurnoDeHoyDelGrupoDto[]> {
+    return this.http.get<TurnoDeHoyDelGrupoDto[]>(`${this.base}/grupos/${grupoId}/turnos-de-hoy`);
   }
 }

@@ -2,7 +2,14 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 
 import { getCorrelationId } from '@dorado/shared-logging';
-import { EquipoInternoDto, GrupoDto, TutorDto, UsuarioDto } from '@dorado/shared-types';
+import {
+  EquipoInternoDto,
+  GrupoDto,
+  RolAsignadoDto,
+  RolGrupoInternoDto,
+  TutorDto,
+  UsuarioDto,
+} from '@dorado/shared-types';
 
 const TIMEOUT_MS = 2000;
 
@@ -91,6 +98,45 @@ export class IdentityClientService {
     );
 
     return equipos ?? [];
+  }
+
+  /**
+   * Catálogo de roles del grupo (fase-14-19): valida `rolesPermitidos` al crear
+   * o editar una actividad. Escritura del catálogo, camino frío.
+   */
+  async rolesDelGrupo(grupoId: string): Promise<RolGrupoInternoDto[]> {
+    const roles = await this.obtener<RolGrupoInternoDto[]>(
+      `/internal/identity/grupos/${grupoId}/roles`
+    );
+
+    return roles ?? [];
+  }
+
+  /**
+   * Quién tiene qué rol en el grupo (fase-14-19). Este SÍ entra al camino
+   * caliente (`mi-estado-hoy`, plan del día, registro, cierre de sesión), por eso
+   * devuelve dos ids por participante y no un DTO entero — y por eso quien lo
+   * llama debe pedirlo solo si el catálogo tiene alguna actividad restringida
+   * (ver `hayRestriccionesDeRol` en comun/restriccion-rol.ts).
+   */
+  async rolesAsignados(grupoId: string): Promise<RolAsignadoDto[]> {
+    const asignados = await this.obtener<RolAsignadoDto[]>(
+      `/internal/identity/grupos/${grupoId}/roles-asignados`
+    );
+
+    return asignados ?? [];
+  }
+
+  /**
+   * Rol de UN participante en el grupo, o `null` si no tiene (o si el grupo no
+   * usa roles). Atajo sobre `rolesAsignados` para los flujos que solo necesitan
+   * el propio: la llamada de red es la misma, evita repetir el `.find` en cada
+   * llamador.
+   */
+  async rolDeUsuario(grupoId: string, usuarioId: string): Promise<string | null> {
+    const asignados = await this.rolesAsignados(grupoId);
+
+    return asignados.find((fila) => fila.usuarioId === usuarioId)?.rolGrupoId ?? null;
   }
 
   private async obtener<T>(ruta: string): Promise<T | null> {

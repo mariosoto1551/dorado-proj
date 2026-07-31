@@ -35,6 +35,7 @@ import type {
 } from '../eventos/eventos-publisher.service';
 import type { RegistroActividad } from '../generated/prisma/client';
 import { PlanDiaService } from '../plan-dia/plan-dia.service';
+import { TurnosService } from '../turnos/turnos.service';
 import { RegistroService } from './registro.service';
 
 const GRUPO: GrupoDto = {
@@ -110,9 +111,13 @@ function crearServicio(opciones: {
   usuarioDeIdentity?: UsuarioDto | null;
   /** fase-14-17: por default apagado — el comportamiento previo al ítem 17. */
   planDelDiaActivo?: boolean;
+  /** fase-14-19: rol del participante en el grupo. null = sin rol. */
+  rolDeUsuario?: string | null;
 } = {}) {
   const bd = opciones.bd ?? crearBdRegistroEnMemoria({ actividades: [actividadDePrueba()] });
   const publicados: EventoAPublicar<unknown>[] = [];
+
+  const rolDeUsuario = vi.fn().mockResolvedValue(opciones.rolDeUsuario ?? null);
 
   const identity = {
     obtenerGrupo: vi.fn().mockResolvedValue(GRUPO),
@@ -121,6 +126,16 @@ function crearServicio(opciones: {
       .mockResolvedValue(
         opciones.usuarioDeIdentity === undefined ? usuarioDePrueba() : opciones.usuarioDeIdentity
       ),
+    // fase-14-19: el espía permite verificar que NO se llama cuando la actividad
+    // no está restringida (decisión 13).
+    rolDeUsuario,
+    // fase-14-21: los nombres para «hoy le toca a Ana».
+    usuariosDelGrupo: vi
+      .fn()
+      .mockResolvedValue([
+        usuarioDePrueba(),
+        usuarioDePrueba({ id: 'usuario-2', nombre: 'Usuario Dos' }),
+      ]),
   } as unknown as IdentityClientService;
 
   const session = {
@@ -158,11 +173,24 @@ function crearServicio(opciones: {
     { asegurarAccesoLectura: () => undefined } as never
   );
 
+  // fase-14-21: TurnosService REAL contra la misma bd en memoria, igual que el
+  // PlanDiaService — así los tests ven el efecto del turno tal como pasa en
+  // producción, y una actividad sin rotación no toca nada.
+  const turnos = new TurnosService(
+    bd.prisma,
+    { asegurarAccesoLectura: () => undefined, asegurarAccesoEscritura: async () => undefined } as never,
+    identity,
+    session,
+    eventos
+  );
+
   return {
-    servicio: new RegistroService(bd.prisma, identity, session, eventos, planDia),
+    servicio: new RegistroService(bd.prisma, identity, session, eventos, planDia, turnos),
     planDia,
+    turnos,
     bd,
     publicados,
+    rolDeUsuario,
   };
 }
 
@@ -1367,5 +1395,207 @@ describe('RegistroService — deadlineEn para la cuenta regresiva (fase-14-14)',
     const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
 
     expect(estado.actividades[0]).toMatchObject({ deadlineEn: null, disponibleHoy: true });
+  });
+});
+
+describe('RegistroService — restricción por rol (fase-14-19)', () => {
+  const ROL_COCINA = 'rol-cocina';
+  const ROL_LIMPIEZA = 'rol-limpieza';
+
+  function bdConRestringida() {
+    return crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba(),
+        actividadDePrueba({
+          id: 'actividad-cocina',
+          nombre: 'Lavar los platos',
+          rolesPermitidos: [ROL_COCINA],
+        }),
+      ],
+    });
+  }
+
+  it('mi-estado-hoy oculta la actividad de otro rol (decisión 6)', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConRestringida(),
+      rolDeUsuario: ROL_LIMPIEZA,
+    });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual(['actividad-1']);
+  });
+
+  it('mi-estado-hoy la muestra a quien SÍ tiene el rol', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConRestringida(),
+      rolDeUsuario: ROL_COCINA,
+    });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual([
+      'actividad-1',
+      'actividad-cocina',
+    ]);
+  });
+
+  it('el integrante SIN rol solo ve las no restringidas', async () => {
+    const { servicio } = crearServicio({ bd: bdConRestringida(), rolDeUsuario: null });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual(['actividad-1']);
+  });
+
+  it('COSTO CERO: sin restricciones en el catálogo, mi-estado-hoy no llama a identity', async () => {
+    const { servicio, rolDeUsuario } = crearServicio();
+
+    await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(rolDeUsuario).not.toHaveBeenCalled();
+  });
+
+  it('403 ACTIVIDAD_NO_ES_DE_TU_ROL al completar una actividad de otro rol', async () => {
+    // La pantalla ya no la muestra, pero un cliente con la lista vieja en caché
+    // no puede colar el registro: el servidor es el que decide.
+    const { servicio } = crearServicio({
+      bd: bdConRestringida(),
+      rolDeUsuario: ROL_LIMPIEZA,
+    });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'actividad-cocina', {})
+    ).rejects.toMatchObject({ code: 'ACTIVIDAD_NO_ES_DE_TU_ROL' });
+  });
+
+  it('quien tiene el rol la completa normalmente', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConRestringida(),
+      rolDeUsuario: ROL_COCINA,
+    });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'actividad-cocina', {})
+    ).resolves.toMatchObject({ actividadId: 'actividad-cocina' });
+  });
+
+  it('400 ACTIVIDAD_NO_ES_DE_SU_ROL: el Tutor no marca "no hizo" fuera del rol', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          id: 'obl-cocina',
+          tipoPuntaje: 'OBLIGATORIA',
+          rolesPermitidos: [ROL_COCINA],
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd, rolDeUsuario: ROL_LIMPIEZA });
+
+    await expect(
+      servicio.registrarNoHizo(tenantTutor(), 'obl-cocina', { usuarioId: 'usuario-1' })
+    ).rejects.toMatchObject({ code: 'ACTIVIDAD_NO_ES_DE_SU_ROL' });
+  });
+});
+
+describe('RegistroService — turnos rotativos (fase-14-21)', () => {
+  const TURNO = {
+    id: 'turno-1',
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    actividadId: 'obl-basura',
+    modo: 'ORDEN_FIJO',
+    frecuencia: 'SESION',
+    activo: true,
+  };
+
+  const OBLIGATORIA_ROTATIVA = () =>
+    actividadDePrueba({
+      id: 'obl-basura',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 10,
+      puntosPorCumplir: 2,
+    });
+
+  function asignacionA(usuarioId: string) {
+    return {
+      id: 'asig-1',
+      actividadId: 'obl-basura',
+      ambitoId: 'sesion-1',
+      sesionId: 'sesion-1',
+      seccionId: 'seccion-1',
+      usuarioId,
+      vueltaNumero: 1,
+      indice: 0,
+    };
+  }
+
+  function bdConTurno(asignadoA: string | null) {
+    return crearBdRegistroEnMemoria({
+      actividades: [OBLIGATORIA_ROTATIVA()],
+      turnos: [TURNO] as never,
+      asignacionesTurno: (asignadoA ? [asignacionA(asignadoA)] : []) as never,
+    });
+  }
+
+  it('el asignado confirma normalmente y cobra el premio del #20', async () => {
+    const { servicio } = crearServicio({ bd: bdConTurno('usuario-1') });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'obl-basura', {})
+    ).resolves.toMatchObject({ valorPuntosSnapshot: 2 });
+  });
+
+  it('403 NO_ES_TU_TURNO si hoy le toca a otro', async () => {
+    const { servicio } = crearServicio({ bd: bdConTurno('usuario-2') });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'obl-basura', {})
+    ).rejects.toMatchObject({ code: 'NO_ES_TU_TURNO' });
+  });
+
+  it('409 SIN_TURNO_VIGENTE si rota pero hoy no se selló turno', async () => {
+    // Día no programado (#11) o ninguna posición válida: no se le exige a nadie.
+    const { servicio } = crearServicio({ bd: bdConTurno(null) });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'obl-basura', {})
+    ).rejects.toMatchObject({ code: 'SIN_TURNO_VIGENTE' });
+  });
+
+  it('400 NO_ES_SU_TURNO: el Tutor tampoco marca «no hizo» fuera del turno', async () => {
+    const { servicio } = crearServicio({ bd: bdConTurno('usuario-2') });
+
+    await expect(
+      servicio.registrarNoHizo(tenantTutor(), 'obl-basura', { usuarioId: 'usuario-1' })
+    ).rejects.toMatchObject({ code: 'NO_ES_SU_TURNO' });
+  });
+
+  it('mi-estado-hoy dice a quién le toca, con esMio', async () => {
+    const propio = crearServicio({ bd: bdConTurno('usuario-1') });
+    const estadoPropio = await propio.servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estadoPropio.actividades[0].turno).toMatchObject({
+      usuarioIdAsignado: 'usuario-1',
+      esMio: true,
+    });
+
+    const ajeno = crearServicio({ bd: bdConTurno('usuario-2') });
+    const estadoAjeno = await ajeno.servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    // La tarjeta igual se muestra (decisión 5), sin botón y con el nombre.
+    expect(estadoAjeno.actividades[0].turno).toMatchObject({
+      usuarioIdAsignado: 'usuario-2',
+      esMio: false,
+    });
+  });
+
+  it('una actividad sin rotación viaja con turno = null (comportamiento previo)', async () => {
+    const { servicio } = crearServicio();
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades[0].turno).toBeNull();
   });
 });
