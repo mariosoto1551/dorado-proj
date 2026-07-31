@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import type { CanjeRecompensa, Recompensa } from '../../generated/prisma/client';
+import type {
+  CanjeRecompensa,
+  ConfiguracionRecompensasGrupo,
+  Recompensa,
+} from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 /**
@@ -66,9 +70,65 @@ interface FilaEventoProcesado extends Fila {
   consumidor: string;
 }
 
+/**
+ * Delegado con la forma que necesita `ConfiguracionRecompensasGrupo`
+ * (fase-14-22): clave única `grupoId`, con `findUnique`/`upsert`/`update`.
+ * El delegado genérico no sirve acá — ese trabaja con `findFirst`/`updateMany`.
+ */
+function crearDelegadoPorGrupo<T extends Fila>(filas: T[], defaults: () => Partial<T>) {
+  const buscar = (grupoId: string) => filas.find((fila) => fila['grupoId'] === grupoId);
+
+  return {
+    findUnique: async (args: { where: { grupoId: string } }) =>
+      buscar(args.where.grupoId) ?? null,
+    create: async (args: { data: Partial<T> }) => {
+      const fila = { ...defaults(), ...args.data } as T;
+
+      if (buscar(fila['grupoId'] as string)) {
+        throw errorP2002();
+      }
+
+      filas.push(fila);
+
+      return fila;
+    },
+    update: async (args: { where: { grupoId: string }; data: Partial<T> }) => {
+      const fila = buscar(args.where.grupoId);
+
+      if (!fila) {
+        throw new Error('Fila no encontrada');
+      }
+
+      Object.assign(fila, args.data);
+
+      return fila;
+    },
+    upsert: async (args: {
+      where: { grupoId: string };
+      create: Partial<T>;
+      update: Partial<T>;
+    }) => {
+      const existente = buscar(args.where.grupoId);
+
+      if (existente) {
+        Object.assign(existente, args.update);
+
+        return existente;
+      }
+
+      const fila = { ...defaults(), ...args.create } as T;
+
+      filas.push(fila);
+
+      return fila;
+    },
+  };
+}
+
 export interface BdEnMemoria {
   recompensas: Recompensa[];
   canjes: CanjeRecompensa[];
+  configuraciones: ConfiguracionRecompensasGrupo[];
   procesados: FilaEventoProcesado[];
   prisma: PrismaService;
 }
@@ -76,9 +136,13 @@ export interface BdEnMemoria {
 export function crearBdEnMemoria(datos: {
   recompensas?: Recompensa[];
   canjes?: CanjeRecompensa[];
+  configuraciones?: ConfiguracionRecompensasGrupo[];
 } = {}): BdEnMemoria {
   const recompensas: Recompensa[] = [...(datos.recompensas ?? [])];
   const canjes: CanjeRecompensa[] = [...(datos.canjes ?? [])];
+  const configuraciones: ConfiguracionRecompensasGrupo[] = [
+    ...(datos.configuraciones ?? []),
+  ];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -106,6 +170,18 @@ export function crearBdEnMemoria(datos: {
         nueva['usuarioId'] === existente['usuarioId'] &&
         nueva['seccionId'] === existente['seccionId']
     ),
+    configuracionRecompensasGrupo: crearDelegadoPorGrupo<ConfiguracionRecompensasGrupo>(
+      configuraciones,
+      () => ({
+        id: randomUUID(),
+        modo: 'DIRECTO',
+        modoPendiente: null,
+        nombreMoneda: 'monedas',
+        iconoMoneda: '🪙',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    ),
     eventoProcesado: {
       findUnique: async ({ where }: { where: { eventId: string } }) =>
         procesados.find((fila) => fila.eventId === where.eventId) ?? null,
@@ -124,9 +200,27 @@ export function crearBdEnMemoria(datos: {
   return {
     recompensas,
     canjes,
+    configuraciones,
     procesados,
     prisma: { client } as unknown as PrismaService,
   };
+}
+
+export function configuracionDePrueba(
+  sobrescribir: Partial<ConfiguracionRecompensasGrupo> = {}
+): ConfiguracionRecompensasGrupo {
+  return {
+    id: randomUUID(),
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    modo: 'DIRECTO',
+    modoPendiente: null,
+    nombreMoneda: 'monedas',
+    iconoMoneda: '🪙',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...sobrescribir,
+  } as ConfiguracionRecompensasGrupo;
 }
 
 export function recompensaDePrueba(sobrescribir: Partial<Recompensa> = {}): Recompensa {

@@ -6,6 +6,7 @@ import { SharedLoggingModule } from '@dorado/shared-logging';
 import { CanjesModule } from '../canjes/canjes.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { validarEnv } from '../config/env.schema';
+import { ConfiguracionModule } from '../configuracion/configuracion.module';
 import { ConsumoModule } from '../consumo/consumo.module';
 import { EventosModule } from '../eventos/eventos.module';
 import { InternalModule } from '../internal/internal.module';
@@ -25,6 +26,7 @@ import { RecompensasModule } from '../recompensas/recompensas.module';
     PrismaModule,
     EventosModule,
     ClientesModule,
+    ConfiguracionModule,
     ConsumoModule,
     RecompensasModule,
     CanjesModule,

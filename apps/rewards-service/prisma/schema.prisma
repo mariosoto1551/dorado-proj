@@ -28,6 +28,36 @@ enum EstadoCanje {
   ENTREGADA
 }
 
+// fase-14-22 decisión 1: los dos modos de recompensas, excluyentes por Grupo.
+enum ModoRecompensas {
+  // fase-08 tal cual: premio por zona al cerrar la Sección. DEFAULT — todo
+  // grupo existente (sin fila de configuración) se comporta exactamente así.
+  DIRECTO
+  // fase-14-22: monedas por zona + tienda.
+  TIENDA
+}
+
+/**
+ * Config de recompensas por Grupo (fase-14-22). Mutable: es config, no ledger.
+ * `modoPendiente` implementa la decisión 9 — el Tutor elige si el cambio de
+ * modo aplica ya o al abrir la próxima Sección; en ese caso queda acá y lo
+ * consume `SeccionesConsumer`.
+ */
+model ConfiguracionRecompensasGrupo {
+  id             String           @id @default(uuid())
+  organizacionId String
+  grupoId        String           @unique
+  modo           ModoRecompensas  @default(DIRECTO)
+  modoPendiente  ModoRecompensas?
+  // Cosmético, se muestra tal cual ("12 Doradas"). Sin plural modelado a propósito.
+  nombreMoneda   String           @default("monedas")
+  iconoMoneda    String           @default("🪙")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizacionId])
+}
+
 model Recompensa {
   id             String @id @default(uuid())
   organizacionId String
