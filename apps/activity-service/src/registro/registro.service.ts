@@ -270,9 +270,12 @@ export class RegistroService {
           sesionId: sesion.sesionId,
           seccionId: sesion.seccionId,
           tipo: TipoRegistroActividad.COMPLETADA,
-          // Confirmar una obligatoria vale 0 puntos: solo evita el castigo al
-          // cierre, no otorga puntos (spec fase-14-08, decisión 2).
-          valorPuntosSnapshot: esConfirmacion ? 0 : actividad.valorPuntos,
+          // fase-14-20: confirmar una obligatoria vale lo que el Tutor haya
+          // cargado como premio (0 por default, que es la decisión 2 original
+          // del ítem 8 y el comportamiento de toda actividad preexistente).
+          valorPuntosSnapshot: esConfirmacion
+            ? actividad.puntosPorCumplir
+            : actividad.valorPuntos,
           registradoPorId: tenant.principalId,
           registradoPorTipo: tenant.principalType,
         },
@@ -288,10 +291,11 @@ export class RegistroService {
       return fila;
     });
 
-    // La confirmación NO publica evento de dominio (0 pts → no toca el ledger
-    // de scoring): vive solo en activity y la lee el consumidor de cierre para
-    // saltear el castigo (spec fase-14-08, Parte B).
-    if (!esConfirmacion) {
+    // fase-14-20: la condición es el SNAPSHOT, no "si es una confirmación". Una
+    // confirmación que vale 0 sigue sin publicar nada —vive solo en activity y
+    // la lee el consumidor de cierre para saltear el castigo (fase-14-08 Parte
+    // B)—, pero una que vale puntos es un asiento del ledger como cualquier otro.
+    if (registro.valorPuntosSnapshot !== 0) {
       await this.eventos.publicar({
         eventType: 'ActividadCompletada',
         routingKey: ROUTING_KEYS.ACTIVIDAD_COMPLETADA,
@@ -509,10 +513,22 @@ export class RegistroService {
 
     // Override (fase-14): si la obligatoria era confirmable y el usuario ya la
     // había confirmado, esa confirmación deja de valer — se da de baja para que
-    // su pantalla la muestre como NO hecha. Sin evento: la confirmación valía 0
-    // pts (no tiene asiento en el ledger); el castigo lo aplica el NO_HIZO de
+    // su pantalla la muestre como NO hecha. El castigo lo aplica el NO_HIZO de
     // arriba, y `paresPendientes` del cierre ya no duplica (hay un registro).
     if (actividad.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION) {
+      // fase-14-20: se LEEN antes de darlas de baja. Mientras confirmar valía 0
+      // esta baja no tenía asiento que compensar; ahora que puede valer puntos,
+      // sin el evento el integrante se quedaría con el premio Y el castigo.
+      const confirmaciones = await this.prisma.client.registroActividad.findMany({
+        where: {
+          usuarioId,
+          actividadId,
+          sesionId: sesion.sesionId,
+          tipo: TipoRegistroActividad.COMPLETADA,
+          eliminado: false,
+        },
+      });
+
       await this.prisma.client.registroActividad.updateMany({
         where: {
           usuarioId,
@@ -527,6 +543,24 @@ export class RegistroService {
           eliminadoEn: new Date(),
         },
       });
+
+      for (const confirmacion of confirmaciones) {
+        if (confirmacion.valorPuntosSnapshot === 0) {
+          continue;
+        }
+
+        await this.eventos.publicar<ActividadRegistroEliminadoPayload>({
+          eventType: 'ActividadRegistroEliminado',
+          routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
+          organizacionId: confirmacion.organizacionId,
+          grupoId: confirmacion.grupoId,
+          payload: {
+            registroId: confirmacion.id,
+            usuarioId: confirmacion.usuarioId,
+            eliminadoPorTutorId: tenant.principalId,
+          },
+        });
+      }
     }
 
     return registroActividadADto(registro);

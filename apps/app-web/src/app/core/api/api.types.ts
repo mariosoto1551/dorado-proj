@@ -54,7 +54,10 @@ export interface CrearActividadRequest {
   nombre: string;
   descripcion?: string | null;
   tipoPuntaje: TipoPuntaje;
+  /** En una OBLIGATORIA es el castigo por no hacerla. */
   valorPuntos: number;
+  /** fase-14-20: lo que suma cumplirla; solo en OBLIGATORIA + confirmación. */
+  puntosPorCumplir?: number;
   tipoLimiteTiempo: TipoLimiteTiempo;
   deadlineHora?: string | null;
   duracionCronometroMinutos?: number | null;

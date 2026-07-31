@@ -92,8 +92,14 @@ model Actividad {
   nombre                     String
   descripcion                String?
   tipoPuntaje                TipoPuntaje
-  // siempre positivo; el signo se aplica al registrar (Fase 7)
+  // siempre positivo; el signo se aplica al registrar (Fase 7). En una
+  // OBLIGATORIA es el CASTIGO por no hacerla.
   valorPuntos                Int
+  // fase-14-20: lo que SUMA cumplir una obligatoria confirmable (+2 frente a un
+  // castigo de −10, por ejemplo). Default 0 ⇒ toda actividad preexistente
+  // conserva el comportamiento del ítem 8 (confirmar valía 0). Se fuerza a 0
+  // fuera de OBLIGATORIA + REQUIERE_CONFIRMACION (spec, decisión 4).
+  puntosPorCumplir           Int              @default(0)
   tipoLimiteTiempo           TipoLimiteTiempo
   // "HH:mm", solo si tipoLimiteTiempo = DEADLINE, hora local del Grupo
   deadlineHora               String?

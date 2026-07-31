@@ -448,6 +448,97 @@ describe('RegistroService — confirmar obligatoria (fase-14-08)', () => {
   });
 });
 
+describe('RegistroService — las obligatorias también suman (fase-14-20)', () => {
+  function bdConPremio(puntosPorCumplir: number): BdRegistroEnMemoria {
+    return crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+          // El caso de la spec: premio chico, castigo grande.
+          valorPuntos: 10,
+          puntosPorCumplir,
+        }),
+      ],
+    });
+  }
+
+  it('confirmar con premio acredita los puntos al instante y publica el evento', async () => {
+    const { servicio, publicados } = crearServicio({ bd: bdConPremio(2) });
+
+    const registro = await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    expect(registro).toMatchObject({ tipo: 'COMPLETADA', valorPuntosSnapshot: 2 });
+    // Deja de ser invisible para scoring: es un asiento del ledger como otro.
+    expect(publicados).toHaveLength(1);
+    expect(publicados[0]).toMatchObject({
+      eventType: 'ActividadCompletada',
+      payload: expect.objectContaining({ valorPuntosSnapshot: 2 }),
+    });
+  });
+
+  it('con premio 0 se comporta exactamente como antes del ítem: sin evento', async () => {
+    const { servicio, publicados } = crearServicio({ bd: bdConPremio(0) });
+
+    const registro = await servicio.completar(tenantUsuario(), 'actividad-1', {});
+
+    expect(registro.valorPuntosSnapshot).toBe(0);
+    expect(publicados).toHaveLength(0);
+  });
+
+  it('el "no hizo" sobre una confirmación premiada la compensa en el ledger', async () => {
+    const bd = bdConPremio(2);
+    const { servicio, publicados } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    publicados.length = 0;
+
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' });
+
+    // Sin la compensación el integrante se quedaría con el +2 Y el −10.
+    const tipos = publicados.map((evento) => evento.eventType);
+    expect(tipos).toContain('NoHizoRegistrado');
+    expect(tipos).toContain('ActividadRegistroEliminado');
+
+    const eliminado = publicados.find(
+      (evento) => evento.eventType === 'ActividadRegistroEliminado'
+    );
+    const confirmacion = bd.registrosActividad.find(
+      (registro) => registro.tipo === 'COMPLETADA'
+    );
+    expect(eliminado?.payload).toMatchObject({
+      registroId: confirmacion?.id,
+      usuarioId: 'usuario-1',
+    });
+    // La confirmación queda dada de baja igual que antes.
+    expect(confirmacion?.eliminado).toBe(true);
+  });
+
+  it('el "no hizo" sobre una confirmación de 0 pts no publica compensación (nada que compensar)', async () => {
+    const bd = bdConPremio(0);
+    const { servicio, publicados } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'actividad-1', {});
+    publicados.length = 0;
+
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' });
+
+    expect(publicados.map((evento) => evento.eventType)).toEqual(['NoHizoRegistrado']);
+  });
+
+  it('el castigo automático no cambia: sigue siendo −valorPuntos, no el premio', async () => {
+    const bd = bdConPremio(2);
+    const { servicio, publicados } = crearServicio({ bd });
+
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' });
+
+    expect(publicados[0]).toMatchObject({
+      eventType: 'NoHizoRegistrado',
+      payload: expect.objectContaining({ valorPuntosSnapshot: -10 }),
+    });
+  });
+});
+
 describe('RegistroService — mi-estado-hoy (fase-14-08)', () => {
   it('sin Sesión abierta → sesionId null y lista vacía', async () => {
     const { servicio } = crearServicio({ seccionActual: null });

@@ -635,3 +635,36 @@ Timeline cronológico del grupo (no agrupado por participante) · solo la Sesió
 2. **Asimetría de conductas, declarada fuera de alcance**: una conducta se puede anular pero **no deshacer**, y su anulación no acepta motivo — a diferencia de las actividades desde el #12. En el historial se nota (una fila de conducta tiene menos botones). Emparejarla necesita un evento nuevo y la cadena de compensación en scoring; es un ítem propio, no un agregado.
 3. **Desplegar la migración en el piloto**. Es retro-compatible por construcción: solo agrega un enum y una tabla vacía.
 4. **Deuda de tests de componente**: lo puro del timeline se extrajo a `historial-sesion.util.ts` y **sí** está testeado (7 tests, incluido el formateo en la timezone del Grupo); el componente en sí queda cubierto por build + lint, como el resto de app-web.
+
+## Ítem 20: Las obligatorias también suman al cumplirse
+- **Estado**: EN_PROGRESO — **completo y verificado**. 217/217 tests de activity-service (9 nuevos), 34/34 de app-web, lint verde, build de activity y app-web verde, **migración aplicada contra `activity_db` real** y **suite E2E nueva 3/3 verde, dos corridas** (la segunda junto con la del #18: 7/7).
+- **Fecha**: 2026-07-30 / **Spec**: `docs/phases/fase-14-20-obligatorias-que-suman.md` / **Commit**: — (branch `fase-14-roles-grupos-multiples`)
+- **Origen**: segunda de las cuatro ideas de José del 2026-07-30. Se ejecutó después del #18 siguiendo el orden justificado al pie de `fase-14-post-mvp.md`.
+
+### Qué decisión revisa
+La **decisión 2 del ítem #8** («confirmar una obligatoria vale 0 puntos»). Siguiendo el protocolo, `fase-14-08-confirmacion-obligatorias.md` **no se editó**: la revisión vive en la spec del #20, con su fecha y su motivo.
+
+### Lo ejecutado
+- **Schema**: `Actividad.puntosPorCumplir Int @default(0)` + migración `20260731120000_obligatorias_que_suman_fase14` (solo agrega una columna con default → retro-compatible por construcción).
+- **Catálogo**: `resolverPuntosPorCumplir` normaliza el campo contra el tipo y el comportamiento efectivos, **en cada PATCH** — mismo patrón que `siempreVisible` (#17) y `bonoJefePuntos` (#9). Fuera de `OBLIGATORIA + REQUIERE_CONFIRMACION` se guarda 0 en vez de rechazar el request.
+- **Registro**: el snapshot de una confirmación pasa de `0` a `actividad.puntosPorCumplir`, y la condición de publicación pasa de *"no es una confirmación"* a **`valorPuntosSnapshot !== 0`** — con premio 0 no se publica nada, que es exactamente el comportamiento anterior.
+- **El override del «no hizo» ahora compensa**: se leen las confirmaciones vivas antes de darlas de baja y se publica `ActividadRegistroEliminado` por cada una que valía puntos. Sin esto el integrante se quedaba con el premio **y** el castigo (−8 en vez de −10). Era el único camino del ítem capaz de dejar un número incorrecto, y está verificado con números reales en la E2E.
+- **Frontend**: campo «Puntos por cumplirla» en el form del tutor, colgado de la misma condición que la confirmación, con vista previa del par (+2 / −10); la tarjeta del catálogo muestra los dos números cuando hay premio; la tarjeta del integrante muestra `+N` como en cualquier opcional (con premio 0 no muestra nada, igual que hoy).
+- **Sin tocar `scoring-service`**: ya sabía procesar los dos eventos reusados y ya armaba la cadena de compensación desde el #12.
+
+### Hallazgo de la verificación (NO es una regresión de este ítem)
+La E2E destapó una interacción entre los ítems #8 y #12 que nadie había mirado: en la secuencia **confirmar → el tutor marca «no hizo» → el tutor deshace la marca**, el integrante **no puede volver a confirmar** (409 `LIMITE_REPETICIONES_ALCANZADO`) porque el override del «no hizo» da de baja su confirmación y `completar` cuenta las completadas **incluyendo las eliminadas** (regla explícita del #12: el intento se quemó). El neto de la secuencia queda en **0**: deshacer devuelve el castigo, no el premio.
+
+Verificado que **no** hay doble castigo al cierre: `paresPendientes` mira todos los registros de la Sesión sin filtrar `eliminado`, así que el par ya cuenta como resuelto.
+
+Es coherente con la filosofía del #12 (revertir devuelve los puntos, no el intento), pero **contradice en la letra** un criterio de aceptación del #12 —*«el integrante puede confirmar de nuevo»*—, que en realidad solo se cumple cuando no había confirmación previa. Antes del #20 esto era invisible porque la confirmación valía 0. **No se cambió el comportamiento**: es una decisión de producto de José, no algo para resolver de callado en un ítem que no lo tenía en alcance. El test E2E **asserta el comportamiento actual a propósito**, con el comentario que explica por qué, para que un cambio futuro sea deliberado y no silencioso.
+
+### Tests nuevos (9 unit + 3 E2E)
+- `actividades.service.spec.ts` (+4): el premio se conserva en OBLIGATORIA confirmable; se fuerza a 0 en opcional, en `ASUME_HECHA` y en equipo; un PATCH a `ASUME_HECHA` lo apaga aunque no lo mande; un PATCH ajeno al tema lo conserva.
+- `registro.service.spec.ts` (+5): confirmar con premio publica `ActividadCompletada` con el snapshot correcto; con premio 0 no publica nada; el «no hizo» sobre una confirmación premiada publica además `ActividadRegistroEliminado` apuntando a esa confirmación; sobre una de 0 pts no publica compensación; y el castigo automático sigue siendo `−valorPuntos`.
+- `apps/e2e/src/obligatorias-que-suman.e2e.ts` (3): la secuencia completa con **números reales contra el ledger** (+2 → −10 → 0), la garantía de retro-compatibilidad con premio 0, y el apagado del premio donde nadie podría cobrarlo (incluido el PATCH y el 400 por negativo).
+
+### Qué falta / verificar la próxima sesión
+1. **Decidir qué hace «deshacer» con la confirmación premiada** (el hallazgo de arriba): hoy devuelve el castigo pero no el premio, y el intento queda quemado. Si José quiere que revertir restaure la confirmación, es un ítem propio — hay que decidir cómo identificar qué confirmaciones dio de baja *ese* «no hizo».
+2. **Paseo visual**: el campo nuevo del form y los dos números en la tarjeta se verificaron por build y por contrato de API, no en el navegador.
+3. **Desplegar la migración en el piloto**. Retro-compatible: una columna con default 0.

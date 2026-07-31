@@ -65,6 +65,13 @@ export class ActividadesService {
       datos.bonoJefePuntos
     );
 
+    // fase-14-20: el premio depende del comportamiento al cierre, así que se
+    // resuelve ese primero y se reusa (no se llama dos veces a resolverComportamiento).
+    const comportamiento = this.resolverComportamiento(
+      datos.tipoPuntaje,
+      datos.comportamientoAlCierre
+    );
+
     await this.asegurarLimiteActividades(tenant.organizacionId, grupoId);
 
     const actividad = await this.prisma.client.actividad.create({
@@ -83,9 +90,12 @@ export class ActividadesService {
           repeticionesMaximasSesion: datos.repeticionesMaximasSesion,
         }),
         repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion ?? null,
-        comportamientoAlCierre: this.resolverComportamiento(
+        comportamientoAlCierre: comportamiento,
+        // fase-14-20: el premio por cumplirla, 0 fuera de OBLIGATORIA confirmable.
+        puntosPorCumplir: this.resolverPuntosPorCumplir(
           datos.tipoPuntaje,
-          datos.comportamientoAlCierre
+          comportamiento,
+          datos.puntosPorCumplir
         ),
         alcance: equipo.alcance,
         bonoJefePuntos: equipo.bonoJefePuntos,
@@ -205,6 +215,15 @@ export class ActividadesService {
           repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion,
         }),
         comportamientoAlCierre: comportamientoEfectivo,
+        // fase-14-20: se recalcula siempre, igual que el comportamiento y el
+        // alcance — pasar la obligatoria a ASUME_HECHA (o a OPCIONAL) tiene que
+        // apagar el premio aunque el PATCH no mande el campo.
+        puntosPorCumplir: this.resolverPuntosPorCumplir(
+          tipoPuntajeEfectivo,
+          comportamientoEfectivo,
+          datos.puntosPorCumplir,
+          existente.puntosPorCumplir
+        ),
         alcance: equipo.alcance,
         bonoJefePuntos: equipo.bonoJefePuntos,
         // fase-14-11: solo se toca si el request lo trae (un PATCH parcial no
@@ -317,6 +336,30 @@ export class ActividadesService {
   ): boolean {
     if (tipoPuntaje !== TipoPuntaje.OPCIONAL || alcance !== AlcanceActividad.INDIVIDUAL) {
       return false;
+    }
+
+    return pedido ?? fallback;
+  }
+
+  /**
+   * `puntosPorCumplir` efectivo (fase-14-20). Solo significa algo en una
+   * OBLIGATORIA con `REQUIERE_CONFIRMACION`: es lo que gana el integrante al
+   * confirmarla. Sin confirmación no hay acción que registrar, así que un valor
+   * positivo sería un premio que nadie puede cobrar — se fuerza a 0 en vez de
+   * rechazar el request (mismo criterio que `siempreVisible` y `bonoJefePuntos`).
+   */
+  private resolverPuntosPorCumplir(
+    tipoPuntaje: TipoPuntaje,
+    comportamiento: ComportamientoAlCierre,
+    pedido: number | undefined,
+    fallback = 0
+  ): number {
+    const premiable =
+      tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
+      comportamiento === ComportamientoAlCierre.REQUIERE_CONFIRMACION;
+
+    if (!premiable) {
+      return 0;
     }
 
     return pedido ?? fallback;

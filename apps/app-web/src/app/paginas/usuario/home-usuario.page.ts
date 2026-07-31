@@ -190,6 +190,12 @@ const MINUTOS_URGENTE = 60;
                         <span class="font-bold text-teal-600 dark:text-teal-400">+{{ a.valorPuntos }} c/u</span>
                       } @else if (esObligatoria(a)) {
                         <span class="font-semibold text-amber-600 dark:text-amber-400">Obligatoria</span>
+                        <!-- fase-14-20: si el tutor le puso premio, se ve como
+                             en cualquier opcional. Con premio 0 (el default y
+                             todo lo anterior al ítem) no aparece nada. -->
+                        @if (a.puntosPorCumplir > 0) {
+                          · <span class="font-bold text-marca-600 dark:text-marca-400">+{{ a.puntosPorCumplir }} pts</span>
+                        }
                       } @else {
                         <span class="font-bold text-marca-600 dark:text-marca-400">+{{ a.valorPuntos }} pts</span>
                       }

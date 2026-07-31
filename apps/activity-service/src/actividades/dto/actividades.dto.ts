@@ -43,10 +43,18 @@ export class CrearActividadRequest {
   @IsEnum(TipoPuntaje)
   tipoPuntaje!: TipoPuntaje;
 
-  // Siempre positivo (spec): el signo se aplica al registrar, en Fase 7.
+  // Siempre positivo (spec): el signo se aplica al registrar, en Fase 7. En una
+  // OBLIGATORIA es el castigo por no hacerla.
   @IsInt()
   @Min(1)
   valorPuntos!: number;
+
+  // fase-14-20: lo que suma CUMPLIRLA. Solo se conserva en OBLIGATORIA +
+  // REQUIERE_CONFIRMACION; en el resto el service lo fuerza a 0 (decisión 4).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  puntosPorCumplir?: number;
 
   @IsEnum(TipoLimiteTiempo)
   tipoLimiteTiempo!: TipoLimiteTiempo;
@@ -130,6 +138,13 @@ export class EditarActividadRequest {
   @IsInt()
   @Min(1)
   valorPuntos?: number;
+
+  // fase-14-20: se recalcula en CADA patch contra los valores finales de la
+  // fila, no contra los del request (mismo criterio que `siempreVisible`).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  puntosPorCumplir?: number;
 
   @IsOptional()
   @IsEnum(TipoLimiteTiempo)

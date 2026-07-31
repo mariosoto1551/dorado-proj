@@ -32,6 +32,8 @@ const ACTIVIDAD_BASE: Actividad = {
   descripcion: null,
   tipoPuntaje: 'OPCIONAL',
   valorPuntos: 10,
+  // fase-14-20: solo se usa en OBLIGATORIA + REQUIERE_CONFIRMACION.
+  puntosPorCumplir: 0,
   tipoLimiteTiempo: 'SIN_LIMITE',
   deadlineHora: null,
   duracionCronometroMinutos: null,
@@ -422,5 +424,81 @@ describe('ActividadesService — editar y archivar (spec fase-05)', () => {
       data: { estado: 'ARCHIVADA' },
     });
     expect(resultado.estado).toBe('ARCHIVADA');
+  });
+});
+
+describe('ActividadesService — puntos por cumplir (fase-14-20)', () => {
+  it('conserva el premio en una OBLIGATORIA con confirmación', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({
+        tipoPuntaje: 'OBLIGATORIA',
+        valorPuntos: 10,
+        comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        puntosPorCumplir: 2,
+      })
+    );
+
+    // El caso realista de la spec: +2 si la hace, −10 si no.
+    expect(crear.mock.calls[0][0].data).toMatchObject({
+      valorPuntos: 10,
+      puntosPorCumplir: 2,
+    });
+  });
+
+  it('lo fuerza a 0 donde nadie podría cobrarlo (opcional, ASUME_HECHA, equipo)', async () => {
+    const casos: Array<Partial<CrearActividadRequest>> = [
+      // Una opcional ya premia con valorPuntos.
+      { tipoPuntaje: 'OPCIONAL', puntosPorCumplir: 5 },
+      // Sin confirmación no hay acción del integrante que registrar.
+      {
+        tipoPuntaje: 'OBLIGATORIA',
+        comportamientoAlCierre: 'ASUME_HECHA',
+        puntosPorCumplir: 5,
+      },
+      // Una tarea de equipo es siempre OPCIONAL (fase-14-09).
+      { tipoPuntaje: 'OPCIONAL', alcance: 'EQUIPO', puntosPorCumplir: 5 },
+    ];
+
+    for (const caso of casos) {
+      const { servicio, crear } = crearServicio();
+
+      await servicio.crear(tenantDePrueba(), 'grupo-1', requestDePrueba(caso));
+
+      expect(crear.mock.calls[0][0].data).toMatchObject({ puntosPorCumplir: 0 });
+    }
+  });
+
+  it('un PATCH a ASUME_HECHA apaga el premio aunque el request no lo mande', async () => {
+    const existente = {
+      ...ACTIVIDAD_BASE,
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      puntosPorCumplir: 2,
+    } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', {
+      comportamientoAlCierre: 'ASUME_HECHA',
+    });
+
+    expect(actualizar.mock.calls[0][0].data).toMatchObject({ puntosPorCumplir: 0 });
+  });
+
+  it('un PATCH que no toca el tema conserva el premio existente', async () => {
+    const existente = {
+      ...ACTIVIDAD_BASE,
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      puntosPorCumplir: 2,
+    } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', { nombre: 'Otro nombre' });
+
+    expect(actualizar.mock.calls[0][0].data).toMatchObject({ puntosPorCumplir: 2 });
   });
 });

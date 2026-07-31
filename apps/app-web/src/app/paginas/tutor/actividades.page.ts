@@ -65,6 +65,8 @@ interface FormActividad {
   repeticionesMaximasSesion: number;
   /** Solo aplica a OBLIGATORIA (fase-14-08); se mapea a comportamientoAlCierre. */
   requiereConfirmacion: boolean;
+  /** fase-14-20: lo que SUMA cumplirla; solo con requiereConfirmacion. */
+  puntosPorCumplir: number;
   /** fase-14-09: EQUIPO = la completa el jefe y se reparte a los integrantes. */
   alcance: AlcanceActividad;
   bonoJefePuntos: number;
@@ -84,6 +86,7 @@ const FORM_VACIO: FormActividad = {
   duracionCronometroMinutos: 15,
   repeticionesMaximasSesion: 1,
   requiereConfirmacion: false,
+  puntosPorCumplir: 0,
   alcance: AlcanceActividad.INDIVIDUAL,
   bonoJefePuntos: 0,
   diasSemana: [],
@@ -389,12 +392,24 @@ const FORM_VACIO: FormActividad = {
                   }
                 </div>
                 @if (a.tipoPuntaje === 'OBLIGATORIA') {
-                  <span
-                    class="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-sm font-bold text-red-600 dark:bg-red-500/15 dark:text-red-400"
-                    title="Resta puntos si no se hace"
-                  >
-                    −{{ a.valorPuntos }}
-                  </span>
+                  <!-- fase-14-20: con premio se muestran los dos números. -->
+                  @if (a.puntosPorCumplir > 0) {
+                    <span
+                      class="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-sm font-bold dark:bg-slate-800"
+                      title="Suma si la hace, resta si no"
+                    >
+                      <span class="text-emerald-600 dark:text-emerald-400">+{{ a.puntosPorCumplir }}</span>
+                      <span class="text-slate-400 dark:text-slate-500">/</span>
+                      <span class="text-red-600 dark:text-red-400">−{{ a.valorPuntos }}</span>
+                    </span>
+                  } @else {
+                    <span
+                      class="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-sm font-bold text-red-600 dark:bg-red-500/15 dark:text-red-400"
+                      title="Resta puntos si no se hace"
+                    >
+                      −{{ a.valorPuntos }}
+                    </span>
+                  }
                 } @else {
                   <span class="shrink-0 rounded-full bg-marca-50 px-2.5 py-1 text-sm font-bold text-marca-700 dark:bg-marca-900/40 dark:text-marca-300">
                     +{{ a.valorPuntos }}
@@ -588,6 +603,30 @@ const FORM_VACIO: FormActividad = {
                   </span>
                 </span>
               </label>
+
+              <!-- fase-14-20: el premio solo existe si hay algo que confirmar. -->
+              @if (form.requiereConfirmacion) {
+                <label class="block animate-fade-in">
+                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Puntos por cumplirla
+                  </span>
+                  <input
+                    [(ngModel)]="form.puntosPorCumplir"
+                    name="puntosPorCumplir"
+                    type="number"
+                    min="0"
+                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  />
+                  <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                    Lo que gana si la hace. Dejalo en 0 si cumplir es solo evitar el descuento.
+                    @if (form.puntosPorCumplir > 0) {
+                      <strong class="text-slate-600 dark:text-slate-300">
+                        Queda +{{ form.puntosPorCumplir }} si la hace, −{{ form.valorPuntos }} si no.
+                      </strong>
+                    }
+                  </span>
+                </label>
+              }
             }
 
             <label class="block">
@@ -959,6 +998,7 @@ export class ActividadesPage {
       repeticionesMaximasSesion: a.repeticionesMaximasSesion,
       requiereConfirmacion:
         a.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION,
+      puntosPorCumplir: a.puntosPorCumplir,
       alcance: a.alcance,
       bonoJefePuntos: a.bonoJefePuntos,
       diasSemana: [...a.diasSemana],
@@ -1071,6 +1111,13 @@ export class ActividadesPage {
         f.tipoPuntaje === TipoPuntaje.OBLIGATORIA && f.requiereConfirmacion
           ? ComportamientoAlCierre.REQUIERE_CONFIRMACION
           : ComportamientoAlCierre.ASUME_HECHA,
+      // fase-14-20: solo hay premio si hay confirmación; el backend lo fuerza a
+      // 0 igual, pero mandarlo coherente evita que el form muestre un número
+      // que el servidor va a descartar.
+      puntosPorCumplir:
+        !esEquipo && f.tipoPuntaje === TipoPuntaje.OBLIGATORIA && f.requiereConfirmacion
+          ? Number(f.puntosPorCumplir)
+          : 0,
     };
   }
 

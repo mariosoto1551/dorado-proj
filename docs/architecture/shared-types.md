@@ -64,7 +64,7 @@ export interface SuscripcionDto { id: string; organizacionId: string; planId: st
 export interface EntitlementsDto { plan: CodigoPlan; limites: { tutores: number | null; usuarios: number | null; grupos: number | null; actividadesPorGrupo: number | null; }; features: { whiteLabel: boolean; reportesAvanzados: boolean; }; }
 
 // ---------- Activity Catalog ----------
-export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; estado: 'ACTIVA' | 'ARCHIVADA'; }
+export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; puntosPorCumplir: number; /* fase-14-20: lo que suma cumplir una obligatoria confirmable; 0 en el resto */ tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; estado: 'ACTIVA' | 'ARCHIVADA'; }
 // Tareas de equipo y reportes del jefe (fase-14-09)
 export enum AlcanceActividad { INDIVIDUAL = 'INDIVIDUAL', EQUIPO = 'EQUIPO' }
 export enum EstadoReporte { PENDIENTE = 'PENDIENTE', APROBADO = 'APROBADO', RECHAZADO = 'RECHAZADO' }

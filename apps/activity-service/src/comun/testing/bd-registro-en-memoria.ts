@@ -277,6 +277,8 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     descripcion: null,
     tipoPuntaje: 'OPCIONAL',
     valorPuntos: 10,
+    // fase-14-20: default 0 = confirmar no suma (comportamiento del ítem 8).
+    puntosPorCumplir: 0,
     tipoLimiteTiempo: 'SIN_LIMITE',
     deadlineHora: null,
     duracionCronometroMinutos: null,

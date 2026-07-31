@@ -56,7 +56,14 @@ export interface ActividadDto {
   nombre: string;
   descripcion: string | null;
   tipoPuntaje: TipoPuntaje;
+  /** En una OBLIGATORIA es el CASTIGO por no hacerla; en una OPCIONAL, el premio. */
   valorPuntos: number;
+  /**
+   * fase-14-20: lo que suma CUMPLIR una obligatoria confirmable (ej. +2 contra
+   * un castigo de −10). 0 fuera de OBLIGATORIA + REQUIERE_CONFIRMACION, y 0 en
+   * toda actividad anterior al ítem — con 0, confirmar no toca el ledger.
+   */
+  puntosPorCumplir: number;
   tipoLimiteTiempo: TipoLimiteTiempo;
   deadlineHora: string | null;
   duracionCronometroMinutos: number | null;

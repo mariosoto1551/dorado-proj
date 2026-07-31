@@ -39,6 +39,8 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     descripcion: actividad.descripcion,
     tipoPuntaje: actividad.tipoPuntaje as TipoPuntaje,
     valorPuntos: actividad.valorPuntos,
+    // fase-14-20: 0 salvo en una OBLIGATORIA confirmable con premio cargado.
+    puntosPorCumplir: actividad.puntosPorCumplir,
     tipoLimiteTiempo: actividad.tipoLimiteTiempo as TipoLimiteTiempo,
     deadlineHora: actividad.deadlineHora,
     duracionCronometroMinutos: actividad.duracionCronometroMinutos,
