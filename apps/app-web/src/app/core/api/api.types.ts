@@ -18,6 +18,7 @@ import type {
   TipoInvitado,
   TipoLimiteTiempo,
   TipoPuntaje,
+  TipoRegistroHistorial,
 } from '@dorado/shared-types';
 
 // ---- Paginación (shape común de notification/audit, ver fase-09) ----
@@ -84,6 +85,16 @@ export interface IniciarCronometroResponse {
   sesionId: string;
   iniciadoEn: string;
   venceEn: string;
+}
+
+/** Query del historial de la sesión (fase-14-18). Todo opcional. */
+export interface FiltrosHistorial {
+  usuarioId?: string;
+  tipo?: TipoRegistroHistorial;
+  /** `false` esconde lo anulado; el default del servidor es mostrarlo. */
+  incluirAnulados?: boolean;
+  cursor?: string;
+  limite?: number;
 }
 
 // ---- Session ----

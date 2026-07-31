@@ -2,7 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 
 import { getCorrelationId } from '@dorado/shared-logging';
-import { EquipoInternoDto, GrupoDto, UsuarioDto } from '@dorado/shared-types';
+import { EquipoInternoDto, GrupoDto, TutorDto, UsuarioDto } from '@dorado/shared-types';
 
 const TIMEOUT_MS = 2000;
 
@@ -65,6 +65,32 @@ export class IdentityClientService {
     );
 
     return usuarios ?? [];
+  }
+
+  /**
+   * Tutores efectivos del grupo (asignados + ORG_ADMIN de la organización).
+   * Lo usa el historial de la sesión (fase-14-18) para resolver el nombre de
+   * quien registró cada fila, en UNA llamada por request.
+   */
+  async tutoresDelGrupo(grupoId: string): Promise<TutorDto[]> {
+    const tutores = await this.obtener<TutorDto[]>(
+      `/internal/identity/grupos/${grupoId}/tutores`
+    );
+
+    return tutores ?? [];
+  }
+
+  /**
+   * Equipos del grupo con su membresía (fase-14-18): el historial necesita el
+   * NOMBRE del equipo de una tarea colectiva, y `RegistroTareaEquipo` solo
+   * guarda el id. Una llamada por request, no una por fila.
+   */
+  async equiposDelGrupo(grupoId: string): Promise<EquipoInternoDto[]> {
+    const equipos = await this.obtener<EquipoInternoDto[]>(
+      `/internal/identity/grupos/${grupoId}/equipos`
+    );
+
+    return equipos ?? [];
   }
 
   private async obtener<T>(ruta: string): Promise<T | null> {

@@ -10,8 +10,27 @@ import {
 } from '@dorado/shared-types';
 
 import { grupoADto, tutorADto, usuarioADto } from '../comun/mapeadores';
+import type { Equipo, EquipoMiembro } from '../generated/prisma/client';
 import { EstadoCuenta, RolTutor } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+
+/** Equipo + membresía al DTO interno. Compartido por el detalle y el listado. */
+function equipoInternoADto(equipo: Equipo & { miembros: EquipoMiembro[] }): EquipoInternoDto {
+  const jefe = equipo.miembros.find((miembro) => miembro.rol === 'JEFE');
+
+  return {
+    equipoId: equipo.id,
+    organizacionId: equipo.organizacionId,
+    grupoId: equipo.grupoId,
+    nombre: equipo.nombre,
+    estado: equipo.estado as EquipoInternoDto['estado'],
+    jefeUsuarioId: jefe?.usuarioId ?? '',
+    miembros: equipo.miembros.map((miembro) => ({
+      usuarioId: miembro.usuarioId,
+      rol: miembro.rol as RolEquipoMiembro,
+    })),
+  };
+}
 
 /**
  * Endpoints internos servicio-a-servicio (ADR-00 §4): protegidos por
@@ -114,20 +133,25 @@ export class InternalController {
       throw new NotFoundException('Equipo no encontrado');
     }
 
-    const jefe = equipo.miembros.find((miembro) => miembro.rol === 'JEFE');
+    return equipoInternoADto(equipo);
+  }
 
-    return {
-      equipoId: equipo.id,
-      organizacionId: equipo.organizacionId,
-      grupoId: equipo.grupoId,
-      nombre: equipo.nombre,
-      estado: equipo.estado as EquipoInternoDto['estado'],
-      jefeUsuarioId: jefe?.usuarioId ?? '',
-      miembros: equipo.miembros.map((miembro) => ({
-        usuarioId: miembro.usuarioId,
-        rol: miembro.rol as RolEquipoMiembro,
-      })),
-    };
+  /**
+   * Equipos de un Grupo con su membresía (fase-14-18). Lo consume el historial
+   * de la sesión de activity para resolver el NOMBRE del equipo de una tarea
+   * colectiva sin hacer una llamada por fila: una sola por request, siempre.
+   * Incluye los INACTIVO (archivados) a propósito: una tarea vieja de un equipo
+   * archivado igual tiene que mostrar su nombre en el historial.
+   */
+  @Get('grupos/:grupoId/equipos')
+  async equiposDelGrupo(@Param('grupoId') grupoId: string): Promise<EquipoInternoDto[]> {
+    const equipos = await this.prisma.client.equipo.findMany({
+      where: { grupoId },
+      include: { miembros: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return equipos.map((equipo) => equipoInternoADto(equipo));
   }
 
   @Get('usuarios/:id')

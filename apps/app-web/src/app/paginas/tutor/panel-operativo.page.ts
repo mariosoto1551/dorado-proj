@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, type Observable } from 'rxjs';
 
 import {
@@ -28,8 +28,12 @@ import type { SeccionConSesionesResponse } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
+import { HistorialSesionComponent } from './historial-sesion.component';
 
 type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | null;
+
+/** fase-14-18: «Registrar» es lo de siempre; «historial» es la línea de tiempo. */
+type VistaPanel = 'registrar' | 'historial';
 
 /** Panel operativo del día a día (fase-10): acciones rápidas del tutor sobre la Sección actual. */
 @Component({
@@ -40,6 +44,7 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
     EncabezadoPaginaComponent,
     EstadoSeccionBadgeComponent,
     ConfirmDialogComponent,
+    HistorialSesionComponent,
   ],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
@@ -49,7 +54,34 @@ type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | nul
         }
       </app-encabezado-pagina>
 
-      @if (cargando()) {
+      <!-- fase-14-18: «Registrar» (lo de siempre) y «Qué pasó hoy» (el historial) -->
+      <div class="mt-3 flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" role="tablist">
+        @for (t of pestanias; track t.valor) {
+          <button
+            type="button"
+            role="tab"
+            [attr.aria-selected]="vista() === t.valor"
+            (click)="cambiarVista(t.valor)"
+            [class]="
+              vista() === t.valor
+                ? 'flex-1 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
+                : 'flex-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+            "
+          >
+            {{ t.etiqueta }}
+          </button>
+        }
+      </div>
+
+      @if (vista() === 'historial') {
+        <div class="mt-4">
+          <app-historial-sesion
+            [grupoId]="grupoId()"
+            [usuarios]="usuarios()"
+            [conductas]="conductas()"
+          />
+        </div>
+      } @else if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (!seccion()) {
         <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
@@ -349,6 +381,8 @@ export class PanelOperativoPage {
 
   private readonly router = inject(Router);
 
+  private readonly route = inject(ActivatedRoute);
+
   protected readonly cargando = signal(true);
 
   protected readonly procesando = signal(false);
@@ -362,6 +396,18 @@ export class PanelOperativoPage {
   protected readonly conductas = signal<ConductaDto[]>([]);
 
   protected readonly confirmar = signal<AccionConfirmable>(null);
+
+  protected readonly pestanias: Array<{ valor: VistaPanel; etiqueta: string }> = [
+    { valor: 'registrar', etiqueta: 'Registrar' },
+    { valor: 'historial', etiqueta: 'Qué pasó hoy' },
+  ];
+
+  /** Arranca en lo que diga la URL: la pestaña es enlazable y sobrevive un F5. */
+  protected readonly vista = signal<VistaPanel>(
+    inject(ActivatedRoute).snapshot.queryParamMap.get('vista') === 'historial'
+      ? 'historial'
+      : 'registrar'
+  );
 
   protected usuarioNoHizo = '';
 
@@ -437,6 +483,18 @@ export class PanelOperativoPage {
     effect(() => {
       const g = this.grupoId();
       this.cargar(g);
+    });
+  }
+
+  protected cambiarVista(vista: VistaPanel): void {
+    this.vista.set(vista);
+    // replaceUrl: cambiar de pestaña no debería llenar el historial del
+    // navegador — el botón «atrás» tiene que salir de la pantalla, no ciclar.
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { vista: vista === 'registrar' ? null : vista },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 

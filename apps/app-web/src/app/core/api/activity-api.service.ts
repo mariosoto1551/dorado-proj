@@ -14,9 +14,11 @@ import type {
   CrearReporteMiembroRequest,
   EstadoPropuesta,
   EstadoReporte,
+  HistorialSesionDto,
   MarcaRojaDto,
   MiEstadoHoyDto,
   MisActividadesDto,
+  NotaRegistroDto,
   PlanDelDiaDto,
   PropuestaActividadDto,
   RegistroActividadDto,
@@ -24,6 +26,7 @@ import type {
   RegistroTareaEquipoDto,
   ReporteMiembroDto,
   TareaEquipoDeHoyDto,
+  TipoRegistroHistorial,
 } from '@dorado/shared-types';
 
 import { environment } from '../../../environments/environment';
@@ -32,6 +35,7 @@ import type {
   CrearConductaRequest,
   EditarActividadRequest,
   EditarConductaRequest,
+  FiltrosHistorial,
   IniciarCronometroResponse,
 } from './api.types';
 
@@ -163,6 +167,64 @@ export class ActivityApiService {
       `${this.base}/conductas/${conductaId}/registrar`,
       usuarioId ? { usuarioId } : {}
     );
+  }
+
+  /**
+   * Anula (soft-delete) una conducta registrada. Sin motivo y sin reversión: la
+   * asimetría con las actividades está declarada fuera de alcance en fase-14-18.
+   */
+  eliminarRegistroConducta(registroId: string): Observable<RegistroConductaDto> {
+    return this.http.delete<RegistroConductaDto>(
+      `${this.base}/registros-conducta/${registroId}`
+    );
+  }
+
+  // ---- Historial de la sesión (fase-14-18) ----
+
+  /** Línea de tiempo del grupo en la Sesión vigente. */
+  historial(grupoId: string, filtros: FiltrosHistorial = {}): Observable<HistorialSesionDto> {
+    let params = new HttpParams();
+
+    if (filtros.usuarioId) {
+      params = params.set('usuarioId', filtros.usuarioId);
+    }
+
+    if (filtros.tipo) {
+      params = params.set('tipo', filtros.tipo);
+    }
+
+    if (filtros.incluirAnulados === false) {
+      params = params.set('incluirAnulados', 'false');
+    }
+
+    if (filtros.cursor) {
+      params = params.set('cursor', filtros.cursor);
+    }
+
+    if (filtros.limite !== undefined) {
+      params = params.set('limite', String(filtros.limite));
+    }
+
+    return this.http.get<HistorialSesionDto>(`${this.base}/grupos/${grupoId}/historial`, {
+      params,
+    });
+  }
+
+  /** Nota interna sobre un registro. NUNCA la ve el integrante. */
+  crearNota(
+    registroTipo: TipoRegistroHistorial,
+    registroId: string,
+    texto: string
+  ): Observable<NotaRegistroDto> {
+    return this.http.post<NotaRegistroDto>(
+      `${this.base}/historial/${registroTipo}/${registroId}/notas`,
+      { texto }
+    );
+  }
+
+  /** Solo el autor puede borrar la suya (403 en caso contrario). */
+  borrarNota(notaId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/notas/${notaId}`);
   }
 
   // ---- Tareas de equipo y reportes del jefe (fase-14-09) ----

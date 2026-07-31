@@ -1,4 +1,5 @@
 import { PrincipalType } from './auth';
+import { EstadoSesion } from './session';
 
 export enum TipoPuntaje {
   OPCIONAL = 'OPCIONAL',
@@ -445,4 +446,90 @@ export interface MisActividadesDto {
   cupoUsado: number;
   actividades: ActividadDto[];
   propuestas: PropuestaActividadDto[];
+}
+
+// --- Historial de la sesión (fase-14-18) ---
+
+/** Clase de fila del timeline. Decide qué acciones aplican y cómo se pinta. */
+export enum TipoEventoHistorial {
+  ACTIVIDAD_COMPLETADA = 'ACTIVIDAD_COMPLETADA',
+  ACTIVIDAD_NO_HIZO = 'ACTIVIDAD_NO_HIZO',
+  CONDUCTA = 'CONDUCTA',
+  TAREA_EQUIPO = 'TAREA_EQUIPO',
+}
+
+/** Sobre qué clase de registro cuelga una nota interna (espejo del enum Prisma). */
+export enum TipoRegistroHistorial {
+  ACTIVIDAD = 'ACTIVIDAD',
+  CONDUCTA = 'CONDUCTA',
+  TAREA_EQUIPO = 'TAREA_EQUIPO',
+}
+
+/**
+ * Nota interna del Tutor sobre un registro (fase-14-18). **Nunca** viaja a la
+ * app del integrante — es lo contrario del `motivoTutor`, que sí se le muestra.
+ */
+export interface NotaRegistroDto {
+  id: string;
+  texto: string;
+  autorTutorId: string;
+  autorNombre: string;
+  createdAt: string;
+  /** true si la escribió quien está mirando: habilita el botón de borrar. */
+  esPropia: boolean;
+}
+
+/**
+ * Una fila del historial de la sesión (fase-14-18). No sale de una tabla propia:
+ * se arma leyendo RegistroActividad / RegistroConducta / RegistroTareaEquipo
+ * (spec, decisión 10). `id` es el de la fila de origen, y es lo que consumen
+ * anular / deshacer / notas.
+ */
+export interface EventoHistorialDto {
+  id: string;
+  tipo: TipoEventoHistorial;
+  /** Instante absoluto ISO; se formatea en `timezoneGrupo`, no en la del navegador. */
+  ocurridoEn: string;
+  /** null en TAREA_EQUIPO: ahí el sujeto es el equipo. */
+  usuarioId: string | null;
+  usuarioNombre: string | null;
+  equipoId: string | null;
+  equipoNombre: string | null;
+  /** actividadId o conductaId según el tipo. */
+  itemId: string;
+  itemNombre: string;
+  /**
+   * Snapshot con signo tal como quedó guardado. 0 en las confirmaciones de
+   * obligatorias. En TAREA_EQUIPO es lo que recibió CADA miembro.
+   */
+  puntos: number;
+  /** Solo TAREA_EQUIPO. */
+  bonoJefe: number | null;
+  /** Solo TAREA_EQUIPO. */
+  cantidadMiembros: number | null;
+  registradoPorId: string;
+  registradoPorTipo: 'TUTOR' | 'USUARIO' | 'SYSTEM';
+  /** Nombre resuelto, o un fallback legible — nunca un uuid crudo. */
+  registradoPorNombre: string;
+  anulado: boolean;
+  anuladoPorNombre: string | null;
+  anuladoEn: string | null;
+  /** Motivo VISIBLE para el integrante (fase-14-12). Distinto de las notas. */
+  motivoTutor: string | null;
+  revertidoEn: string | null;
+  revertidoPorNombre: string | null;
+  notas: NotaRegistroDto[];
+}
+
+/** Respuesta de `GET /activity/grupos/:grupoId/historial`. */
+export interface HistorialSesionDto {
+  /** null si el grupo no tiene Sección vigente. */
+  sesionId: string | null;
+  /** ABIERTA habilita las acciones; CERRADA es solo lectura (spec, decisión 14). */
+  sesionEstado: EstadoSesion | null;
+  /** IANA, del Grupo: con esto el frontend formatea las horas (decisión 15). */
+  timezoneGrupo: string;
+  eventos: EventoHistorialDto[];
+  /** null cuando no hay más páginas. */
+  cursorSiguiente: string | null;
 }

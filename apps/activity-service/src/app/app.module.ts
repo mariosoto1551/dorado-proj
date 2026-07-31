@@ -10,6 +10,7 @@ import { ConsumoModule } from '../consumo/consumo.module';
 import { ContenidoUsuarioModule } from '../contenido-usuario/contenido-usuario.module';
 import { EquiposModule } from '../equipos/equipos.module';
 import { EventosModule } from '../eventos/eventos.module';
+import { HistorialModule } from '../historial/historial.module';
 import { InternalModule } from '../internal/internal.module';
 import { PlanDiaModule } from '../plan-dia/plan-dia.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -30,6 +31,7 @@ import { RegistroModule } from '../registro/registro.module';
     ActividadesModule,
     ConductasModule,
     RegistroModule,
+    HistorialModule,
     EquiposModule,
     ContenidoUsuarioModule,
     PlanDiaModule,

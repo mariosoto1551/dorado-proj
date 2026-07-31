@@ -283,3 +283,27 @@ export class ActividadPersonalDeOtroUsuarioException extends DomainException {
     );
   }
 }
+
+// --- Historial de la sesión (fase-14-18) ---
+
+export class CursorHistorialInvalidoException extends DomainException {
+  constructor() {
+    super('CURSOR_INVALIDO', 'El cursor de paginación no es válido', 400);
+  }
+}
+
+export class RegistroDelHistorialNoEncontradoException extends DomainException {
+  constructor() {
+    // Mismo 404 para inexistente y para "de otra organización" (no revela nada),
+    // igual que el resto del servicio.
+    super('REGISTRO_NO_ENCONTRADO', 'El registro no existe', 404);
+  }
+}
+
+export class NotaDeOtroTutorException extends DomainException {
+  constructor() {
+    // La regla es de AUTORÍA, no de jerarquía: un ORG_ADMIN tampoco borra
+    // notas ajenas (spec fase-14-18, decisión 7).
+    super('NOTA_DE_OTRO_TUTOR', 'Solo quien escribió la nota puede borrarla', 403);
+  }
+}

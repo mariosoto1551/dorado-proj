@@ -71,6 +71,15 @@ enum TipoConducta {
   MALA
 }
 
+// Clase de registro sobre el que cuelga una nota interna (fase-14-18). No es
+// una FK polimórfica de Prisma: son tres tablas distintas y la integridad la
+// garantiza el endpoint, que valida el registro antes de escribir la nota.
+enum TipoRegistroHistorial {
+  ACTIVIDAD
+  CONDUCTA
+  TAREA_EQUIPO
+}
+
 enum EstadoCatalogo {
   ACTIVA
   ARCHIVADA
@@ -364,6 +373,26 @@ model Conducta {
 
   @@index([organizacionId])
   @@index([grupoId])
+}
+
+// Nota interna del Tutor sobre un registro del historial (fase-14-18). NO es
+// ledger —no sostiene puntaje, no viaja a scoring, no genera evento— y por eso
+// admite DELETE físico, mismo criterio que SeleccionPlanDia. Es lo contrario
+// del `motivoTutor` de RegistroActividad: esto NO lo ve el integrante nunca.
+// Sin FK al registro: son tres tablas de origen distintas y una FK polimórfica
+// no se expresa en Prisma — la integridad la valida el endpoint antes de escribir.
+model NotaRegistro {
+  id             String                @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  registroTipo   TipoRegistroHistorial
+  registroId     String
+  texto          String
+  autorTutorId   String
+  createdAt      DateTime              @default(now())
+
+  @@index([organizacionId])
+  @@index([registroTipo, registroId])
 }
 
 // Idempotencia de consumidor (fase-14-08): activity pasa de productor puro a

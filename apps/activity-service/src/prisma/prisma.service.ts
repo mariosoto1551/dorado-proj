@@ -25,6 +25,11 @@ const MODELOS_TENANT = {
   // usuario+sesión quedan filtradas de arriba (el upsert no se intercepta —
   // usa clave única —, y ahí el grupo ya viene de la Actividad tenant-filtrada).
   SeleccionPlanDia: { conGrupoId: true },
+  // fase-14-18: las notas internas del tutor. Lleva organizacionId + grupoId y
+  // solo la leen/escriben tutores, así que el filtro automático alcanza para el
+  // aislamiento; el endpoint valida además que el registro anotado sea del
+  // tenant y de la Sesión vigente.
+  NotaRegistro: { conGrupoId: true },
 };
 
 export function crearClientePrisma(databaseUrl: string) {

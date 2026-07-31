@@ -1,0 +1,641 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import type { Observable } from 'rxjs';
+
+import {
+  type ConductaDto,
+  EstadoSesion,
+  type EventoHistorialDto,
+  type HistorialSesionDto,
+  TipoEventoHistorial,
+  TipoRegistroHistorial,
+  type UsuarioDto,
+} from '@dorado/shared-types';
+
+import { ToastService } from '../../componentes/toast.service';
+import { ActivityApiService } from '../../core/api/activity-api.service';
+import { mensajeDeError } from '../../core/api/errores';
+import {
+  MAX_LARGO_NOTA,
+  acentoDeEvento,
+  etiquetaDeEvento,
+  formatearHora,
+  iconoDeEvento,
+  tipoDeRegistro,
+} from './historial-sesion.util';
+
+const MS_AUTO_REFRESCO = 30_000;
+
+/**
+ * Historial de la sesión (fase-14-18): la línea de tiempo del grupo, con las
+ * acciones del tutor sobre cada fila.
+ *
+ * Lo anulado NO se esconde: se muestra atenuado y tachado, con su rastro
+ * (decisión 11 de la spec). El historial que oculta lo corregido le miente al
+ * tutor sobre su propio día — y lo corregido es justo lo que va a querer mirar.
+ */
+@Component({
+  selector: 'app-historial-sesion',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [FormsModule],
+  template: `
+    <!-- Filtros -->
+    <div class="flex flex-wrap items-center gap-2">
+      <select
+        [(ngModel)]="usuarioFiltro"
+        (ngModelChange)="recargarDesdeCero()"
+        class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+        aria-label="Filtrar por participante"
+      >
+        <option value="">Todos</option>
+        @for (u of usuarios(); track u.id) {
+          <option [value]="u.id">{{ u.nombre }}</option>
+        }
+      </select>
+
+      @for (chip of chips; track chip.valor) {
+        <button
+          type="button"
+          (click)="cambiarTipo(chip.valor)"
+          [class]="
+            tipoFiltro() === chip.valor
+              ? 'rounded-full bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white'
+              : 'rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+          "
+        >
+          {{ chip.etiqueta }}
+        </button>
+      }
+
+      <label class="ml-auto flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <input
+          type="checkbox"
+          [(ngModel)]="ocultarAnuladas"
+          (ngModelChange)="recargarDesdeCero()"
+          class="rounded border-slate-300 dark:border-slate-700"
+        />
+        Ocultar anuladas
+      </label>
+
+      <button
+        type="button"
+        (click)="recargarDesdeCero()"
+        [disabled]="cargando()"
+        class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        aria-label="Refrescar"
+        title="Refrescar"
+      >
+        ↻
+      </button>
+    </div>
+
+    @if (soloLectura()) {
+      <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+        La sesión ya está cerrada: esto es lo que pasó, en solo lectura.
+      </p>
+    }
+
+    @if (cargando() && eventos().length === 0) {
+      <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
+    } @else if (eventos().length === 0) {
+      <div class="mt-6 rounded-2xl border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          {{ sinSesion() ? 'Todavía no hay una sesión en curso.' : 'Todavía no pasó nada hoy.' }}
+        </p>
+      </div>
+    } @else {
+      <ol class="mt-3 space-y-1.5" aria-live="polite">
+        @for (evento of eventos(); track evento.id) {
+          <li
+            class="flex items-start gap-3 rounded-xl border p-3 transition"
+            [class]="
+              evento.anulado
+                ? 'border-slate-200 bg-slate-50/60 opacity-60 dark:border-slate-800 dark:bg-slate-900/40'
+                : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'
+            "
+          >
+            <span class="mt-0.5 flex-none text-base" [attr.aria-hidden]="true">{{ icono(evento) }}</span>
+
+            <div class="min-w-0 flex-1">
+              <p class="flex flex-wrap items-baseline gap-x-2 text-sm">
+                <span class="font-mono text-xs text-slate-400 dark:text-slate-500">
+                  {{ hora(evento) }}
+                </span>
+                <span class="font-semibold text-slate-800 dark:text-slate-100">
+                  {{ evento.usuarioNombre ?? evento.equipoNombre }}
+                </span>
+                <span
+                  class="truncate text-slate-600 dark:text-slate-300"
+                  [class.line-through]="evento.anulado"
+                >
+                  {{ evento.itemNombre }}
+                </span>
+              </p>
+
+              <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400">
+                <span [class]="acento(evento)">{{ etiqueta(evento) }}</span>
+                <span>· {{ evento.registradoPorNombre }}</span>
+                @if (evento.tipo === 'TAREA_EQUIPO' && evento.bonoJefe) {
+                  <span>· bono jefe +{{ evento.bonoJefe }}</span>
+                }
+                @if (evento.anulado) {
+                  <span class="font-semibold text-red-600 dark:text-red-400">
+                    · Anulada por {{ evento.anuladoPorNombre }}
+                  </span>
+                }
+                @if (evento.revertidoEn) {
+                  <span class="font-semibold text-emerald-600 dark:text-emerald-400">· Deshecha</span>
+                }
+              </p>
+
+              @if (evento.motivoTutor) {
+                <p class="mt-0.5 truncate text-xs italic text-slate-500 dark:text-slate-400">
+                  «{{ evento.motivoTutor }}»
+                </p>
+              }
+
+              <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                @if (!soloLectura() && puedeAnular(evento)) {
+                  <button
+                    type="button"
+                    (click)="anular(evento)"
+                    [disabled]="procesando()"
+                    class="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
+                  >
+                    Anular
+                  </button>
+                }
+                @if (!soloLectura() && puedeDeshacer(evento)) {
+                  <button
+                    type="button"
+                    (click)="deshacer(evento)"
+                    [disabled]="procesando()"
+                    class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Deshacer
+                  </button>
+                }
+                <button
+                  type="button"
+                  (click)="abrirNotas(evento)"
+                  class="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  Notas{{ evento.notas.length ? ' (' + evento.notas.length + ')' : '' }}
+                </button>
+              </div>
+            </div>
+
+            <span
+              class="flex-none text-sm font-bold tabular-nums"
+              [class]="colorPuntos(evento)"
+            >
+              {{ textoPuntos(evento) }}
+            </span>
+          </li>
+        }
+      </ol>
+
+      @if (cursor()) {
+        <button
+          type="button"
+          (click)="cargarMas()"
+          [disabled]="cargando()"
+          class="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          Cargar más
+        </button>
+      }
+    }
+
+    <!-- Conducta rápida -->
+    @if (!soloLectura() && !sinSesion()) {
+      <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <h3 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+          Registrar conducta rápida
+        </h3>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <select
+            [(ngModel)]="usuarioConducta"
+            class="min-w-32 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+          >
+            <option value="">Participante…</option>
+            @for (u of usuarios(); track u.id) {
+              <option [value]="u.id">{{ u.nombre }}</option>
+            }
+          </select>
+          <select
+            [(ngModel)]="conductaSel"
+            class="min-w-32 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+          >
+            <option value="">Conducta…</option>
+            @for (c of conductas(); track c.id) {
+              <option [value]="c.id">
+                {{ c.nombre }} ({{ c.tipo === 'BUENA' ? '+' : '−' }}{{ c.valorPuntos }})
+              </option>
+            }
+          </select>
+          <button
+            type="button"
+            (click)="registrarConducta()"
+            [disabled]="procesando() || !usuarioConducta || !conductaSel"
+            class="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40 dark:bg-slate-700 dark:hover:bg-slate-600"
+          >
+            Registrar
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- Hoja de notas internas -->
+    @if (eventoConNotas(); as evento) {
+      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+        <button
+          type="button"
+          aria-label="Cerrar"
+          (click)="cerrarNotas()"
+          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
+        ></button>
+        <div
+          class="relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
+        >
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Notas internas</h3>
+          <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Sobre «{{ evento.itemNombre }}». El integrante no las ve.
+          </p>
+
+          @if (evento.notas.length === 0) {
+            <p class="mt-3 text-xs text-slate-400 dark:text-slate-500">Todavía no hay notas.</p>
+          } @else {
+            <ul class="mt-3 space-y-2">
+              @for (nota of evento.notas; track nota.id) {
+                <li class="rounded-xl border border-slate-200 p-2.5 dark:border-slate-800">
+                  <p class="text-sm text-slate-700 dark:text-slate-200">{{ nota.texto }}</p>
+                  <p class="mt-1 flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
+                    <span>{{ nota.autorNombre }} · {{ hora(nota) }}</span>
+                    @if (nota.esPropia) {
+                      <button
+                        type="button"
+                        (click)="borrarNota(nota.id)"
+                        [disabled]="procesando()"
+                        class="font-semibold text-red-500 transition hover:underline disabled:opacity-40"
+                      >
+                        Borrar
+                      </button>
+                    }
+                  </p>
+                </li>
+              }
+            </ul>
+          }
+
+          <textarea
+            [(ngModel)]="textoNota"
+            [maxlength]="maxLargoNota"
+            rows="3"
+            placeholder="Escribí una nota para vos y los otros tutores…"
+            class="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+          ></textarea>
+          <div class="mt-2 flex items-center justify-between">
+            <span class="text-xs text-slate-400 dark:text-slate-500">
+              {{ textoNota.length }}/{{ maxLargoNota }}
+            </span>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                (click)="cerrarNotas()"
+                class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                (click)="agregarNota()"
+                [disabled]="procesando() || !textoNota.trim()"
+                class="rounded-lg bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-marca-700 disabled:opacity-40"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  `,
+})
+export class HistorialSesionComponent {
+  readonly grupoId = input.required<string>();
+
+  /** Los carga el panel operativo: no se vuelven a pedir acá. */
+  readonly usuarios = input<UsuarioDto[]>([]);
+
+  readonly conductas = input<ConductaDto[]>([]);
+
+  protected readonly maxLargoNota = MAX_LARGO_NOTA;
+
+  protected readonly chips = [
+    { valor: '' as const, etiqueta: 'Todo' },
+    { valor: TipoRegistroHistorial.ACTIVIDAD, etiqueta: 'Actividades' },
+    { valor: TipoRegistroHistorial.CONDUCTA, etiqueta: 'Conductas' },
+    { valor: TipoRegistroHistorial.TAREA_EQUIPO, etiqueta: 'Equipos' },
+  ];
+
+  private readonly activity = inject(ActivityApiService);
+
+  private readonly toasts = inject(ToastService);
+
+  protected readonly cargando = signal(false);
+
+  protected readonly procesando = signal(false);
+
+  protected readonly eventos = signal<EventoHistorialDto[]>([]);
+
+  protected readonly cursor = signal<string | null>(null);
+
+  protected readonly sesionEstado = signal<EstadoSesion | null>(null);
+
+  protected readonly sesionId = signal<string | null>(null);
+
+  protected readonly timezone = signal('UTC');
+
+  protected readonly tipoFiltro = signal<TipoRegistroHistorial | ''>('');
+
+  protected readonly notaAbiertaId = signal<string | null>(null);
+
+  /** Cuántas páginas acumuló el tutor: con más de una se corta el auto-refresco. */
+  protected readonly paginas = signal(1);
+
+  protected usuarioFiltro = '';
+
+  protected ocultarAnuladas = false;
+
+  protected usuarioConducta = '';
+
+  protected conductaSel = '';
+
+  protected textoNota = '';
+
+  protected readonly sinSesion = computed(() => this.sesionId() === null);
+
+  /** Sesión cerrada: se ve, no se toca (spec, decisión 14). */
+  protected readonly soloLectura = computed(
+    () => this.sesionEstado() !== null && this.sesionEstado() !== EstadoSesion.ABIERTA
+  );
+
+  /** El evento cuya hoja de notas está abierta, siempre con datos frescos. */
+  protected readonly eventoConNotas = computed(() => {
+    const id = this.notaAbiertaId();
+
+    return id ? (this.eventos().find((evento) => evento.id === id) ?? null) : null;
+  });
+
+  constructor() {
+    effect(() => {
+      this.grupoId();
+      this.recargarDesdeCero();
+    });
+
+    // Auto-refresco suave: se detiene con la pestaña oculta para no golpear la
+    // API de fondo, y nunca reordena lo que el tutor ya scrolleó (solo la
+    // primera página).
+    const intervalo = setInterval(() => {
+      // Con más de una página cargada NO se auto-refresca: reemplazar la lista
+      // por la primera página le sacaría de abajo lo que el tutor scrolleó.
+      // El botón ↻ sigue disponible y sí reinicia.
+      const puedeRefrescar =
+        document.visibilityState === 'visible' && !this.procesando() && this.paginas() === 1;
+
+      if (puedeRefrescar) {
+        this.refrescarPrimeraPagina();
+      }
+    }, MS_AUTO_REFRESCO);
+
+    inject(DestroyRef).onDestroy(() => clearInterval(intervalo));
+  }
+
+  protected icono(evento: EventoHistorialDto): string {
+    return iconoDeEvento(evento);
+  }
+
+  protected etiqueta(evento: EventoHistorialDto): string {
+    return etiquetaDeEvento(evento);
+  }
+
+  protected acento(evento: EventoHistorialDto): string {
+    return acentoDeEvento(evento);
+  }
+
+  protected hora(algo: { ocurridoEn?: string; createdAt?: string }): string {
+    return formatearHora(algo.ocurridoEn ?? algo.createdAt ?? '', this.timezone());
+  }
+
+  /** Una confirmación de obligatoria vale 0: mostrar «+0» sería ruido. */
+  protected textoPuntos(evento: EventoHistorialDto): string {
+    if (evento.puntos === 0) {
+      return '';
+    }
+
+    const signo = evento.puntos > 0 ? '+' : '';
+    const sufijo = evento.tipo === TipoEventoHistorial.TAREA_EQUIPO ? ' c/u' : '';
+
+    return `${signo}${evento.puntos}${sufijo}`;
+  }
+
+  protected colorPuntos(evento: EventoHistorialDto): string {
+    if (evento.anulado) {
+      return 'text-slate-400 line-through dark:text-slate-600';
+    }
+
+    return evento.puntos < 0
+      ? 'text-red-600 dark:text-red-400'
+      : 'text-emerald-600 dark:text-emerald-400';
+  }
+
+  protected puedeAnular(evento: EventoHistorialDto): boolean {
+    return !evento.anulado && evento.tipo !== TipoEventoHistorial.ACTIVIDAD_NO_HIZO;
+  }
+
+  /** Deshacer una marca roja: una completada anulada, o un «no hizo» vivo. */
+  protected puedeDeshacer(evento: EventoHistorialDto): boolean {
+    if (evento.tipo === TipoEventoHistorial.CONDUCTA) {
+      // Sin reversión de conductas (fuera de alcance declarado en la spec).
+      return false;
+    }
+
+    return evento.tipo === TipoEventoHistorial.ACTIVIDAD_NO_HIZO
+      ? !evento.anulado
+      : evento.anulado;
+  }
+
+  protected cambiarTipo(valor: TipoRegistroHistorial | ''): void {
+    this.tipoFiltro.set(valor);
+    this.recargarDesdeCero();
+  }
+
+  protected recargarDesdeCero(): void {
+    this.cargar(null);
+  }
+
+  protected cargarMas(): void {
+    const cursor = this.cursor();
+
+    if (cursor) {
+      this.cargar(cursor);
+    }
+  }
+
+  protected anular(evento: EventoHistorialDto): void {
+    const peticion =
+      evento.tipo === TipoEventoHistorial.CONDUCTA
+        ? this.activity.eliminarRegistroConducta(evento.id)
+        : evento.tipo === TipoEventoHistorial.TAREA_EQUIPO
+          ? this.activity.anularTareaEquipo(evento.id)
+          : this.activity.eliminarRegistroActividad(evento.id);
+
+    this.ejecutar(peticion, `Se anuló «${evento.itemNombre}».`);
+  }
+
+  protected deshacer(evento: EventoHistorialDto): void {
+    const peticion =
+      evento.tipo === TipoEventoHistorial.TAREA_EQUIPO
+        ? this.activity.revertirTareaEquipo(evento.id)
+        : this.activity.revertirMarca(evento.id);
+
+    this.ejecutar(peticion, `Se deshizo la marca de «${evento.itemNombre}».`);
+  }
+
+  protected registrarConducta(): void {
+    this.ejecutar(
+      this.activity.registrarConducta(this.conductaSel, this.usuarioConducta),
+      'Conducta registrada.',
+      () => {
+        this.usuarioConducta = '';
+        this.conductaSel = '';
+      }
+    );
+  }
+
+  protected abrirNotas(evento: EventoHistorialDto): void {
+    this.notaAbiertaId.set(evento.id);
+    this.textoNota = '';
+  }
+
+  protected cerrarNotas(): void {
+    this.notaAbiertaId.set(null);
+    this.textoNota = '';
+  }
+
+  protected agregarNota(): void {
+    const evento = this.eventoConNotas();
+    const texto = this.textoNota.trim();
+
+    if (!evento || !texto) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.activity.crearNota(tipoDeRegistro(evento), evento.id, texto).subscribe({
+      next: (nota) => {
+        // Optimista y local: recargar entera la lista movería el scroll del
+        // tutor mientras escribe.
+        this.eventos.update((eventos) =>
+          eventos.map((fila) =>
+            fila.id === evento.id ? { ...fila, notas: [...fila.notas, nota] } : fila
+          )
+        );
+        this.textoNota = '';
+        this.procesando.set(false);
+      },
+      error: (error) => {
+        this.toasts.error(mensajeDeError(error));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  protected borrarNota(notaId: string): void {
+    this.procesando.set(true);
+    this.activity.borrarNota(notaId).subscribe({
+      next: () => {
+        this.eventos.update((eventos) =>
+          eventos.map((fila) => ({
+            ...fila,
+            notas: fila.notas.filter((nota) => nota.id !== notaId),
+          }))
+        );
+        this.procesando.set(false);
+      },
+      error: (error) => {
+        this.toasts.error(mensajeDeError(error));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  private ejecutar(peticion: Observable<unknown>, ok: string, alTerminar?: () => void): void {
+    this.procesando.set(true);
+    peticion.subscribe({
+      next: () => {
+        this.toasts.exito(ok);
+        this.procesando.set(false);
+        alTerminar?.();
+        this.recargarDesdeCero();
+      },
+      error: (error) => {
+        this.toasts.error(mensajeDeError(error));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  private refrescarPrimeraPagina(): void {
+    this.pedir(null).subscribe({
+      next: (historial) => this.aplicar(historial, true),
+      // El auto-refresco falla en silencio: no se le tira un toast al tutor
+      // cada 30 s por un hipo de red.
+      error: () => undefined,
+    });
+  }
+
+  private cargar(cursor: string | null): void {
+    this.cargando.set(true);
+    this.pedir(cursor).subscribe({
+      next: (historial) => {
+        this.aplicar(historial, cursor === null);
+        this.cargando.set(false);
+      },
+      error: (error) => {
+        this.toasts.error(mensajeDeError(error));
+        this.cargando.set(false);
+      },
+    });
+  }
+
+  private pedir(cursor: string | null): Observable<HistorialSesionDto> {
+    return this.activity.historial(this.grupoId(), {
+      usuarioId: this.usuarioFiltro || undefined,
+      tipo: this.tipoFiltro() || undefined,
+      incluirAnulados: this.ocultarAnuladas ? false : undefined,
+      cursor: cursor ?? undefined,
+    });
+  }
+
+  private aplicar(historial: HistorialSesionDto, esPrimeraPagina: boolean): void {
+    this.sesionId.set(historial.sesionId);
+    this.sesionEstado.set(historial.sesionEstado);
+    this.timezone.set(historial.timezoneGrupo);
+    this.cursor.set(historial.cursorSiguiente);
+    this.eventos.update((previos) =>
+      esPrimeraPagina ? historial.eventos : [...previos, ...historial.eventos]
+    );
+    this.paginas.update((previas) => (esPrimeraPagina ? 1 : previas + 1));
+  }
+}
