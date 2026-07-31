@@ -1,0 +1,288 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroPagina from '../components/HeroPagina.astro';
+import { ROLES } from '../data/roles';
+
+/*
+ * CONTENIDO EDITORIAL ESTÁTICO. Preguntas frecuentes agrupadas por rol: la
+ * misma duda ("¿puedo corregir algo?") tiene respuesta distinta según quién
+ * pregunte, así que agrupar por tema mezclaría respuestas contradictorias.
+ *
+ * Acordeón con <details> nativo — sin JS, accesible por teclado y buscable con
+ * Ctrl+F en navegadores modernos (hidden=until-found no hace falta declararlo:
+ * los navegadores que lo soportan ya abren el <details> al encontrar el texto).
+ *
+ * Esto NO es el manual de uso de la app: la guía paso a paso vive dentro de
+ * app-web, donde la persona ya está logueada y ve su propia pantalla.
+ */
+
+interface Pregunta {
+  q: string;
+  a: string;
+}
+
+const generales: Pregunta[] = [
+  {
+    q: '¿Hay que instalar algo?',
+    a: 'No. Funciona en el navegador, tanto en la computadora como en el celular. Nada que descargar ni actualizar.',
+  },
+  {
+    q: '¿Sirve para una familia, o es solo para colegios?',
+    a: 'Las dos cosas. El sistema no asume un aula: un grupo puede ser una casa, un curso, un equipo deportivo o un taller. Los nombres, los valores y las recompensas los ponés vos.',
+  },
+  {
+    q: '¿Cuánto cuesta?',
+    a: 'Hay un plan gratuito para siempre, sin tarjeta, que alcanza para un grupo con dos tutores y cinco participantes. El plan Pro saca los límites y agrega marca propia y reportes.',
+  },
+  {
+    q: '¿Puedo empezar y después cambiar las reglas?',
+    a: 'Sí. Podés ajustar actividades, valores, umbrales y recompensas cuando quieras. Lo que ya quedó registrado no cambia retroactivamente: los cambios rigen de ahí en adelante.',
+  },
+];
+
+const porRol: Record<string, Pregunta[]> = {
+  tutores: [
+    {
+      q: '¿Cuánto tiempo me lleva por día?',
+      a: 'Un par de minutos. Lo que se piensa una vez es el catálogo inicial; después el día a día es marcar lo que se cumplió y lo que no.',
+    },
+    {
+      q: '¿Qué pasa si me olvido de cerrar el período?',
+      a: 'Podés configurar el grupo en modo automático: definís el horario una sola vez y el sistema abre y cierra los ciclos solo, en el huso horario del grupo, entres o no ese día. En modo manual, el período simplemente sigue abierto hasta que lo cierres.',
+    },
+    {
+      q: 'Marqué algo mal. ¿Lo puedo deshacer?',
+      a: 'Sí. Podés quitar una repetición marcada de más o corregir un resultado, y también tenés una instancia de evaluación antes de dar el período por firme. Lo importante: la corrección se agrega como un movimiento nuevo y visible, no borra el original. Eso es lo que hace que después nadie discuta el resultado.',
+    },
+    {
+      q: '¿Puedo manejar más de un grupo?',
+      a: 'Sí, desde la misma cuenta, y cada grupo con su propio catálogo, sus zonas, sus recompensas y su horario. No se mezclan.',
+    },
+    {
+      q: 'Si subo el valor de una actividad, ¿se recalcula lo anterior?',
+      a: 'No. Lo ya registrado conserva el valor que tenía en ese momento. El valor nuevo se aplica a partir del próximo registro, así nadie ve cambiar puntos que creía tener.',
+    },
+    {
+      q: 'Tengo veinte actividades cargadas y la lista quedó enorme.',
+      a: 'Se puede activar el plan del día: las opcionales quedan guardadas y cada participante elige cuáles se compromete a hacer hoy, mientras lo obligatorio queda siempre a la vista. También podés programar actividades para días puntuales de la semana.',
+    },
+  ],
+  participantes: [
+    {
+      q: '¿Cómo entro por primera vez?',
+      a: 'Tu tutor te manda una invitación por correo. Con ese enlace creás tu contraseña y ya está — no tenés que registrarte por tu cuenta.',
+    },
+    {
+      q: '¿Puedo perder puntos?',
+      a: 'Sí, en dos casos: cuando queda sin hacer una actividad obligatoria, y cuando se registra una conducta mala. Las opcionales nunca restan: si no las hacés, simplemente no suman.',
+    },
+    {
+      q: '¿Alguien puede cambiarme el puntaje sin motivo?',
+      a: 'No. El puntaje no es un número que alguien escriba: es la suma de todo lo que quedó registrado, y cada movimiento tiene su motivo, su fecha y su responsable.',
+    },
+    {
+      q: '¿Puedo estar en más de un grupo?',
+      a: 'Sí. Con la misma cuenta podés participar en varios grupos —por ejemplo el de casa y el del club— y cada uno lleva su propio puntaje.',
+    },
+    {
+      q: '¿Cuándo me dan la recompensa?',
+      a: 'Al cerrarse el período elegís (o se sortea) una recompensa entre las de la zona que alcanzaste. Queda marcada como pendiente hasta que tu tutor confirma que te la entregó.',
+    },
+    {
+      q: 'Me equivoqué y marqué algo que no hice.',
+      a: 'Avisale a tu tutor: puede quitar esa marca. Queda registrado que se corrigió, que es la forma en que el sistema se mantiene confiable para todos.',
+    },
+  ],
+  organizaciones: [
+    {
+      q: '¿Otra institución puede ver los datos de mi gente?',
+      a: 'No. La separación entre organizaciones está impuesta en cada consulta al sistema, no es una convención ni depende de que alguien configure bien un permiso.',
+    },
+    {
+      q: '¿Puedo poner el logo y los colores de mi institución?',
+      a: 'Sí, con el plan Pro. Se aplican a la app para todos los tutores y participantes de tu organización.',
+    },
+    {
+      q: '¿Qué pasa cuando llego al límite del plan gratuito?',
+      a: 'El sistema te avisa en el momento de crear el grupo, el tutor o la actividad que excede el límite, y nada de lo que ya tenías se ve afectado. Desde ahí podés pasar a Pro.',
+    },
+    {
+      q: '¿Cómo paso a Pro?',
+      a: 'Se coordina con el equipo: nos escribís y activamos tu organización. No hay una pasarela de pago automática todavía.',
+    },
+    {
+      q: '¿Queda registro de las decisiones administrativas?',
+      a: 'Sí. Crear, corregir, cerrar un período o entregar una recompensa quedan asentados de forma permanente, con quién y cuándo. Es un registro de solo lectura: no se edita ni se borra.',
+    },
+    {
+      q: '¿Cada curso puede tener reglas distintas?',
+      a: 'Sí, y es lo esperable. Cada grupo define sus propias actividades, sus cortes de zona, sus recompensas y su huso horario, sin afectar a los demás.',
+    },
+  ],
+};
+
+const clasesResumen = `flex w-full cursor-pointer list-none items-center justify-between gap-4
+  rounded-2xl px-5 py-4 text-left font-semibold text-slate-900 transition-colors
+  hover:bg-slate-50 dark:text-white dark:hover:bg-slate-800/60
+  [&::-webkit-details-marker]:hidden`;
+---
+
+<Layout
+  title="Ayuda"
+  description="Preguntas frecuentes de Proyecto Dorado, agrupadas por rol: tutores, participantes y organizaciones. Cómo entrar, cómo se corrigen los puntos, qué pasa al cerrar un período y qué incluye cada plan."
+  path="/ayuda"
+>
+  <HeroPagina
+    chip="Preguntas frecuentes"
+    emoji="💬"
+    titulo="¿Qué necesitás"
+    destacado="saber?"
+    descripcion="Las mismas dudas tienen respuestas distintas según quién pregunte. Buscá tu caso: primero lo general, después lo de tu rol."
+  >
+    <nav slot="acciones" aria-label="Ir a las preguntas de un rol">
+      <ul class="flex flex-wrap justify-center gap-2">
+        <li>
+          <a
+            href="#generales"
+            class="inline-block rounded-full border border-slate-300 bg-white px-4 py-2
+              text-sm font-medium text-slate-700 transition-colors hover:border-slate-400
+              dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            General
+          </a>
+        </li>
+        {
+          ROLES.map((rol) => (
+            <li>
+              <a
+                href={`#${rol.slug}`}
+                class:list={[
+                  'inline-block rounded-full border px-4 py-2 text-sm font-medium transition-transform hover:-translate-y-0.5',
+                  rol.acento.chip,
+                ]}
+              >
+                <span aria-hidden="true">{rol.emoji}</span>
+                {rol.titulo}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </HeroPagina>
+
+  <div class="mx-auto max-w-3xl px-5 pb-8 sm:px-8">
+    <!-- ===== GENERALES ===== -->
+    <section id="generales" class="scroll-mt-24 py-10">
+      <h2
+        class="reveal flex items-center gap-3 text-2xl font-bold tracking-tight text-slate-900 dark:text-white"
+      >
+        <span
+          class="grid h-10 w-10 place-items-center rounded-2xl bg-slate-100 text-lg dark:bg-slate-800"
+          aria-hidden="true">🌐</span
+        >
+        Lo general
+      </h2>
+
+      <div class="mt-6 divide-y divide-slate-200 overflow-hidden rounded-3xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+        {
+          generales.map((p) => (
+            <details class="group reveal">
+              <summary class={clasesResumen}>
+                {p.q}
+                <svg
+                  class="flex-none text-slate-400 transition-transform duration-200 group-open:rotate-45"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </summary>
+              <p class="px-5 pb-5 leading-relaxed text-slate-600 dark:text-slate-300">
+                {p.a}
+              </p>
+            </details>
+          ))
+        }
+      </div>
+    </section>
+
+    <!-- ===== POR ROL ===== -->
+    {
+      ROLES.map((rol) => (
+        <section id={rol.slug} class="scroll-mt-24 py-10">
+          <h2 class="reveal flex items-center gap-3 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <span
+              class:list={['grid h-10 w-10 place-items-center rounded-2xl text-lg', rol.acento.icono]}
+              aria-hidden="true"
+            >
+              {rol.emoji}
+            </span>
+            Si sos {rol.etiqueta.toLowerCase()}
+          </h2>
+
+          <div class="mt-6 divide-y divide-slate-200 overflow-hidden rounded-3xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+            {porRol[rol.slug].map((p) => (
+              <details class="group reveal">
+                <summary class={clasesResumen}>
+                  {p.q}
+                  <svg
+                    class="flex-none text-slate-400 transition-transform duration-200 group-open:rotate-45"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </summary>
+                <p class="px-5 pb-5 leading-relaxed text-slate-600 dark:text-slate-300">
+                  {p.a}
+                </p>
+              </details>
+            ))}
+          </div>
+
+          <p class="reveal mt-4 text-sm text-slate-500 dark:text-slate-400">
+            <a
+              href={rol.href}
+              class:list={['font-semibold underline-offset-4 hover:underline', rol.acento.texto]}
+            >
+              {rol.cta}
+            </a>
+          </p>
+        </section>
+      ))
+    }
+
+    <!-- ===== SALIDA ===== -->
+    <section class="py-12">
+      <div
+        class="reveal rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center
+          dark:border-slate-800 dark:bg-slate-900"
+      >
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">
+          ¿No estaba tu pregunta?
+        </h2>
+        <p class="mx-auto mt-3 max-w-md text-slate-600 dark:text-slate-300">
+          La explicación completa del sistema —qué es una sesión, una sección, un
+          umbral y una zona— está en una sola página.
+        </p>
+        <div class="mt-6 flex flex-wrap justify-center gap-3">
+          <a href="/como-funciona" class="btn-primario">Leer cómo funciona</a>
+          <a href="/registro" class="btn-secundario">Crear cuenta gratis</a>
+        </div>
+      </div>
+    </section>
+  </div>
+</Layout>

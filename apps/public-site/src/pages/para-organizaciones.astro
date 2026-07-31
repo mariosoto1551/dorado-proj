@@ -1,0 +1,204 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroPagina from '../components/HeroPagina.astro';
+import OtrosRoles from '../components/OtrosRoles.astro';
+import { rolPorSlug } from '../data/roles';
+
+/*
+ * CONTENIDO EDITORIAL ESTÁTICO. Le habla al rol ORG_ADMIN (ver ADR-00 sección
+ * 2): tiene acceso implícito a todos los grupos de su organización, invita
+ * tutores y es el dueño del plan.
+ *
+ * PLATFORM_ADMIN queda fuera a propósito: es el rol interno de operación de la
+ * plataforma, no un público de este sitio.
+ *
+ * Los límites del plan Free que se mencionan acá deben coincidir con /precios y
+ * con el seed de billing-service (apps/billing-service/src/prisma/seed-planes.ts).
+ */
+const rol = rolPorSlug('organizaciones');
+
+const capacidades = [
+  {
+    icono: '🗂️',
+    titulo: 'Un grupo por realidad, no uno para todos',
+    desc: 'Cada curso, sede o equipo es un grupo con su propio catálogo, sus umbrales, sus recompensas y su huso horario. Que dos aulas usen escalas distintas no rompe nada.',
+  },
+  {
+    icono: '✉️',
+    titulo: 'Invitás por correo, no repartís contraseñas',
+    desc: 'Sumás tutores y participantes con una invitación. Cada uno crea su propia clave y vos no manejás credenciales de nadie.',
+  },
+  {
+    icono: '👁️',
+    titulo: 'Ves todos los grupos sin pedir permiso',
+    desc: 'Como administrador tenés acceso a cualquier grupo de tu organización sin que nadie te tenga que habilitar caso por caso.',
+  },
+  {
+    icono: '🔐',
+    titulo: 'Los datos de tu organización son tuyos',
+    desc: 'La separación entre organizaciones no es una convención: está impuesta en cada consulta al sistema. Nadie de otra institución puede ver a tu gente.',
+  },
+  {
+    icono: '📜',
+    titulo: 'Historial de quién hizo qué',
+    desc: 'Cada acción administrativa —crear, corregir, cerrar, entregar— queda registrada de forma permanente. Si alguna vez hay que explicar una decisión, está escrito.',
+  },
+  {
+    icono: '🎨',
+    titulo: 'Con tu marca (plan Pro)',
+    desc: 'Tu logo y tu color aplicados a la app, para todos los tutores y participantes de tu organización.',
+  },
+];
+---
+
+<Layout
+  title="Para organizaciones"
+  description="Colegios, clubes e instituciones en Proyecto Dorado: varios grupos con reglas propias, invitaciones por correo, aislamiento real entre organizaciones, historial auditable y marca propia en el plan Pro."
+  path="/para-organizaciones"
+>
+  <HeroPagina
+    chip="Para colegios · clubes · instituciones"
+    emoji={rol.emoji}
+    titulo="Muchos grupos."
+    destacado="Una sola administración."
+    descripcion="Cada curso o equipo trabaja con sus propias reglas, y vos mirás todo desde arriba: quién administra qué, cómo va cada grupo y qué pasó en cada decisión."
+    acento={rol.acento}
+  >
+    <div slot="acciones" class="flex flex-wrap justify-center gap-3">
+      <a href="/registro" class="btn-primario">Crear mi organización</a>
+      <a href="/precios" class="btn-secundario">Ver planes</a>
+    </div>
+  </HeroPagina>
+
+  <!-- ===== CAPACIDADES ===== -->
+  <section class="mx-auto max-w-6xl px-5 py-16 sm:px-8">
+    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {
+        capacidades.map((c, i) => (
+          <article
+            class="reveal group rounded-3xl border border-slate-200 bg-white p-6
+              transition-all duration-300 hover:-translate-y-1 hover:shadow-lg
+              dark:border-slate-800 dark:bg-slate-900"
+            style={`--reveal-delay:${(i % 3) * 80}ms`}
+          >
+            <span
+              class="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-xl
+                transition-transform duration-300 group-hover:scale-110 dark:bg-amber-900/30"
+              aria-hidden="true"
+            >
+              {c.icono}
+            </span>
+            <h3 class="mt-4 font-bold text-slate-900 dark:text-white">{c.titulo}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+              {c.desc}
+            </p>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- ===== JERARQUÍA VISUAL ===== -->
+  <section class="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
+    <div class="mx-auto max-w-4xl px-5 py-16 sm:px-8">
+      <div class="reveal mx-auto max-w-2xl text-center">
+        <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          Quién puede hacer qué
+        </h2>
+        <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+          Los permisos no se acuerdan de palabra: vienen con el rol.
+        </p>
+      </div>
+
+      <div class="reveal mt-10 overflow-x-auto">
+        <table class="w-full min-w-[34rem] border-collapse text-left">
+          <caption class="sr-only">
+            Comparación de lo que puede hacer cada rol dentro de una organización
+          </caption>
+          <thead>
+            <tr class="border-b border-slate-200 dark:border-slate-800">
+              <th scope="col" class="py-4 pr-4 text-sm font-semibold text-slate-500 dark:text-slate-400">
+                Puede…
+              </th>
+              <th scope="col" class="px-3 py-4 text-center text-sm font-bold text-amber-600 dark:text-amber-400">
+                Administrador
+              </th>
+              <th scope="col" class="px-3 py-4 text-center text-sm font-bold text-marca-600 dark:text-marca-400">
+                Tutor
+              </th>
+              <th scope="col" class="px-3 py-4 text-center text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                Participante
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              [
+                ['Crear grupos e invitar tutores', true, false, false],
+                ['Gestionar el plan y la marca', true, false, false],
+                ['Ver todos los grupos', true, false, false],
+                ['Definir actividades y recompensas', true, true, false],
+                ['Registrar y corregir el día a día', true, true, false],
+                ['Cerrar el período', true, true, false],
+                ['Ver su propio progreso', false, false, true],
+                ['Canjear su recompensa', false, false, true],
+              ].map(([label, admin, tutor, usuario]) => (
+                <tr class="border-b border-slate-100 dark:border-slate-800/70">
+                  <th scope="row" class="py-3.5 pr-4 text-sm font-medium text-slate-700 dark:text-slate-200">
+                    {label}
+                  </th>
+                  {[admin, tutor, usuario].map((valor) => (
+                    <td class="px-3 py-3.5 text-center">
+                      {valor ? (
+                        <span class="inline-block text-zona-verde" aria-label="Sí">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        </span>
+                      ) : (
+                        <span class="inline-block text-slate-300 dark:text-slate-600" aria-label="No">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <p class="reveal mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+        El administrador es también tutor de hecho: puede hacer todo lo de la
+        columna del medio en cualquiera de sus grupos.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== EMPEZAR CHICO ===== -->
+  <section class="mx-auto max-w-4xl px-5 py-16 sm:px-8">
+    <div
+      class="reveal rounded-3xl border border-amber-200 bg-amber-50/60 p-8
+        dark:border-amber-900 dark:bg-amber-900/20 sm:p-10"
+    >
+      <h2 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        Probalo con un solo curso
+      </h2>
+      <p class="mt-4 leading-relaxed text-slate-600 dark:text-slate-300">
+        No hace falta convencer a toda la institución de entrada. El plan gratuito
+        alcanza para un grupo con dos tutores y cinco participantes: suficiente
+        para hacer un período completo de punta a punta y ver si le sirve a tu
+        gente. Si funciona, se escala sin rehacer nada.
+      </p>
+      <div class="mt-7 flex flex-wrap gap-3">
+        <a href="/registro" class="btn-primario">Crear cuenta gratis</a>
+        <a href="/precios" class="btn-secundario">Comparar Free y Pro</a>
+      </div>
+    </div>
+  </section>
+
+  <OtrosRoles slugActual={rol.slug} />
+</Layout>

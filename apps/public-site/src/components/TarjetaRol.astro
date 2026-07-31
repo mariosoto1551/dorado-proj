@@ -1,0 +1,94 @@
+---
+/*
+ * Tarjeta de rol. Se usa en el selector del home y en el bloque "otros roles"
+ * del pie de cada página dedicada, con el mismo aspecto en los dos lugares:
+ * el visitante reconoce la tarjeta y ya sabe a dónde lo lleva.
+ *
+ * Toda la tarjeta es el área clicable (el <a> cubre el artículo con un
+ * ::after), pero el nombre accesible sale del texto real del link — no de un
+ * aria-label inventado.
+ */
+import type { Rol } from '../data/roles';
+
+interface Props {
+  rol: Rol;
+  /** Muestra la frase en primera persona ("Soy tutor…"). Solo en el home. */
+  conPrimeraPersona?: boolean;
+  /** Retardo de la animación de entrada. */
+  delay?: number;
+}
+
+const { rol, conPrimeraPersona = false, delay = 0 } = Astro.props;
+---
+
+<article
+  class:list={[
+    `reveal group relative flex flex-col overflow-hidden rounded-3xl border
+     border-slate-200 bg-white p-6 ring-1 ring-transparent transition-all
+     duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-slate-800
+     dark:bg-slate-900`,
+    rol.acento.anillo,
+  ]}
+  style={`--reveal-delay:${delay}ms`}
+>
+  <div
+    class:list={['absolute inset-x-0 top-0 h-1.5', rol.acento.filete]}
+    aria-hidden="true"
+  >
+  </div>
+
+  <div
+    class:list={[
+      'grid h-12 w-12 place-items-center rounded-2xl text-xl shadow-sm transition-transform duration-300 group-hover:scale-110',
+      rol.acento.icono,
+    ]}
+    aria-hidden="true"
+  >
+    {rol.emoji}
+  </div>
+
+  {
+    conPrimeraPersona && (
+      <p class="mt-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        {rol.primeraPersona}
+      </p>
+    )
+  }
+
+  <h3
+    class:list={[
+      conPrimeraPersona ? 'mt-1' : 'mt-4',
+      'text-lg font-bold text-slate-900 dark:text-white',
+    ]}
+  >
+    {rol.titulo}
+  </h3>
+
+  <p class="mt-2 flex-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+    {rol.gancho}
+  </p>
+
+  <a
+    href={rol.href}
+    class:list={[
+      'mt-5 inline-flex items-center gap-1.5 text-sm font-semibold after:absolute after:inset-0 after:content-[""]',
+      rol.acento.texto,
+    ]}
+  >
+    {rol.cta}
+    <svg
+      class="transition-transform duration-200 group-hover:translate-x-1"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12h14M13 6l6 6-6 6"></path>
+    </svg>
+  </a>
+</article>

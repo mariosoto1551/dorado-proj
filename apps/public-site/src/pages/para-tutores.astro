@@ -1,0 +1,283 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroPagina from '../components/HeroPagina.astro';
+import OtrosRoles from '../components/OtrosRoles.astro';
+import { rolPorSlug } from '../data/roles';
+
+// CONTENIDO EDITORIAL ESTÁTICO. Le habla al rol TUTOR (ver ADR-00 sección 2):
+// administra uno o varios grupos, define el catálogo y registra el día a día.
+const rol = rolPorSlug('tutores');
+
+const momentos = [
+  {
+    n: '01',
+    icono: '📋',
+    titulo: 'Una vez: armás las reglas',
+    desc: 'Cargás las actividades que suman y las que restan, con su valor en puntos. Definís dónde empieza cada zona y qué recompensa hay en cada una. Es la parte que más se piensa y la que menos se repite.',
+  },
+  {
+    n: '02',
+    icono: '✅',
+    titulo: 'Todos los días: registrás',
+    desc: 'Abrís la lista del grupo y marcás lo que se cumplió y lo que no. Toca un par de veces y listo — el puntaje se recalcula solo, para todos, en el momento.',
+  },
+  {
+    n: '03',
+    icono: '⚖️',
+    titulo: 'Al cerrar: revisás',
+    desc: 'Antes de dar el período por firme tenés una instancia de evaluación: ves el resultado de cada persona y corregís lo que haga falta. Recién ahí se cierra.',
+  },
+  {
+    n: '04',
+    icono: '🎁',
+    titulo: 'Después: entregás',
+    desc: 'Cada participante canjea su recompensa y a vos te queda la lista de lo que falta entregar. Confirmás la entrega y el ciclo termina limpio.',
+  },
+];
+
+const alivios = [
+  {
+    icono: '🧮',
+    titulo: 'No llevás la cuenta a mano',
+    desc: 'Se acabaron la planilla, el pizarrón y el «¿cuántos tenía yo?». El total sale solo de lo registrado.',
+  },
+  {
+    icono: '🤖',
+    titulo: 'Los cierres pueden ser automáticos',
+    desc: 'Configurás el horario una vez y el sistema abre y cierra el ciclo solo, en el huso horario de tu grupo, aunque vos no entres ese día.',
+  },
+  {
+    icono: '🧾',
+    titulo: 'Nunca discutís un puntaje',
+    desc: 'Cada punto tiene su origen visible. Si hubo un error, la corrección se agrega y queda a la vista — no se borra nada.',
+  },
+  {
+    icono: '👥',
+    titulo: 'Podés tener varios grupos',
+    desc: 'Cada grupo con su catálogo, sus zonas y sus horarios, sin mezclarse, desde la misma cuenta.',
+  },
+];
+---
+
+<Layout
+  title="Para tutores"
+  description="Cómo usa Proyecto Dorado un tutor: definir actividades y conductas, registrar el día a día, evaluar el cierre del período y entregar recompensas. El puntaje se calcula solo."
+  path="/para-tutores"
+>
+  <HeroPagina
+    chip="Para tutores · docentes · familias"
+    emoji={rol.emoji}
+    titulo="Vos ponés las reglas."
+    destacado="El sistema lleva la cuenta."
+    descripcion="Sos quien conoce al grupo y decide qué vale cuánto. Todo lo demás — sumar, restar, recordar, cerrar el período a horario — deja de ser tu trabajo."
+    acento={rol.acento}
+  >
+    <div slot="acciones" class="flex flex-wrap justify-center gap-3">
+      <a href="/registro" class="btn-primario">Crear mi grupo gratis</a>
+      <a href="/como-funciona" class="btn-secundario">Ver cómo funciona</a>
+    </div>
+  </HeroPagina>
+
+  <!-- ===== LOS 4 MOMENTOS ===== -->
+  <section class="mx-auto max-w-5xl px-5 py-16 sm:px-8">
+    <div class="reveal mx-auto max-w-2xl text-center">
+      <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+        Tu trabajo, en cuatro momentos
+      </h2>
+      <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+        Solo el segundo es diario, y son dos minutos.
+      </p>
+    </div>
+
+    <ol class="mt-12 space-y-4">
+      {
+        momentos.map((m, i) => (
+          <li
+            class="reveal flex flex-col gap-4 rounded-3xl border border-slate-200
+              bg-white p-6 transition-shadow duration-300 hover:shadow-lg
+              dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-start sm:gap-6"
+            style={`--reveal-delay:${i * 80}ms`}
+          >
+            <div class="flex flex-none items-center gap-4">
+              <span class="text-4xl font-black text-marca-200 dark:text-marca-900">
+                {m.n}
+              </span>
+              <span class="grid h-12 w-12 place-items-center rounded-2xl bg-marca-50 text-xl dark:bg-marca-900/40" aria-hidden="true">
+                {m.icono}
+              </span>
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white">{m.titulo}</h3>
+              <p class="mt-1.5 leading-relaxed text-slate-600 dark:text-slate-300">
+                {m.desc}
+              </p>
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <!-- ===== LO QUE TE SACA DE ENCIMA ===== -->
+  <section class="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40">
+    <div class="mx-auto max-w-5xl px-5 py-16 sm:px-8">
+      <div class="reveal mx-auto max-w-2xl text-center">
+        <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          Lo que deja de ser tu problema
+        </h2>
+        <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">
+          La mayoría de los sistemas de puntos caseros se abandonan por
+          administrarlos, no por la idea.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-4 sm:grid-cols-2">
+        {
+          alivios.map((a, i) => (
+            <article
+              class="reveal rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+              style={`--reveal-delay:${(i % 2) * 80}ms`}
+            >
+              <span class="text-2xl" aria-hidden="true">{a.icono}</span>
+              <h3 class="mt-3 font-bold text-slate-900 dark:text-white">{a.titulo}</h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                {a.desc}
+              </p>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== MOCK DEL PANEL ===== -->
+  <section class="mx-auto max-w-5xl px-5 py-16 sm:px-8">
+    <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+      <div class="reveal">
+        <h2 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          Todo el grupo en una pantalla
+        </h2>
+        <p class="mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+          Quién va bien, quién se quedó atrás y a quién le falta poco para
+          cambiar de zona. Sin abrir el detalle de nadie.
+        </p>
+        <ul class="mt-6 space-y-3">
+          {
+            [
+              'Puntaje y zona actual de cada participante',
+              'Cuánto le falta al que está por subir',
+              'Qué obligatorias quedaron sin marcar hoy',
+              'Qué recompensas te quedan por entregar',
+            ].map((t) => (
+              <li class="flex items-start gap-3 text-slate-600 dark:text-slate-300">
+                <span class="mt-1 grid h-5 w-5 flex-none place-items-center rounded-full bg-marca-100 text-marca-600 dark:bg-marca-900/60 dark:text-marca-300" aria-hidden="true">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17l-5-5" />
+                  </svg>
+                </span>
+                {t}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div class="reveal" style="--reveal-delay:120ms">
+        <div class="relative">
+          <div
+            class="absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-br
+              from-marca-500/20 to-zona-dorado/20 blur-2xl"
+            aria-hidden="true"
+          >
+          </div>
+          <div
+            class="rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl
+              shadow-slate-900/10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/40"
+            role="img"
+            aria-label="Vista de ejemplo del panel del tutor: cuatro participantes con su puntaje y su zona, y la sección en evaluación."
+          >
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-bold text-slate-900 dark:text-white">Sexto grado B</p>
+              <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
+                En evaluación
+              </span>
+            </div>
+
+            <ul class="mt-4 space-y-2">
+              {
+                [
+                  { n: 'Ana', p: 245, z: '#eab308', zn: 'Dorado' },
+                  { n: 'Bruno', p: 178, z: '#22c55e', zn: 'Verde' },
+                  { n: 'Cami', p: 104, z: '#f59e0b', zn: 'Amarillo' },
+                  { n: 'Dante', p: 7, z: '#ef4444', zn: 'Rojo' },
+                ].map((u) => (
+                  <li class="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-slate-800/60">
+                    <span
+                      class="grid h-8 w-8 flex-none place-items-center rounded-full text-xs font-bold text-white"
+                      style={`background-color:${u.z}`}
+                      aria-hidden="true"
+                    >
+                      {u.n[0]}
+                    </span>
+                    <span class="flex-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      {u.n}
+                    </span>
+                    <span class="text-sm font-bold tabular-nums text-slate-900 dark:text-white">
+                      {u.p}
+                    </span>
+                    <span
+                      class="w-20 flex-none rounded-full px-2 py-0.5 text-center text-[0.7rem] font-bold text-white"
+                      style={`background-color:${u.z}`}
+                    >
+                      {u.zn}
+                    </span>
+                  </li>
+                ))
+              }
+            </ul>
+
+            <div class="mt-4 flex gap-2">
+              <span class="flex-1 rounded-xl bg-marca-600 px-3 py-2.5 text-center text-xs font-semibold text-white">
+                Cerrar sección
+              </span>
+              <span class="rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                Posponer
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <OtrosRoles slugActual={rol.slug} />
+
+  <!-- ===== CTA ===== -->
+  <section class="mx-auto max-w-5xl px-5 py-16 sm:px-8">
+    <div
+      class="reveal relative overflow-hidden rounded-3xl bg-gradient-to-br
+        from-marca-600 to-marca-800 px-6 py-14 text-center shadow-2xl shadow-marca-900/30"
+    >
+      <div class="pointer-events-none absolute inset-0 opacity-30" aria-hidden="true">
+        <div class="absolute -left-10 top-0 h-40 w-40 rounded-full bg-zona-dorado/40 blur-3xl"></div>
+      </div>
+      <h2 class="relative text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+        Armá tu primer grupo hoy
+      </h2>
+      <p class="relative mx-auto mt-3 max-w-lg text-marca-100">
+        Es gratis, no pide tarjeta y podés invitar a los participantes cuando
+        tengas todo listo.
+      </p>
+      <div class="relative mt-7 flex justify-center">
+        <a
+          href="/registro"
+          class="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5
+            text-base font-semibold text-marca-700 shadow-lg transition-all
+            duration-200 hover:-translate-y-0.5 hover:shadow-xl"
+        >
+          Crear cuenta gratis
+        </a>
+      </div>
+    </div>
+  </section>
+</Layout>

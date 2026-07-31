@@ -1,0 +1,735 @@
+---
+import Layout from '../layouts/Layout.astro';
+import HeroPagina from '../components/HeroPagina.astro';
+import { ROLES } from '../data/roles';
+
+/*
+ * CONTENIDO EDITORIAL ESTÁTICO. Explica los elementos del sistema en lenguaje
+ * de producto, no de base de datos: esta página es para entender de qué está
+ * hecho Proyecto Dorado antes de crear la cuenta. La guía operativa ("dónde
+ * hago clic") vive dentro de app-web, no acá.
+ *
+ * Fuente de cada concepto (para mantenerla honesta si algo cambia):
+ *   Organización / Grupo / roles ....... docs/architecture/ADR-00, secciones 2-3
+ *   Actividad / Conducta ............... docs/phases/fase-05-activity-catalog.md
+ *   Sesión / Sección ................... docs/phases/fase-06-session-section.md
+ *   Puntos / umbrales / zonas .......... docs/phases/fase-07-scoring-engine.md
+ *   Recompensas ........................ docs/phases/fase-08-rewards.md
+ *   Notificaciones / historial ......... docs/phases/fase-09-notification-audit.md
+ *   Extras por grupo ................... docs/phases/fase-14-*.md (ítems 9-17)
+ * Los umbrales numéricos que se muestran son los del seed de ejemplo — cada
+ * Grupo configura los suyos, por eso van rotulados como ejemplo.
+ */
+
+const indice = [
+  { id: 'mapa', label: 'El mapa' },
+  { id: 'personas', label: 'Las personas' },
+  { id: 'actividades', label: 'Actividades' },
+  { id: 'conductas', label: 'Conductas' },
+  { id: 'tiempo', label: 'Sesión y Sección' },
+  { id: 'puntos', label: 'Los puntos' },
+  { id: 'zonas', label: 'Zonas y umbrales' },
+  { id: 'recompensas', label: 'Recompensas' },
+  { id: 'extras', label: 'Extras por grupo' },
+  { id: 'glosario', label: 'Glosario' },
+];
+
+const limitesTiempo = [
+  {
+    icono: '⏰',
+    nombre: 'Con hora límite',
+    desc: 'Vale hasta una hora fija del día — por ejemplo, las 20:00. Después de esa hora ya no se puede marcar.',
+  },
+  {
+    icono: '⏱️',
+    nombre: 'Con cronómetro',
+    desc: 'Se arranca desde la app y hay que terminarla dentro de una duración: 30 minutos de lectura, por ejemplo.',
+  },
+  {
+    icono: '∞',
+    nombre: 'Sin límite',
+    desc: 'Se puede marcar en cualquier momento mientras la sesión del día esté abierta.',
+  },
+];
+
+const zonas = [
+  { nombre: 'Rojo', color: '#ef4444', rango: 'menos de 10 pts', desc: 'Punto de partida.' },
+  { nombre: 'Amarillo', color: '#f59e0b', rango: '10 a 109 pts', desc: 'En movimiento.' },
+  { nombre: 'Verde', color: '#22c55e', rango: '110 a 209 pts', desc: 'Constancia lograda.' },
+  { nombre: 'Dorado', color: '#eab308', rango: '210 pts o más', desc: 'La meta más alta.' },
+];
+
+const extras = [
+  {
+    icono: '🤝',
+    nombre: 'Equipos de trabajo',
+    desc: 'Los participantes de un grupo se reparten en equipos, cada uno con un jefe de equipo. Hay tareas colectivas que suman para todo el equipo, y si el equipo no cumple, el jefe se sustituye.',
+  },
+  {
+    icono: '📅',
+    nombre: 'Actividades programadas',
+    desc: 'Una actividad puede estar disponible solo ciertos días de la semana en vez de todos. Sacar la basura los martes y viernes, no los siete días.',
+  },
+  {
+    icono: '🗓️',
+    nombre: 'Plan del día',
+    desc: 'Con veinte opcionales cargadas, la lista se vuelve ruido. Con esta opción las opcionales quedan guardadas y el participante elige cuáles se compromete a hacer hoy — lo obligatorio siempre queda a la vista.',
+  },
+  {
+    icono: '✍️',
+    nombre: 'Contenido propuesto por los integrantes',
+    desc: 'Si el tutor lo habilita, los propios participantes pueden proponer actividades para sí mismos o para el grupo, con o sin aprobación previa.',
+  },
+  {
+    icono: '🚩',
+    nombre: 'Marcas del tutor',
+    desc: 'El tutor puede denegar una obligatoria que no se cumplió o quitar una repetición marcada de más. Nada se borra: queda registrado quién lo hizo y cuándo.',
+  },
+  {
+    icono: '🎨',
+    nombre: 'Marca propia (plan Pro)',
+    desc: 'La organización aplica su logo y su color a la app, para todos sus tutores y participantes.',
+  },
+];
+
+const glosario = [
+  ['Organización', 'La cuenta. Un colegio, un club, una familia. Todo lo demás vive adentro.'],
+  ['Grupo', 'La unidad real de convivencia: un aula, un equipo, una casa. Tiene su propio catálogo, sus zonas y su huso horario.'],
+  ['Actividad', 'Algo que se hace. Opcional (suma) u obligatoria (resta si no se hace).'],
+  ['Conducta', 'Algo que pasa. Buena (suma) o mala (resta). No se planifica: se registra.'],
+  ['Sesión', 'El ciclo corto, normalmente un día. Abre y cierra.'],
+  ['Sección', 'El ciclo largo, normalmente una semana. Agrupa varias sesiones y termina con un resultado y una recompensa.'],
+  ['Umbral', 'El puntaje a partir del cual empieza una zona.'],
+  ['Zona', 'El color en el que quedó una persona según su puntaje: rojo, amarillo, verde o dorado.'],
+  ['Canje', 'La recompensa que una persona eligió (o le tocó) al cerrar una sección.'],
+];
+---
+
+<Layout
+  title="Cómo funciona"
+  description="Qué es una actividad, una conducta, una sesión, una sección, un umbral y una zona en Proyecto Dorado. La explicación completa del sistema de puntos, elemento por elemento."
+  path="/como-funciona"
+>
+  <HeroPagina
+    chip="El sistema explicado"
+    emoji="🧭"
+    titulo="De qué está hecho"
+    destacado="Proyecto Dorado"
+    descripcion="Seis piezas y ya entendés todo el sistema: quién participa, qué se hace, cuánto dura el ciclo, cómo se suman los puntos, en qué zona se termina y qué recompensa sale de ahí."
+  >
+    <div slot="acciones" class="flex flex-wrap justify-center gap-3">
+      <a href="#mapa" class="btn-primario">Empezar por el principio</a>
+      <a href="/registro" class="btn-secundario">Crear cuenta gratis</a>
+    </div>
+  </HeroPagina>
+
+  <div class="mx-auto max-w-6xl px-5 pb-8 sm:px-8">
+    <div class="gap-12 lg:grid lg:grid-cols-[16rem_1fr]">
+      <!-- ===== Índice ===== -->
+      <aside class="hidden lg:block">
+        <nav class="sticky top-24 py-12" aria-labelledby="titulo-indice">
+          <h2
+            id="titulo-indice"
+            class="text-xs font-semibold uppercase tracking-wider text-slate-400"
+          >
+            En esta página
+          </h2>
+          <ul class="mt-4 space-y-1 border-l border-slate-200 dark:border-slate-800">
+            {
+              indice.map((i) => (
+                <li>
+                  <a
+                    href={`#${i.id}`}
+                    class="-ml-px block border-l-2 border-transparent py-1.5 pl-4 text-sm
+                      text-slate-500 transition-colors hover:border-marca-500
+                      hover:text-marca-700 dark:text-slate-400 dark:hover:text-marca-300"
+                  >
+                    {i.label}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </nav>
+      </aside>
+
+      <!-- Índice móvil: fila de chips desplazable. -->
+      <nav
+        class="-mx-5 mb-4 overflow-x-auto px-5 lg:hidden"
+        aria-label="Secciones de la página"
+      >
+        <ul class="flex w-max gap-2 pb-2">
+          {
+            indice.map((i) => (
+              <li>
+                <a
+                  href={`#${i.id}`}
+                  class="block whitespace-nowrap rounded-full border border-slate-200
+                    bg-white px-3.5 py-1.5 text-xs font-medium text-slate-600
+                    dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
+                >
+                  {i.label}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </nav>
+
+      <div class="min-w-0 space-y-20 py-6 lg:py-12">
+        <!-- ===== 1. EL MAPA ===== -->
+        <section id="mapa" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            01 · El mapa
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Organización, grupos y personas
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Todo cuelga de tres niveles. Vale la pena tenerlos claros porque casi
+            cualquier duda posterior («¿esto se configura una vez o por curso?»)
+            se contesta sabiendo en qué nivel vive cada cosa.
+          </p>
+
+          <div class="reveal mt-8 space-y-3">
+            <div class="rounded-3xl border border-marca-200 bg-marca-50/60 p-5 dark:border-marca-800 dark:bg-marca-900/20">
+              <div class="flex items-center gap-3">
+                <span class="grid h-10 w-10 flex-none place-items-center rounded-xl bg-gradient-to-br from-marca-500 to-marca-700 text-lg" aria-hidden="true">🏛️</span>
+                <div>
+                  <h3 class="font-bold text-slate-900 dark:text-white">Organización</h3>
+                  <p class="text-sm text-slate-600 dark:text-slate-300">
+                    Tu cuenta: el colegio, el club, la familia. Acá vive el plan
+                    (Free o Pro) y la marca propia.
+                  </p>
+                </div>
+              </div>
+
+              <div class="mt-4 space-y-3 border-l-2 border-dashed border-marca-300 pl-5 dark:border-marca-700">
+                <div class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                  <div class="flex items-center gap-3">
+                    <span class="grid h-10 w-10 flex-none place-items-center rounded-xl bg-slate-100 text-lg dark:bg-slate-800" aria-hidden="true">👥</span>
+                    <div>
+                      <h3 class="font-bold text-slate-900 dark:text-white">Grupo</h3>
+                      <p class="text-sm text-slate-600 dark:text-slate-300">
+                        Un aula, un equipo, una casa. <strong class="font-semibold">Es el nivel
+                        donde se decide todo lo importante</strong>: qué actividades hay, cuánto
+                        dura el ciclo, dónde están los cortes de cada zona, qué recompensas
+                        se ofrecen y en qué huso horario se cuentan los días.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="mt-4 space-y-3 border-l-2 border-dashed border-slate-300 pl-5 dark:border-slate-700">
+                    <div class="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/60">
+                      <h3 class="text-sm font-bold text-slate-900 dark:text-white">
+                        Tutores y participantes
+                      </h3>
+                      <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                        Las personas del grupo. Una misma persona puede estar en
+                        varios grupos con la misma cuenta.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="reveal mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <strong class="font-semibold text-slate-900 dark:text-white">En criollo:</strong>{' '}
+            dos aulas del mismo colegio pueden tener premios, reglas y horarios
+            completamente distintos sin pisarse. Son grupos separados dentro de la
+            misma organización.
+          </p>
+        </section>
+
+        <!-- ===== 2. LAS PERSONAS ===== -->
+        <section id="personas" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            02 · Las personas
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Tres roles, tres pantallas distintas
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Nadie ve una pantalla que no le sirve. Lo que puede hacer cada uno está
+            definido por su rol, no por acuerdos de palabra.
+          </p>
+
+          <div class="mt-8 grid gap-4 sm:grid-cols-3">
+            {
+              ROLES.map((rol, i) => (
+                <a
+                  href={rol.href}
+                  class:list={[
+                    `reveal group rounded-2xl border border-slate-200 bg-white p-5
+                     ring-1 ring-transparent transition-all duration-300
+                     hover:-translate-y-1 hover:shadow-lg dark:border-slate-800
+                     dark:bg-slate-900`,
+                    rol.acento.anillo,
+                  ]}
+                  style={`--reveal-delay:${i * 90}ms`}
+                >
+                  <span
+                    class:list={[
+                      'grid h-10 w-10 place-items-center rounded-xl text-lg transition-transform duration-300 group-hover:scale-110',
+                      rol.acento.icono,
+                    ]}
+                    aria-hidden="true"
+                  >
+                    {rol.emoji}
+                  </span>
+                  <h3 class="mt-3 font-bold text-slate-900 dark:text-white">
+                    {rol.etiqueta}
+                  </h3>
+                  <p class="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                    {rol.gancho}
+                  </p>
+                  <span class:list={['mt-3 inline-block text-sm font-semibold', rol.acento.texto]}>
+                    {rol.cta} →
+                  </span>
+                </a>
+              ))
+            }
+          </div>
+        </section>
+
+        <!-- ===== 3. ACTIVIDADES ===== -->
+        <section id="actividades" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            03 · Lo que se hace
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Actividades: opcionales y obligatorias
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Una actividad es algo que se hace y vale puntos. La diferencia entre
+            los dos tipos no es cuánto valen, sino <em>en qué dirección</em> mueven
+            el puntaje.
+          </p>
+
+          <div class="mt-8 grid gap-4 sm:grid-cols-2">
+            <article class="reveal rounded-3xl border-2 border-emerald-200 bg-white p-6 dark:border-emerald-900 dark:bg-slate-900">
+              <div class="flex items-center gap-2">
+                <span class="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+                  Opcional
+                </span>
+                <span class="text-lg font-black text-emerald-600 dark:text-emerald-400">+</span>
+              </div>
+              <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">
+                Suma cuando se hace
+              </h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Nadie está obligado. Si se hace, suma; si no, no pasa nada. Es el
+                menú de oportunidades para subir de zona: leer, ayudar en casa,
+                practicar un instrumento.
+              </p>
+            </article>
+
+            <article class="reveal rounded-3xl border-2 border-red-200 bg-white p-6 dark:border-red-900 dark:bg-slate-900" style="--reveal-delay:90ms">
+              <div class="flex items-center gap-2">
+                <span class="rounded-lg bg-red-100 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-red-700 dark:bg-red-900/60 dark:text-red-300">
+                  Obligatoria
+                </span>
+                <span class="text-lg font-black text-red-600 dark:text-red-400">−</span>
+              </div>
+              <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">
+                Resta cuando no se hace
+              </h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Cumplirla es lo esperable, así que no da premio: lo que hace es
+                descontar si queda sin hacer. Tender la cama, entregar la tarea,
+                llegar a horario.
+              </p>
+            </article>
+          </div>
+
+          <h3 class="reveal mt-10 text-lg font-bold text-slate-900 dark:text-white">
+            Cada actividad puede tener su propio reloj
+          </h3>
+          <div class="mt-4 grid gap-3 sm:grid-cols-3">
+            {
+              limitesTiempo.map((l, i) => (
+                <div
+                  class="reveal rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+                  style={`--reveal-delay:${i * 80}ms`}
+                >
+                  <span class="text-2xl" aria-hidden="true">{l.icono}</span>
+                  <h4 class="mt-2 font-bold text-slate-900 dark:text-white">{l.nombre}</h4>
+                  <p class="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                    {l.desc}
+                  </p>
+                </div>
+              ))
+            }
+          </div>
+
+          <p class="reveal mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <strong class="font-semibold text-slate-900 dark:text-white">Repeticiones:</strong>{' '}
+            una actividad también define cuántas veces se puede marcar por día y,
+            si hace falta, un tope distinto para toda la sección. Así «leer 20
+            minutos» puede valer hasta dos veces en un día pero no diez.
+          </p>
+        </section>
+
+        <!-- ===== 4. CONDUCTAS ===== -->
+        <section id="conductas" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            04 · Lo que pasa
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Conductas: lo que no estaba planificado
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Una actividad se planifica; una conducta simplemente ocurre y se
+            registra. Ayudar a un compañero sin que nadie lo pida es una conducta
+            buena; faltar el respeto es una mala.
+          </p>
+
+          <div class="reveal mt-8 overflow-hidden rounded-3xl border border-slate-200 dark:border-slate-800">
+            <div class="grid sm:grid-cols-2">
+              <div class="bg-white p-6 dark:bg-slate-900">
+                <span class="text-2xl" aria-hidden="true">🌟</span>
+                <h3 class="mt-2 font-bold text-slate-900 dark:text-white">Conducta buena</h3>
+                <p class="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                  Suma puntos. La registra un tutor cuando la ve.
+                </p>
+              </div>
+              <div class="border-t border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-950/40 sm:border-l sm:border-t-0">
+                <span class="text-2xl" aria-hidden="true">⚡</span>
+                <h3 class="mt-2 font-bold text-slate-900 dark:text-white">Conducta mala</h3>
+                <p class="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                  Resta puntos. Y, si el grupo lo habilita, la propia persona
+                  puede reportarse a sí misma — la honestidad también forma parte
+                  del sistema.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== 5. SESIÓN Y SECCIÓN ===== -->
+        <section id="tiempo" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            05 · El tiempo
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Sesión y Sección: el ciclo corto y el largo
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Son los dos únicos nombres raros del sistema, y en realidad son simples:{' '}
+            <strong class="font-semibold text-slate-900 dark:text-white">la sesión suele ser
+            un día y la sección suele ser una semana</strong>. Vos elegís cuántas
+            sesiones entran en cada sección.
+          </p>
+
+          <!-- Diagrama de ciclo -->
+          <div class="reveal mt-8 rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Una sección de 6 sesiones
+            </p>
+            <div class="mt-4 flex items-end gap-1.5" role="img" aria-label="Seis sesiones consecutivas que terminan en el cierre de la sección">
+              {
+                [1, 2, 3, 4, 5, 6].map((n) => (
+                  <div class="flex-1">
+                    <div class="h-16 rounded-lg bg-gradient-to-t from-marca-500/70 to-marca-400/40 dark:from-marca-600/70 dark:to-marca-500/30" />
+                    <p class="mt-1.5 text-center text-[0.7rem] font-medium text-slate-400">
+                      Sesión {n}
+                    </p>
+                  </div>
+                ))
+              }
+              <div class="flex-none pl-2">
+                <div class="grid h-16 w-16 place-items-center rounded-lg bg-gradient-to-br from-zona-dorado to-amber-600 text-2xl" aria-hidden="true">
+                  🏆
+                </div>
+                <p class="mt-1.5 text-center text-[0.7rem] font-bold text-slate-500 dark:text-slate-400">
+                  Cierre
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-6 grid gap-4 sm:grid-cols-3">
+            <div class="reveal rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+              <span class="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300">
+                Abierta
+              </span>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Se registra normalmente. Es el día a día.
+              </p>
+            </div>
+            <div class="reveal rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900" style="--reveal-delay:80ms">
+              <span class="inline-block rounded-md bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
+                En evaluación
+              </span>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Terminó el período y el tutor revisa antes de dar el resultado por
+                firme.
+              </p>
+            </div>
+            <div class="reveal rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900" style="--reveal-delay:160ms">
+              <span class="inline-block rounded-md bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                Cerrada
+              </span>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                El resultado quedó firme y se habilitan las recompensas. Ya no se
+                edita.
+              </p>
+            </div>
+          </div>
+
+          <div class="reveal mt-6 grid gap-4 sm:grid-cols-2">
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-900">
+              <h3 class="font-bold text-slate-900 dark:text-white">✋ Modo manual</h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                El tutor abre y cierra cuando quiere. Bien para arrancar y agarrarle
+                la mano.
+              </p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-900">
+              <h3 class="font-bold text-slate-900 dark:text-white">🤖 Modo automático</h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Se define un horario («todos los días a las 00:00, de lunes a
+                sábado») y el sistema abre y cierra solo, en el huso horario del
+                grupo.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== 6. PUNTOS ===== -->
+        <section id="puntos" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            06 · El puntaje
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Los puntos no se escriben: se suman
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Esta es la decisión más importante del producto y la que más confianza
+            genera dentro de un grupo. <strong class="font-semibold text-slate-900 dark:text-white">
+            En ningún lado existe un casillero «puntaje» que alguien pueda editar.</strong>{' '}
+            El total es siempre la suma de todo lo que quedó registrado.
+          </p>
+
+          <div class="reveal mt-8 rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+            <ul class="space-y-2.5">
+              <li class="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                <span class="text-sm text-slate-700 dark:text-slate-200">Leer 20 minutos · sesión 3</span>
+                <span class="font-bold tabular-nums text-emerald-600 dark:text-emerald-400">+15</span>
+              </li>
+              <li class="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                <span class="text-sm text-slate-700 dark:text-slate-200">Tender la cama · no realizada</span>
+                <span class="font-bold tabular-nums text-red-600 dark:text-red-400">−10</span>
+              </li>
+              <li class="flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                <span class="text-sm text-slate-700 dark:text-slate-200">Ayudó a un compañero</span>
+                <span class="font-bold tabular-nums text-emerald-600 dark:text-emerald-400">+5</span>
+              </li>
+              <li class="flex items-center justify-between gap-4 rounded-xl border border-dashed border-amber-300 px-4 py-3 dark:border-amber-700">
+                <span class="text-sm text-slate-600 dark:text-slate-300">
+                  Corrección del tutor <span class="text-xs text-slate-400">· sobre «Tender la cama»</span>
+                </span>
+                <span class="font-bold tabular-nums text-emerald-600 dark:text-emerald-400">+10</span>
+              </li>
+              <li class="flex items-center justify-between gap-4 border-t border-slate-200 px-4 pt-4 dark:border-slate-700">
+                <span class="font-semibold text-slate-900 dark:text-white">Total</span>
+                <span class="text-xl font-extrabold tabular-nums text-slate-900 dark:text-white">20</span>
+              </li>
+            </ul>
+          </div>
+
+          <p class="reveal mt-6 text-slate-600 dark:text-slate-300">
+            Fijate la cuarta línea: cuando hay un error, no se borra ni se edita la
+            fila vieja — <strong class="font-semibold text-slate-900 dark:text-white">se agrega
+            una corrección que apunta a ella</strong>. Cualquiera puede reconstruir
+            qué pasó, en qué orden y quién lo hizo. Nadie tiene que creer en la
+            palabra de nadie.
+          </p>
+        </section>
+
+        <!-- ===== 7. ZONAS ===== -->
+        <section id="zonas" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            07 · El resultado
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Umbrales y zonas
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Un número suelto no motiva a nadie. El umbral es el puntaje donde
+            arranca cada zona, y la zona es el color en el que quedás. Se avanza
+            sumando: <strong class="font-semibold text-slate-900 dark:text-white">nadie
+            empieza perdiendo</strong>.
+          </p>
+
+          <!-- Barra de zonas -->
+          <div class="reveal mt-8">
+            <div class="flex h-3 overflow-hidden rounded-full" role="img" aria-label="Progresión de zonas: rojo, amarillo, verde y dorado">
+              {zonas.map((z) => <div class="flex-1" style={`background-color:${z.color}`} />)}
+            </div>
+            <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {
+                zonas.map((z, i) => (
+                  <div
+                    class="reveal rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+                    style={`--reveal-delay:${i * 80}ms`}
+                  >
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="h-3 w-3 flex-none rounded-full"
+                        style={`background-color:${z.color}`}
+                        aria-hidden="true"
+                      />
+                      <h3 class="font-bold text-slate-900 dark:text-white">{z.nombre}</h3>
+                    </div>
+                    <p class="mt-1 text-xs font-semibold tabular-nums text-slate-400">{z.rango}</p>
+                    <p class="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{z.desc}</p>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+
+          <p class="reveal mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+            <strong class="font-semibold text-slate-900 dark:text-white">Esos números son solo un ejemplo.</strong>{' '}
+            Cada grupo define sus propios cortes, sus nombres y hasta sus colores.
+            También elige si la zona se recalcula al final de cada sesión (para ver
+            el progreso día a día) o recién al cerrar la sección.
+          </p>
+        </section>
+
+        <!-- ===== 8. RECOMPENSAS ===== -->
+        <section id="recompensas" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            08 · El premio
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Recompensas: elegir o que te toque
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Cada recompensa está atada a una zona. Al cerrar la sección, cada
+            persona ve solo las de la zona que alcanzó y se lleva una — una sola
+            por sección, para que la decisión importe.
+          </p>
+
+          <div class="mt-8 grid gap-4 sm:grid-cols-2">
+            <article class="reveal rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+              <span class="text-2xl" aria-hidden="true">🎯</span>
+              <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">Por elección</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                La persona elige de la lista de su zona. Sabe lo que quiere y va por
+                eso.
+              </p>
+            </article>
+            <article class="reveal rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900" style="--reveal-delay:90ms">
+              <span class="text-2xl" aria-hidden="true">🎲</span>
+              <h3 class="mt-3 text-lg font-bold text-slate-900 dark:text-white">Por azar</h3>
+              <p class="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                Se sortea entre las de su zona. Suma emoción y evita que siempre se
+                pida lo mismo.
+              </p>
+            </article>
+          </div>
+
+          <p class="reveal mt-6 text-slate-600 dark:text-slate-300">
+            Después del canje la recompensa queda <strong class="font-semibold text-slate-900 dark:text-white">pendiente
+            de entrega</strong> hasta que el tutor confirma que efectivamente la
+            entregó. Así no quedan premios prometidos en el aire.
+          </p>
+        </section>
+
+        <!-- ===== 9. EXTRAS ===== -->
+        <section id="extras" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            09 · Si lo necesitás
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Extras que se activan por grupo
+          </h2>
+          <p class="reveal mt-4 text-lg leading-relaxed text-slate-600 dark:text-slate-300">
+            Todo lo de arriba alcanza para empezar. Lo de acá abajo viene apagado y
+            se prende cuando el grupo lo pide, sin cambiarle nada a los demás.
+          </p>
+
+          <div class="mt-8 grid gap-4 sm:grid-cols-2">
+            {
+              extras.map((e, i) => (
+                <article
+                  class="reveal rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+                  style={`--reveal-delay:${(i % 2) * 80}ms`}
+                >
+                  <span class="text-2xl" aria-hidden="true">{e.icono}</span>
+                  <h3 class="mt-2 font-bold text-slate-900 dark:text-white">{e.nombre}</h3>
+                  <p class="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                    {e.desc}
+                  </p>
+                </article>
+              ))
+            }
+          </div>
+        </section>
+
+        <!-- ===== 10. GLOSARIO ===== -->
+        <section id="glosario" class="scroll-mt-24">
+          <p class="reveal text-sm font-bold uppercase tracking-wider text-marca-600 dark:text-marca-400">
+            10 · Para tener a mano
+          </p>
+          <h2 class="reveal mt-2 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Glosario en una pantalla
+          </h2>
+
+          <dl class="reveal mt-8 divide-y divide-slate-200 overflow-hidden rounded-3xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+            {
+              glosario.map(([termino, definicion]) => (
+                <div class="grid gap-1 bg-white p-5 dark:bg-slate-900 sm:grid-cols-[10rem_1fr] sm:gap-6">
+                  <dt class="font-bold text-slate-900 dark:text-white">{termino}</dt>
+                  <dd class="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                    {definicion}
+                  </dd>
+                </div>
+              ))
+            }
+          </dl>
+        </section>
+
+        <!-- ===== CTA ===== -->
+        <section
+          class="reveal relative overflow-hidden rounded-3xl bg-gradient-to-br
+            from-marca-600 to-marca-800 px-6 py-14 text-center shadow-2xl
+            shadow-marca-900/30"
+        >
+          <div class="pointer-events-none absolute inset-0 opacity-30" aria-hidden="true">
+            <div class="absolute -left-10 top-0 h-40 w-40 rounded-full bg-zona-dorado/40 blur-3xl"></div>
+            <div class="absolute -right-10 bottom-0 h-40 w-40 rounded-full bg-zona-verde/30 blur-3xl"></div>
+          </div>
+          <h2 class="relative text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+            Ya sabés cómo funciona
+          </h2>
+          <p class="relative mx-auto mt-3 max-w-lg text-marca-100">
+            Armar el primer grupo lleva menos de lo que tardaste en leer esta página.
+          </p>
+          <div class="relative mt-7 flex flex-wrap justify-center gap-3">
+            <a
+              href="/registro"
+              class="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5
+                text-base font-semibold text-marca-700 shadow-lg transition-all
+                duration-200 hover:-translate-y-0.5 hover:shadow-xl"
+            >
+              Crear cuenta gratis
+            </a>
+            <a
+              href="/ayuda"
+              class="inline-flex items-center gap-2 rounded-xl border border-white/40
+                px-6 py-3.5 text-base font-semibold text-white transition-colors
+                hover:bg-white/10"
+            >
+              Todavía tengo dudas
+            </a>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</Layout>

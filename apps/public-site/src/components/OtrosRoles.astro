@@ -1,0 +1,47 @@
+---
+/*
+ * Cierre de cada página de rol: "esta no era tu página, mirá estas otras".
+ * Sin este bloque, alguien que entra por el link equivocado (o que cumple dos
+ * roles a la vez — un padre que además dirige el club) queda en un callejón sin
+ * salida y tiene que volver al nav a adivinar.
+ */
+import TarjetaRol from './TarjetaRol.astro';
+import { otrosRoles } from '../data/roles';
+
+interface Props {
+  /** Slug del rol de la página actual: se excluye de la lista. */
+  slugActual: string;
+}
+
+const { slugActual } = Astro.props;
+const roles = otrosRoles(slugActual);
+---
+
+<section
+  class="border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40"
+>
+  <div class="mx-auto max-w-4xl px-5 py-16 sm:px-8">
+    <h2
+      class="reveal text-center text-2xl font-bold tracking-tight text-slate-900
+        dark:text-white"
+    >
+      ¿No es tu caso?
+    </h2>
+    <p class="reveal mt-3 text-center text-slate-600 dark:text-slate-300">
+      Cada rol ve una pantalla distinta. Mirá la que te toca a vos.
+    </p>
+
+    <div class="mt-10 grid gap-4 sm:grid-cols-2">
+      {roles.map((rol, i) => <TarjetaRol rol={rol} delay={i * 90} />)}
+    </div>
+
+    <p class="reveal mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
+      ¿Querés entender el sistema completo primero?{' '}
+      <a
+        href="/como-funciona"
+        class="font-semibold text-marca-600 underline-offset-4 hover:underline dark:text-marca-400"
+        >Leé la explicación de cada elemento</a
+      >.
+    </p>
+  </div>
+</section>

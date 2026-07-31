@@ -1,10 +1,25 @@
 ---
-// Nav sticky con glass. Sin island: el menú móvil usa <details> nativo (cero JS).
+/*
+ * Nav sticky con glass. Sigue sin islands de framework: los dos menús
+ * desplegables (el de rol en desktop y el hamburguesa en móvil) usan <details>
+ * nativo, que ya es accesible por teclado. Un script inline mínimo agrega solo
+ * lo que <details> no trae: cerrar al hacer clic afuera y con Escape.
+ *
+ * El breakpoint del nav completo es `lg`, no `md`: con 4 links + "Ingresar" +
+ * CTA, a 768px se apretaba y los targets quedaban por debajo del mínimo
+ * cómodo de toque.
+ */
+import { ROLES } from '../data/roles';
+
 const { pathname } = Astro.url;
 
+// URL de la app (login). En build se sobreescribe con PUBLIC_APP_WEB_URL.
+const appWebUrl = import.meta.env.PUBLIC_APP_WEB_URL ?? 'http://localhost:4200';
+
 const links = [
-  { href: '/', label: 'Inicio' },
+  { href: '/como-funciona', label: 'Cómo funciona' },
   { href: '/precios', label: 'Precios' },
+  { href: '/ayuda', label: 'Ayuda' },
 ];
 
 function esActivo(href: string): boolean {
@@ -14,6 +29,8 @@ function esActivo(href: string): boolean {
 
   return pathname.startsWith(href);
 }
+
+const rolActivo = ROLES.some((r) => esActivo(r.href));
 ---
 
 <header
@@ -23,10 +40,11 @@ function esActivo(href: string): boolean {
   <nav
     class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-8"
     aria-label="Principal"
+    data-nav
   >
     <a
       href="/"
-      class="flex items-center gap-2.5 text-slate-900 dark:text-white"
+      class="flex flex-none items-center gap-2.5 text-slate-900 dark:text-white"
       aria-label="Proyecto Dorado — inicio"
     >
       <span
@@ -37,7 +55,71 @@ function esActivo(href: string): boolean {
       <span class="text-base font-bold tracking-tight">Proyecto Dorado</span>
     </a>
 
-    <div class="hidden items-center gap-1 md:flex">
+    <!-- ===== Links de escritorio ===== -->
+    <div class="hidden items-center gap-1 lg:flex">
+      <!-- Menú por rol: la puerta de entrada de "esto es lo mío". -->
+      <details class="group relative" data-menu>
+        <summary
+          class:list={[
+            `flex cursor-pointer list-none items-center gap-1 rounded-lg px-3 py-2
+             text-sm font-medium transition-colors [&::-webkit-details-marker]:hidden`,
+            rolActivo
+              ? 'text-marca-700 dark:text-marca-300'
+              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white',
+          ]}
+        >
+          Para vos
+          <svg
+            class="transition-transform duration-200 group-open:rotate-180"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 9l6 6 6-6"></path>
+          </svg>
+        </summary>
+
+        <div
+          class="absolute left-0 top-11 w-72 origin-top-left animate-slide-up
+            rounded-2xl border border-slate-200 bg-white p-2 shadow-xl
+            dark:border-slate-800 dark:bg-slate-900"
+        >
+          {
+            ROLES.map((rol) => (
+              <a
+                href={rol.href}
+                class="flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
+                aria-current={esActivo(rol.href) ? 'page' : undefined}
+              >
+                <span
+                  class:list={[
+                    'grid h-9 w-9 flex-none place-items-center rounded-lg text-base',
+                    rol.acento.icono,
+                  ]}
+                  aria-hidden="true"
+                >
+                  {rol.emoji}
+                </span>
+                <span>
+                  <span class="block text-sm font-semibold text-slate-900 dark:text-white">
+                    {rol.titulo}
+                  </span>
+                  <span class="mt-0.5 block text-xs leading-snug text-slate-500 dark:text-slate-400">
+                    {rol.gancho}
+                  </span>
+                </span>
+              </a>
+            ))
+          }
+        </div>
+      </details>
+
       {
         links.map((l) => (
           <a
@@ -56,12 +138,20 @@ function esActivo(href: string): boolean {
       }
     </div>
 
-    <div class="hidden items-center gap-2 md:flex">
+    <div class="hidden flex-none items-center gap-1 lg:flex">
+      <a
+        href={`${appWebUrl}/login`}
+        class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-700
+          transition-colors hover:text-marca-700 dark:text-slate-200
+          dark:hover:text-marca-300"
+      >
+        Ingresar
+      </a>
       <a href="/registro" class="btn-primario px-4 py-2">Crear cuenta</a>
     </div>
 
-    <!-- Menú móvil: <details> nativo, sin JavaScript. -->
-    <details class="group relative md:hidden">
+    <!-- ===== Menú móvil ===== -->
+    <details class="group relative lg:hidden" data-menu>
       <summary
         class="flex h-10 w-10 cursor-pointer list-none items-center justify-center
           rounded-lg text-slate-700 hover:bg-slate-100 dark:text-slate-200
@@ -69,6 +159,7 @@ function esActivo(href: string): boolean {
         aria-label="Abrir menú"
       >
         <svg
+          class="group-open:hidden"
           width="22"
           height="22"
           viewBox="0 0 24 24"
@@ -82,23 +173,75 @@ function esActivo(href: string): boolean {
           <line x1="4" y1="12" x2="20" y2="12"></line>
           <line x1="4" y1="17" x2="20" y2="17"></line>
         </svg>
+        <svg
+          class="hidden group-open:block"
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M18 6L6 18M6 6l12 12"></path>
+        </svg>
       </summary>
+
       <div
-        class="absolute right-0 top-12 w-52 origin-top-right rounded-2xl border
-          border-slate-200 bg-white p-2 shadow-xl dark:border-slate-800
-          dark:bg-slate-900"
+        class="absolute right-0 top-12 max-h-[calc(100vh-6rem)] w-72 origin-top-right
+          animate-slide-up overflow-y-auto rounded-2xl border border-slate-200
+          bg-white p-2 shadow-xl dark:border-slate-800 dark:bg-slate-900"
       >
+        <p
+          class="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400"
+        >
+          Para vos
+        </p>
+        {
+          ROLES.map((rol) => (
+            <a
+              href={rol.href}
+              class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+              aria-current={esActivo(rol.href) ? 'page' : undefined}
+            >
+              <span
+                class:list={[
+                  'grid h-7 w-7 flex-none place-items-center rounded-md text-sm',
+                  rol.acento.icono,
+                ]}
+                aria-hidden="true"
+              >
+                {rol.emoji}
+              </span>
+              {rol.titulo}
+            </a>
+          ))
+        }
+
+        <hr class="my-2 border-slate-200 dark:border-slate-800" />
+
         {
           links.map((l) => (
             <a
               href={l.href}
-              class="block rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700
-                hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+              class="block rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+              aria-current={esActivo(l.href) ? 'page' : undefined}
             >
               {l.label}
             </a>
           ))
         }
+
+        <hr class="my-2 border-slate-200 dark:border-slate-800" />
+
+        <a
+          href={`${appWebUrl}/login`}
+          class="block rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700
+            hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          Ingresar
+        </a>
         <a
           href="/registro"
           class="mt-1 block rounded-lg bg-marca-600 px-3 py-2.5 text-center text-sm
@@ -110,3 +253,48 @@ function esActivo(href: string): boolean {
     </details>
   </nav>
 </header>
+
+<script>
+  // Lo único que <details> no da gratis: cerrar al clickear afuera y con Escape.
+  // Progressive enhancement puro — sin este script los menús siguen abriendo y
+  // cerrando con su propio <summary>.
+  const menus = document.querySelectorAll<HTMLDetailsElement>('[data-menu]');
+
+  function cerrarTodos(excepto?: HTMLDetailsElement): void {
+    for (const menu of menus) {
+      if (menu !== excepto) {
+        menu.open = false;
+      }
+    }
+  }
+
+  for (const menu of menus) {
+    menu.addEventListener('toggle', () => {
+      if (menu.open) {
+        cerrarTodos(menu);
+      }
+    });
+  }
+
+  document.addEventListener('click', (evento) => {
+    const destino = evento.target as Node;
+    const dentro = Array.from(menus).some((menu) => menu.contains(destino));
+
+    if (!dentro) {
+      cerrarTodos();
+    }
+  });
+
+  document.addEventListener('keydown', (evento) => {
+    if (evento.key !== 'Escape') {
+      return;
+    }
+
+    const abierto = Array.from(menus).find((menu) => menu.open);
+
+    if (abierto) {
+      cerrarTodos();
+      abierto.querySelector('summary')?.focus();
+    }
+  });
+</script>

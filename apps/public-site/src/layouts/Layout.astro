@@ -53,8 +53,19 @@ const fullTitle = title === 'Proyecto Dorado' ? title : `${title} · Proyecto Do
     <meta name="twitter:image" content={ogImage} />
   </head>
   <body class="flex min-h-screen flex-col">
+    <!-- Salto al contenido: primer tabulable de la página. Invisible hasta que
+         recibe foco (WCAG 2.4.1) — con el nav de rol el header pasó a tener
+         bastantes links, y tabularlos todos en cada página es hostil. -->
+    <a
+      href="#contenido"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4
+        focus:z-[100] focus:rounded-lg focus:bg-marca-600 focus:px-4 focus:py-2
+        focus:text-sm focus:font-semibold focus:text-white"
+    >
+      Saltar al contenido
+    </a>
     <Nav />
-    <main class="flex-1">
+    <main id="contenido" class="flex-1">
       <slot />
     </main>
     <Footer />
