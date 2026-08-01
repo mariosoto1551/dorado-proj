@@ -47,6 +47,105 @@ enum ModoRecompensas {
   TIENDA
 }
 
+/** De dónde sale lo que se compra (fase-14-22 decisión 18). */
+enum FuenteProducto {
+  ITEM  // un ítem puntual del catálogo
+  BOLSA // una bolsa que arma el Tutor — siempre explícita (decisión 19)
+}
+
+/** Cómo se obtiene (decisión 18). Se ignora cuando la fuente es ITEM. */
+enum MecanicaProducto {
+  AZAR
+  ELECCION // el participante elige en el momento de comprar (decisión 15)
+}
+
+/**
+ * Bolsa de premios para los productos de fuente BOLSA. SIEMPRE de premios
+ * (decisión 20): los castigos no usan bolsa, así que no hace falta tiparla —
+ * un ítem CASTIGO adentro es un 400, y por construcción ningún castigo puede
+ * volverse comprable.
+ */
+model BolsaPremios {
+  id             String         @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  nombre         String
+  estado         EstadoCatalogo @default(ACTIVA)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  items          ItemBolsa[]
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+model ItemBolsa {
+  id           String       @id @default(uuid())
+  bolsaId      String
+  bolsa        BolsaPremios @relation(fields: [bolsaId], references: [id], onDelete: Cascade)
+  recompensaId String
+
+  @@unique([bolsaId, recompensaId])
+  @@index([bolsaId])
+}
+
+/**
+ * Un producto de la tienda. Los DOS EJES (decisión 18) son el punto del ítem:
+ * al azar y a elección son propiedades del PRODUCTO, nunca del premio. El
+ * mismo ítem puede estar en un producto directo caro y en una bolsa sorteada
+ * barata, sin un solo flag encima.
+ */
+model ProductoTienda {
+  id             String           @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  nombre         String
+  descripcion    String?
+  imagenUrl      String?
+  precio         Int
+  fuente         FuenteProducto
+  mecanica       MecanicaProducto @default(AZAR)
+  // fuente = ITEM → recompensaId (debe ser un PREMIO); BOLSA → bolsaId.
+  recompensaId   String?
+  bolsaId        String?
+  estado         EstadoCatalogo   @default(ACTIVA)
+  creadoPorTutorId String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId, estado])
+}
+
+model Compra {
+  id             String @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  productoId     String
+  // Snapshots: el producto puede cambiar de precio o archivarse después.
+  nombreProductoSnapshot String
+  precioSnapshot         Int
+  // Cuenta la historia de la compra: «te salió» vs «lo elegiste».
+  obtenidoPorAzar        Boolean
+  // Qué ítem salió/eligió. Siempre resuelto al comprar (decisión 15).
+  recompensaId           String
+  nombreRecompensaSnapshot String
+  estado              EstadoCanje @default(PENDIENTE_ENTREGA)
+  entregadaPorTutorId String?
+  entregadaEn         DateTime?
+  // Reversión del Tutor. Campos explícitos en vez de un valor nuevo en
+  // EstadoCanje: ese enum lo comparte CanjeRecompensa (Fase 8) y no se toca.
+  revertidaEn         DateTime?
+  revertidaPorTutorId String?
+  motivoReversion     String?
+  createdAt           DateTime    @default(now())
+
+  @@index([organizacionId])
+  @@index([grupoId, estado])
+  @@index([usuarioId, createdAt])
+}
+
 /**
  * Cuántas monedas rinde cada zona al cerrar la Sección (fase-14-22 decisiones
  * 4 y 11). Vive acá y NO en `UmbralZona` a propósito: scoring es un motor de

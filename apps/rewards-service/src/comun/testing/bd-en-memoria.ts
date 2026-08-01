@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
 import type {
+  BolsaPremios,
   CanjeRecompensa,
   CastigoAsignado,
+  Compra,
   ConfiguracionRecompensasGrupo,
   EventoMoneda,
+  ItemBolsa,
+  ProductoTienda,
   Recompensa,
   RendimientoZona,
 } from '../../generated/prisma/client';
@@ -25,7 +29,15 @@ interface Where {
 }
 
 function matchea(fila: Fila, where: Where): boolean {
-  return Object.entries(where).every(([campo, condicion]) => fila[campo] === condicion);
+  return Object.entries(where).every(([campo, condicion]) => {
+    // Soporte mínimo de `{ in: [...] }` (fase-14-22: bolsas y productos filtran
+    // por lista de ids). El resto sigue siendo igualdad estricta.
+    if (condicion && typeof condicion === 'object' && 'in' in condicion) {
+      return (condicion as { in: unknown[] }).in.includes(fila[campo]);
+    }
+
+    return fila[campo] === condicion;
+  });
 }
 
 function errorP2002(): Error {
@@ -231,6 +243,63 @@ function crearDelegadoPorClave<T extends Fila>(
   };
 }
 
+/**
+ * Delegado de `BolsaPremios`: como el service la lee siempre con
+ * `include: { items: true }`, el fake tiene que resolver esa relación contra
+ * el array de ItemBolsa.
+ */
+function crearDelegadoBolsas(bolsas: BolsaPremios[], items: ItemBolsa[]) {
+  const conItems = (bolsa: BolsaPremios) => ({
+    ...bolsa,
+    items: items.filter((item) => item.bolsaId === bolsa.id),
+  });
+
+  return {
+    findFirst: async (args: { where: Where }) => {
+      const bolsa = bolsas.find((fila) => matchea(fila, args.where));
+
+      return bolsa ? conItems(bolsa) : null;
+    },
+    findMany: async (args: { where?: Where } = {}) =>
+      bolsas
+        .filter((fila) => (args.where ? matchea(fila, args.where) : true))
+        .map(conItems),
+    create: async (args: {
+      data: Partial<BolsaPremios> & { items?: { create: { recompensaId: string }[] } };
+    }) => {
+      const { items: relacion, ...datos } = args.data;
+      const bolsa = {
+        id: randomUUID(),
+        estado: 'ACTIVA',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...datos,
+      } as BolsaPremios;
+
+      bolsas.push(bolsa);
+
+      for (const item of relacion?.create ?? []) {
+        items.push({
+          id: randomUUID(),
+          bolsaId: bolsa.id,
+          recompensaId: item.recompensaId,
+        } as ItemBolsa);
+      }
+
+      return conItems(bolsa);
+    },
+    updateMany: async (args: { where: Where; data: Partial<BolsaPremios> }) => {
+      const afectadas = bolsas.filter((fila) => matchea(fila, args.where));
+
+      for (const fila of afectadas) {
+        Object.assign(fila, args.data);
+      }
+
+      return { count: afectadas.length };
+    },
+  };
+}
+
 export interface BdEnMemoria {
   recompensas: Recompensa[];
   canjes: CanjeRecompensa[];
@@ -238,6 +307,10 @@ export interface BdEnMemoria {
   monedas: EventoMoneda[];
   rendimientos: RendimientoZona[];
   castigos: CastigoAsignado[];
+  bolsas: BolsaPremios[];
+  itemsBolsa: ItemBolsa[];
+  productos: ProductoTienda[];
+  compras: Compra[];
   procesados: FilaEventoProcesado[];
   prisma: PrismaService;
 }
@@ -249,6 +322,10 @@ export function crearBdEnMemoria(datos: {
   monedas?: EventoMoneda[];
   rendimientos?: RendimientoZona[];
   castigos?: CastigoAsignado[];
+  bolsas?: BolsaPremios[];
+  itemsBolsa?: ItemBolsa[];
+  productos?: ProductoTienda[];
+  compras?: Compra[];
 } = {}): BdEnMemoria {
   const recompensas: Recompensa[] = [...(datos.recompensas ?? [])];
   const canjes: CanjeRecompensa[] = [...(datos.canjes ?? [])];
@@ -258,6 +335,10 @@ export function crearBdEnMemoria(datos: {
   const monedas: EventoMoneda[] = [...(datos.monedas ?? [])];
   const rendimientos: RendimientoZona[] = [...(datos.rendimientos ?? [])];
   const castigos: CastigoAsignado[] = [...(datos.castigos ?? [])];
+  const bolsas: BolsaPremios[] = [...(datos.bolsas ?? [])];
+  const itemsBolsa: ItemBolsa[] = [...(datos.itemsBolsa ?? [])];
+  const productos: ProductoTienda[] = [...(datos.productos ?? [])];
+  const compras: Compra[] = [...(datos.compras ?? [])];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -285,6 +366,47 @@ export function crearBdEnMemoria(datos: {
         nueva['usuarioId'] === existente['usuarioId'] &&
         nueva['seccionId'] === existente['seccionId']
     ),
+    bolsaPremios: crearDelegadoBolsas(bolsas, itemsBolsa),
+    itemBolsa: {
+      findMany: async (args: { where?: Where } = {}) =>
+        itemsBolsa.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+      deleteMany: async (args: { where: Where }) => {
+        const sobreviven = itemsBolsa.filter((fila) => !matchea(fila, args.where));
+        const borradas = itemsBolsa.length - sobreviven.length;
+
+        itemsBolsa.splice(0, itemsBolsa.length, ...sobreviven);
+
+        return { count: borradas };
+      },
+      createMany: async (args: { data: Partial<ItemBolsa>[] }) => {
+        for (const fila of args.data) {
+          itemsBolsa.push({ id: randomUUID(), ...fila } as ItemBolsa);
+        }
+
+        return { count: args.data.length };
+      },
+    },
+    productoTienda: crearDelegado<ProductoTienda>(productos, () => ({
+      id: randomUUID(),
+      descripcion: null,
+      imagenUrl: null,
+      mecanica: 'AZAR',
+      recompensaId: null,
+      bolsaId: null,
+      estado: 'ACTIVA',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
+    compra: crearDelegado<Compra>(compras, () => ({
+      id: randomUUID(),
+      estado: 'PENDIENTE_ENTREGA',
+      entregadaPorTutorId: null,
+      entregadaEn: null,
+      revertidaEn: null,
+      revertidaPorTutorId: null,
+      motivoReversion: null,
+      createdAt: new Date(),
+    })),
     rendimientoZona: crearDelegadoPorClave<RendimientoZona>(
       rendimientos,
       'umbralZonaId',
@@ -346,8 +468,13 @@ export function crearBdEnMemoria(datos: {
   // Postgres, y este helper solo tiene que dejar pasar la forma de la llamada.
   const clienteConTransaccion = {
     ...client,
+    // El advisory lock de la compra. En memoria no hay concurrencia real que
+    // serializar, así que es un no-op. OJO: este fake NO puede validar el SQL
+    // —que la sentencia del lock sea correcta se verifica contra Postgres
+    // real (misma advertencia que dejó el ítem #16).
+    $executeRaw: async () => 0,
     $transaction: async <T>(fn: (tx: typeof client) => Promise<T>): Promise<T> =>
-      await fn(client),
+      await fn(clienteConTransaccion as unknown as typeof client),
   };
 
   return {
@@ -357,9 +484,36 @@ export function crearBdEnMemoria(datos: {
     monedas,
     rendimientos,
     castigos,
+    bolsas,
+    itemsBolsa,
+    productos,
+    compras,
     procesados,
     prisma: { client: clienteConTransaccion } as unknown as PrismaService,
   };
+}
+
+export function productoDePrueba(
+  sobrescribir: Partial<ProductoTienda> = {}
+): ProductoTienda {
+  return {
+    id: randomUUID(),
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    nombre: 'Producto',
+    descripcion: null,
+    imagenUrl: null,
+    precio: 10,
+    fuente: 'ITEM',
+    mecanica: 'AZAR',
+    recompensaId: null,
+    bolsaId: null,
+    estado: 'ACTIVA',
+    creadoPorTutorId: 'tutor-1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...sobrescribir,
+  } as ProductoTienda;
 }
 
 export function rendimientoDePrueba(

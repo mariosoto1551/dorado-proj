@@ -28,6 +28,12 @@ const MODELOS_TENANT = {
   EventoMoneda: { conGrupoId: true },
   RendimientoZona: { conGrupoId: true },
   CastigoAsignado: { conGrupoId: true },
+  BolsaPremios: { conGrupoId: true },
+  ProductoTienda: { conGrupoId: true },
+  Compra: { conGrupoId: true },
+  // ItemBolsa NO va: no lleva organizacionId/grupoId (cuelga de la bolsa por
+  // FK dentro de la misma base). Se accede siempre a través de su bolsa, que
+  // sí está filtrada.
 };
 
 export function crearClientePrisma(databaseUrl: string) {
@@ -40,6 +46,17 @@ export function crearClientePrisma(databaseUrl: string) {
 }
 
 export type ClientePrisma = ReturnType<typeof crearClientePrisma>;
+
+/**
+ * Cliente dentro de una transacción interactiva: es lo que Prisma le pasa al
+ * callback de `$transaction`. Se omiten exactamente los métodos de la
+ * `ITXClientDenyList` de Prisma — en particular **sigue teniendo**
+ * `$executeRaw`, que hace falta para el advisory lock de la compra.
+ */
+export type ClienteTransaccion = Omit<
+  ClientePrisma,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>;
 
 @Injectable()
 export class PrismaService implements OnModuleInit, OnModuleDestroy {

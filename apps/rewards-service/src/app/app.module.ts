@@ -14,6 +14,7 @@ import { EventosModule } from '../eventos/eventos.module';
 import { InternalModule } from '../internal/internal.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RecompensasModule } from '../recompensas/recompensas.module';
+import { TiendaModule } from '../tienda/tienda.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { RecompensasModule } from '../recompensas/recompensas.module';
     CierreModule,
     ConsumoModule,
     RecompensasModule,
+    TiendaModule,
     CanjesModule,
     InternalModule,
   ],

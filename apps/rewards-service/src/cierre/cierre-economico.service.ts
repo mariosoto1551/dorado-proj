@@ -5,7 +5,7 @@ import { TipoMovimientoMoneda } from '@dorado/shared-types';
 
 import { ScoringClientService } from '../clientes/scoring-client.service';
 import { elegirAlAzar } from '../comun/azar';
-import { PrismaService, type ClientePrisma } from '../prisma/prisma.service';
+import { PrismaService, type ClienteTransaccion } from '../prisma/prisma.service';
 
 /** Lo que hay que contar en `MonedasAcreditadas` cuando el cierre hizo algo. */
 export interface ResultadoCierre {
@@ -192,14 +192,6 @@ export class CierreEconomicoService {
   }
 }
 
-/**
- * Cliente dentro de una transacción: el cliente extendido sin los métodos de
- * nivel raíz (`$transaction`, `$connect`, …), que es exactamente lo que Prisma
- * pasa al callback. Se deriva del tipo real en vez de escribirlo a mano —
- * un subconjunto hecho a mano no es asignable a los delegados generados, que
- * usan genéricos `Exact<A, …>`.
- */
-type ClienteTransaccion = Omit<ClientePrisma, `$${string}`>;
 
 /** `true` si lo marcó ahora; `false` si ya estaba (P2002 = reentrega). */
 async function marcarEnTransaccion(

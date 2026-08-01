@@ -100,6 +100,78 @@ export interface RendimientoZonaDto {
   monedas: number | null;
 }
 
+/**
+ * Los DOS EJES del producto (fase-14-22 decisión 18): de dónde sale y cómo se
+ * obtiene. Al azar y a elección son propiedades del PRODUCTO, nunca del premio.
+ */
+export enum FuenteProducto {
+  ITEM = 'ITEM',
+  BOLSA = 'BOLSA',
+}
+
+export enum MecanicaProducto {
+  AZAR = 'AZAR',
+  ELECCION = 'ELECCION',
+}
+
+export interface BolsaPremiosDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  nombre: string;
+  estado: 'ACTIVA' | 'ARCHIVADA';
+  /** Ítems que contiene, siempre de tipo PREMIO (decisión 20). */
+  recompensaIds: string[];
+}
+
+export interface ProductoTiendaDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  nombre: string;
+  descripcion: string | null;
+  imagenUrl: string | null;
+  precio: number;
+  fuente: FuenteProducto;
+  /** Se ignora cuando la fuente es ITEM. */
+  mecanica: MecanicaProducto;
+  recompensaId: string | null;
+  bolsaId: string | null;
+  estado: 'ACTIVA' | 'ARCHIVADA';
+  /** Calculados contra el saldo de quien pregunta (0 si no le falta nada). */
+  puedeComprar: boolean;
+  faltan: number;
+}
+
+export interface CompraDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  usuarioId: string;
+  productoId: string;
+  nombreProductoSnapshot: string;
+  precioSnapshot: number;
+  obtenidoPorAzar: boolean;
+  recompensaId: string;
+  nombreRecompensaSnapshot: string;
+  estado: EstadoCanje;
+  entregadaPorTutorId: string | null;
+  entregadaEn: string | null;
+  revertidaEn: string | null;
+  motivoReversion: string | null;
+}
+
+/** Una fila de la lista única de pendientes de entrega del Tutor. */
+export interface PendienteEntregaDto {
+  id: string;
+  origen: 'COMPRA' | 'CASTIGO';
+  usuarioId: string;
+  nombreRecompensaSnapshot: string;
+  /** Precio pagado (compras) o deuda saldada (castigos). */
+  monto: number;
+  createdAt: string;
+}
+
 export interface CastigoAsignadoDto {
   id: string;
   organizacionId: string;
