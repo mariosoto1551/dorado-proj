@@ -95,6 +95,11 @@ export const appRoutes: Route[] = [
               import('./paginas/tutor/recompensas.page').then((m) => m.RecompensasPage),
           },
           {
+            path: 'entregas',
+            loadComponent: () =>
+              import('./paginas/tutor/entregas.page').then((m) => m.EntregasPage),
+          },
+          {
             path: 'invitaciones',
             loadComponent: () =>
               import('./paginas/tutor/invitaciones.page').then((m) => m.InvitacionesPage),

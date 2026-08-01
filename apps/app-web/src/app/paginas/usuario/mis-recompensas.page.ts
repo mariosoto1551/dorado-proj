@@ -12,10 +12,12 @@ import type { CanjeRecompensaDto, RecompensaDto } from '@dorado/shared-types';
 import { IconoComponent } from '../../componentes/icono.component';
 import { ToastService } from '../../componentes/toast.service';
 import type { ElegiblesResponse, MotivoSinElegibles } from '../../core/api/api.types';
+import { EconomiaService } from '../../core/api/economia.service';
 import { mensajeDeError } from '../../core/api/errores';
 import { RewardsApiService } from '../../core/api/rewards-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
 import { AuthService } from '../../core/auth/auth.service';
+import { MiTiendaComponent } from './mi-tienda.component';
 
 const MOTIVOS: Record<MotivoSinElegibles, string> = {
   SECCION_NO_EVALUADA: 'Las recompensas se habilitan cuando la semana termina y se evalúa. ⏳',
@@ -27,12 +29,20 @@ const MOTIVOS: Record<MotivoSinElegibles, string> = {
 @Component({
   selector: 'app-mis-recompensas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconoComponent],
+  imports: [IconoComponent, MiTiendaComponent],
   template: `
     <section class="mx-auto max-w-xl px-4 py-5">
-      <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white">Mis recompensas</h1>
+      <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+        {{ economia.usaTienda() ? 'Mi tienda' : 'Mis recompensas' }}
+      </h1>
 
-      @if (cargando()) {
+      @if (economia.usaTienda()) {
+        <!-- fase-14-22: el grupo usa moneda. El camino de abajo (premio directo
+             por zona, fase-08) sigue intacto para los grupos en modo DIRECTO. -->
+        <div class="mt-4">
+          <app-mi-tienda />
+        </div>
+      } @else if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (canje(); as c) {
         <!-- Ya canjeó -->
@@ -111,6 +121,9 @@ export class MisRecompensasPage {
 
   private readonly toasts = inject(ToastService);
 
+  /** Decide qué pantalla se muestra: premio directo (fase-08) o tienda. */
+  protected readonly economia = inject(EconomiaService);
+
   protected readonly MOTIVOS = MOTIVOS;
 
   protected readonly cargando = signal(true);
@@ -131,6 +144,9 @@ export class MisRecompensasPage {
     // Reacciona al grupo activo (fase-14, participante multi-grupo).
     effect(() => {
       this.auth.grupoUsuario();
+      // Al cambiar de grupo, el modo puede ser otro: se relee antes de decidir
+      // qué pantalla mostrar.
+      this.economia.cargar(true);
       this.cargar();
     });
   }

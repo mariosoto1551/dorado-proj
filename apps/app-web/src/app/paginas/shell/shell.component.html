@@ -37,6 +37,19 @@
           {{ auth.esOrgAdmin() ? 'Administrador' : 'Tutor' }}
         </span>
       }
+      @if (economia.usaTienda()) {
+        <!-- fase-14-22: el saldo vive en el encabezado de TODA la app, no solo
+             en la tienda. Verlo mientras confirma tareas es lo que conecta
+             «hice esto» con «me falta para aquello». -->
+        <a
+          routerLink="/mis-recompensas"
+          class="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:hover:bg-amber-500/25"
+          [title]="economia.saldo() + ' ' + economia.nombreMoneda()"
+        >
+          <span>{{ economia.iconoMoneda() }}</span>
+          <span>{{ economia.saldo() }}</span>
+        </a>
+      }
       <app-campana-notificaciones />
       <div class="hidden items-center gap-2 sm:flex">
         <span class="max-w-40 truncate text-sm font-medium text-slate-700 dark:text-slate-200">

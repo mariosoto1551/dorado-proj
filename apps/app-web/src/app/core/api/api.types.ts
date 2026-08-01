@@ -141,12 +141,58 @@ export interface CorregirEventoPuntosRequest {
 
 // ---- Rewards ----
 export interface CrearRecompensaRequest {
-  umbralZonaId: string;
+  /** fase-14-22: obligatorio solo en modo DIRECTO. */
+  umbralZonaId?: string;
+  tipo?: 'PREMIO' | 'CASTIGO';
   nombre: string;
   descripcion?: string | null;
   imagenUrl?: string | null;
   permiteSeleccion?: boolean;
   permiteAzar?: boolean;
+}
+
+// ---- Rewards · tienda de monedas (fase-14-22) ----
+export interface CambiarModoRecompensasRequest {
+  modo: 'DIRECTO' | 'TIENDA';
+  aplicarAhora?: boolean;
+  nombreMoneda?: string;
+  iconoMoneda?: string;
+}
+
+export interface ConfigurarRendimientosRequest {
+  rendimientos: { umbralZonaId: string; monedas: number }[];
+}
+
+export interface GuardarBolsaRequest {
+  nombre: string;
+  recompensaIds: string[];
+}
+
+export interface CrearProductoRequest {
+  nombre: string;
+  descripcion?: string | null;
+  precio: number;
+  fuente: 'ITEM' | 'BOLSA';
+  mecanica?: 'AZAR' | 'ELECCION';
+  recompensaId?: string | null;
+  bolsaId?: string | null;
+}
+
+export type EditarProductoRequest = Partial<CrearProductoRequest>;
+
+export interface ComprarRequest {
+  productoId: string;
+  recompensaId?: string;
+  usuarioId?: string;
+}
+
+export interface AjustarMonedasRequest {
+  monto: number;
+  motivo: string;
+}
+
+export interface AnularCastigoRequest {
+  motivo: string;
 }
 
 export type EditarRecompensaRequest = Partial<CrearRecompensaRequest>;

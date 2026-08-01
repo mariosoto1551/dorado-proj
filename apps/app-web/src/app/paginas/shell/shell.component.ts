@@ -13,6 +13,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } fro
 import { filter, map, startWith } from 'rxjs';
 
 import { IconoComponent, type NombreIcono } from '../../componentes/icono.component';
+import { EconomiaService } from '../../core/api/economia.service';
 import { NotificationApiService } from '../../core/api/notification-api.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { GuiaSetupService } from '../../core/guia/guia-setup.service';
@@ -59,6 +60,9 @@ export class ShellComponent implements OnInit, OnDestroy {
   private readonly notif = inject(NotificationApiService);
 
   protected readonly guia = inject(GuiaSetupService);
+
+  /** fase-14-22: el chip de saldo del participante (solo si el grupo usa tienda). */
+  protected readonly economia = inject(EconomiaService);
 
   private readonly router = inject(Router);
 
@@ -110,6 +114,7 @@ export class ShellComponent implements OnInit, OnDestroy {
           { ruta: `${base}/actividades`, etiqueta: 'Actividades', icono: 'check' },
           { ruta: `${base}/conductas`, etiqueta: 'Conductas', icono: 'flag' },
           { ruta: `${base}/recompensas`, etiqueta: 'Recompensas', icono: 'gift' },
+          { ruta: `${base}/entregas`, etiqueta: 'Entregas', icono: 'check' },
           { ruta: `${base}/configuracion-sesion`, etiqueta: 'Configuración', icono: 'cog' },
         ],
       },
@@ -167,6 +172,11 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // El chip de saldo del encabezado; para un tutor no hace ninguna llamada.
+    if (!this.auth.esTutor()) {
+      this.economia.cargar();
+    }
+
     this.notif.iniciarPolling();
   }
 

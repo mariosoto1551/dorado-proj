@@ -60,8 +60,13 @@ export class TiendaController {
     return await this.bolsas.crear(tenant, grupoId, datos);
   }
 
+  /**
+   * También la lee el participante: con `mecanica = ELECCION` tiene que ver
+   * qué hay en la bolsa antes de elegir. `asegurarAccesoLectura` ya acota al
+   * grupo y no hay nada sensible en un conjunto de premios.
+   */
   @Get('grupos/:grupoId/bolsas')
-  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  @Roles(Rol.USUARIO, Rol.TUTOR, Rol.ORG_ADMIN)
   async listarBolsas(
     @CurrentTenant() tenant: TenantContext,
     @Param('grupoId') grupoId: string
