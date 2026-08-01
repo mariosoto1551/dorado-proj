@@ -37,6 +37,54 @@ enum ModoRecompensas {
   TIENDA
 }
 
+// fase-14-22: tipos de movimiento del ledger de monedas.
+enum TipoMovimientoMoneda {
+  // Acreditación al cerrar la Sección (monto >= 0).
+  RENDIMIENTO_ZONA
+  // Rendimiento negativo de la zona (monto < 0) — dispara la bancarrota.
+  MULTA_ZONA
+  // Lleva el saldo negativo de vuelta a 0 tras el castigo (decisión 5).
+  SALDO_SALDADO
+  // Compra en la tienda (monto < 0).
+  COMPRA
+  // Manual del Tutor, con motivo obligatorio.
+  AJUSTE_TUTOR
+  // Compensación de una compra revertida.
+  REVERSION
+}
+
+/**
+ * LEDGER DE MONEDAS (fase-14-22 decisión 3, regla 1 de CLAUDE.md aplicada a la
+ * economía). NUNCA UPDATE ni DELETE: el saldo es SUM(monto) al leer, no una
+ * columna. Las correcciones son filas nuevas.
+ *
+ * Es el mismo criterio que `EventoPuntos` en scoring — y por el mismo motivo:
+ * un saldo materializado se desincroniza y no se puede auditar. SIN updatedAt.
+ */
+model EventoMoneda {
+  id             String               @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  tipo           TipoMovimientoMoneda
+  // Con signo ya aplicado (positivo acredita, negativo debita). Int (regla 5).
+  monto          Int
+  // Sección que originó el movimiento; null en compras y ajustes sueltos.
+  seccionId      String?
+  // id de la Compra / RendimientoZona / EventoMoneda revertido, según el tipo.
+  origenId       String?
+  motivo         String?
+  registradoPorId String
+  // 'TUTOR' | 'USUARIO' | 'SYSTEM'
+  registradoPorTipo String
+  createdAt      DateTime             @default(now())
+  // SIN updatedAt: este modelo nunca se edita, solo se agregan filas nuevas.
+
+  @@index([organizacionId])
+  @@index([grupoId, usuarioId])
+  @@index([usuarioId, createdAt])
+}
+
 /**
  * Config de recompensas por Grupo (fase-14-22). Mutable: es config, no ledger.
  * `modoPendiente` implementa la decisión 9 — el Tutor elige si el cambio de

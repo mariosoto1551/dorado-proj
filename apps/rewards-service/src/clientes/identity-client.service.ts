@@ -34,6 +34,19 @@ export class IdentityClientService {
   }
 
   /** Usuario por id, o `null` si identity responde 404. */
+  /**
+   * Participantes del Grupo (fase-14-22): la pantalla de billeteras del Tutor
+   * tiene que mostrar TAMBIÉN a quien todavía no tiene ningún movimiento — el
+   * ledger solo conoce a los que ya cobraron o gastaron.
+   */
+  async usuariosDelGrupo(grupoId: string): Promise<UsuarioDto[]> {
+    const usuarios = await this.obtener<UsuarioDto[]>(
+      `/internal/identity/grupos/${grupoId}/usuarios`
+    );
+
+    return usuarios ?? [];
+  }
+
   async obtenerUsuario(usuarioId: string): Promise<UsuarioDto | null> {
     return await this.obtener<UsuarioDto>(`/internal/identity/usuarios/${usuarioId}`);
   }

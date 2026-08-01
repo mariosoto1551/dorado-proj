@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   CanjeRecompensa,
   ConfiguracionRecompensasGrupo,
+  EventoMoneda,
   Recompensa,
 } from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -125,10 +126,79 @@ function crearDelegadoPorGrupo<T extends Fila>(filas: T[], defaults: () => Parti
   };
 }
 
+/**
+ * Delegado del LEDGER de monedas (fase-14-22). Solo `create`, `findMany`,
+ * `count`, `aggregate` y `groupBy`: no expone `update` ni `delete` **a
+ * propósito** — si un test los necesitara, el bug estaría en el código bajo
+ * test, no acá (regla 1: el ledger solo crece).
+ */
+function crearDelegadoLedger<T extends Fila>(filas: T[], defaults: () => Partial<T>) {
+  const filtrar = (where?: Where) =>
+    filas.filter((fila) => (where ? matchea(fila, where) : true));
+
+  const ordenar = (encontradas: T[], orderBy?: { createdAt?: 'asc' | 'desc' }) => {
+    if (orderBy?.createdAt !== 'desc') {
+      return encontradas;
+    }
+
+    return [...encontradas].reverse();
+  };
+
+  return {
+    create: async (args: { data: Partial<T>; select?: Record<string, boolean> }) => {
+      const fila = { ...defaults(), ...args.data } as T;
+
+      filas.push(fila);
+
+      return fila;
+    },
+    findMany: async (
+      args: {
+        where?: Where;
+        orderBy?: { createdAt?: 'asc' | 'desc' };
+        skip?: number;
+        take?: number;
+      } = {}
+    ) => {
+      const encontradas = ordenar(filtrar(args.where), args.orderBy);
+      const desde = args.skip ?? 0;
+
+      return args.take === undefined
+        ? encontradas.slice(desde)
+        : encontradas.slice(desde, desde + args.take);
+    },
+    count: async (args: { where?: Where } = {}) => filtrar(args.where).length,
+    aggregate: async (args: { where?: Where; _sum?: { monto?: boolean } }) => ({
+      _sum: {
+        monto: filtrar(args.where).reduce(
+          (total, fila) => total + ((fila['monto'] as number) ?? 0),
+          0
+        ),
+      },
+    }),
+    groupBy: async (args: { by: string[]; where?: Where; _sum?: { monto?: boolean } }) => {
+      const campo = args.by[0];
+      const porClave = new Map<unknown, number>();
+
+      for (const fila of filtrar(args.where)) {
+        const clave = fila[campo];
+
+        porClave.set(clave, (porClave.get(clave) ?? 0) + ((fila['monto'] as number) ?? 0));
+      }
+
+      return [...porClave.entries()].map(([clave, monto]) => ({
+        [campo]: clave,
+        _sum: { monto },
+      }));
+    },
+  };
+}
+
 export interface BdEnMemoria {
   recompensas: Recompensa[];
   canjes: CanjeRecompensa[];
   configuraciones: ConfiguracionRecompensasGrupo[];
+  monedas: EventoMoneda[];
   procesados: FilaEventoProcesado[];
   prisma: PrismaService;
 }
@@ -137,12 +207,14 @@ export function crearBdEnMemoria(datos: {
   recompensas?: Recompensa[];
   canjes?: CanjeRecompensa[];
   configuraciones?: ConfiguracionRecompensasGrupo[];
+  monedas?: EventoMoneda[];
 } = {}): BdEnMemoria {
   const recompensas: Recompensa[] = [...(datos.recompensas ?? [])];
   const canjes: CanjeRecompensa[] = [...(datos.canjes ?? [])];
   const configuraciones: ConfiguracionRecompensasGrupo[] = [
     ...(datos.configuraciones ?? []),
   ];
+  const monedas: EventoMoneda[] = [...(datos.monedas ?? [])];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -170,6 +242,13 @@ export function crearBdEnMemoria(datos: {
         nueva['usuarioId'] === existente['usuarioId'] &&
         nueva['seccionId'] === existente['seccionId']
     ),
+    eventoMoneda: crearDelegadoLedger<EventoMoneda>(monedas, () => ({
+      id: randomUUID(),
+      seccionId: null,
+      origenId: null,
+      motivo: null,
+      createdAt: new Date(),
+    })),
     configuracionRecompensasGrupo: crearDelegadoPorGrupo<ConfiguracionRecompensasGrupo>(
       configuraciones,
       () => ({
@@ -201,9 +280,30 @@ export function crearBdEnMemoria(datos: {
     recompensas,
     canjes,
     configuraciones,
+    monedas,
     procesados,
     prisma: { client } as unknown as PrismaService,
   };
+}
+
+export function movimientoDePrueba(
+  sobrescribir: Partial<EventoMoneda> = {}
+): EventoMoneda {
+  return {
+    id: randomUUID(),
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    usuarioId: 'usuario-1',
+    tipo: 'RENDIMIENTO_ZONA',
+    monto: 10,
+    seccionId: null,
+    origenId: null,
+    motivo: null,
+    registradoPorId: 'SYSTEM',
+    registradoPorTipo: 'SYSTEM',
+    createdAt: new Date(),
+    ...sobrescribir,
+  } as EventoMoneda;
 }
 
 export function configuracionDePrueba(

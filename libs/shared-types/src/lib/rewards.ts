@@ -27,6 +27,45 @@ export interface ConfiguracionRecompensasGrupoDto {
   iconoMoneda: string;
 }
 
+/** Movimientos del ledger de monedas (fase-14-22 decisión 3). */
+export enum TipoMovimientoMoneda {
+  RENDIMIENTO_ZONA = 'RENDIMIENTO_ZONA',
+  MULTA_ZONA = 'MULTA_ZONA',
+  SALDO_SALDADO = 'SALDO_SALDADO',
+  COMPRA = 'COMPRA',
+  AJUSTE_TUTOR = 'AJUSTE_TUTOR',
+  REVERSION = 'REVERSION',
+}
+
+export interface MovimientoMonedaDto {
+  id: string;
+  tipo: TipoMovimientoMoneda;
+  /** Con signo: positivo acredita, negativo debita. */
+  monto: number;
+  seccionId: string | null;
+  motivo: string | null;
+  registradoPorId: string;
+  registradoPorTipo: string;
+  createdAt: string;
+}
+
+/**
+ * Saldo SIEMPRE derivado de la suma del ledger, nunca una columna (regla 1).
+ */
+export interface BilleteraDto {
+  usuarioId: string;
+  grupoId: string;
+  saldo: number;
+  nombreMoneda: string;
+  iconoMoneda: string;
+}
+
+export interface MiBilleteraResponse extends BilleteraDto {
+  movimientos: MovimientoMonedaDto[];
+  /** Total de movimientos del participante, para paginar. */
+  total: number;
+}
+
 export interface RecompensaDto {
   id: string;
   organizacionId: string;

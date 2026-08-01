@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { SharedLoggingModule } from '@dorado/shared-logging';
 
+import { BilleteraModule } from '../billetera/billetera.module';
 import { CanjesModule } from '../canjes/canjes.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { validarEnv } from '../config/env.schema';
@@ -27,6 +28,7 @@ import { RecompensasModule } from '../recompensas/recompensas.module';
     EventosModule,
     ClientesModule,
     ConfiguracionModule,
+    BilleteraModule,
     ConsumoModule,
     RecompensasModule,
     CanjesModule,
