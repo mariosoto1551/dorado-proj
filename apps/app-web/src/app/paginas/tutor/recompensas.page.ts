@@ -264,7 +264,10 @@ export class RecompensasPage {
   protected abrirEditar(r: RecompensaDto): void {
     this.editando.set(r);
     this.form = {
-      umbralZonaId: r.umbralZonaId,
+      // fase-14-22: la zona es null en los ítems de un grupo en modo TIENDA.
+      // '' es el centinela de "sin zona elegida" del form, y la validación de
+      // guardar ya lo rechaza — esta pantalla es la del modo DIRECTO.
+      umbralZonaId: r.umbralZonaId ?? '',
       nombre: r.nombre,
       descripcion: r.descripcion ?? '',
       permiteSeleccion: r.permiteSeleccion,

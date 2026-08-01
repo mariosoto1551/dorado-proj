@@ -35,6 +35,24 @@ export class InternalController {
     return umbralADto(umbral);
   }
 
+  /**
+   * Zonas de un Grupo, ordenadas de la más baja a la más alta.
+   *
+   * Agregado en fase-14-22 (no estaba previsto en la spec de Fase 7): la
+   * pantalla de rendimiento por zona de rewards tiene que listar TODAS las
+   * zonas del grupo, incluidas las que todavía no tienen monedas configuradas.
+   * Sin esto, rewards solo conoce las zonas que alguien ya referenció.
+   */
+  @Get('grupos/:grupoId/umbrales')
+  async umbralesDelGrupo(@Param('grupoId') grupoId: string): Promise<UmbralZonaDto[]> {
+    const umbrales = await this.prisma.client.umbralZona.findMany({
+      where: { grupoId },
+      orderBy: { orden: 'asc' },
+    });
+
+    return umbrales.map(umbralADto);
+  }
+
   @Get('usuarios/:usuarioId/secciones/:seccionId/resultado')
   async resultado(
     @Param('usuarioId') usuarioId: string,

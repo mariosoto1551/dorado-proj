@@ -259,6 +259,39 @@ export interface RecompensaCanjeadaPayload {
   grupoId: string;
 }
 
+/**
+ * fase-14-22: el cierre económico de la Sección. UN solo evento cubre las dos
+ * notificaciones ("cobraste 12 Doradas" y "te tocó un castigo") porque son el
+ * mismo hecho.
+ */
+export interface MonedasAcreditadasPayload {
+  usuarioId: string;
+  organizacionId: string;
+  grupoId: string;
+  seccionId: string;
+  nombreZona: string;
+  /** Lo que rindió la zona, con signo. */
+  monedas: number;
+  saldoResultante: number;
+  /** No null solo si la bancarrota disparó un castigo (decisión 5). */
+  castigo: { recompensaId: string; nombre: string } | null;
+}
+
+/** fase-14-22: una compra en la tienda. */
+export interface CompraRealizadaPayload {
+  compraId: string;
+  usuarioId: string;
+  organizacionId: string;
+  grupoId: string;
+  productoId: string;
+  nombreProducto: string;
+  precio: number;
+  /** Cuenta la historia: "te salió" vs "lo elegiste". */
+  obtenidoPorAzar: boolean;
+  recompensaId: string;
+  nombreRecompensa: string;
+}
+
 export interface AccionAdministrativaRegistradaPayload {
   actorId: string;
   actorTipo: 'TUTOR' | 'USUARIO' | 'PLATFORM_ADMIN' | 'SYSTEM';

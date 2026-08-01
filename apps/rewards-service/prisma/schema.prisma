@@ -23,6 +23,16 @@ enum MecanicaRecompensa {
   AZAR
 }
 
+/**
+ * fase-14-22 decisión 7: el catálogo se tipa. Es ORTOGONAL al modo — en
+ * DIRECTO un CASTIGO colgado del umbral rojo se sortea con la mecánica que ya
+ * existe; en TIENDA los CASTIGO forman el pozo de la bancarrota (decisión 20).
+ */
+enum TipoItemCatalogo {
+  PREMIO
+  CASTIGO
+}
+
 enum EstadoCanje {
   PENDIENTE_ENTREGA
   ENTREGADA
@@ -35,6 +45,58 @@ enum ModoRecompensas {
   DIRECTO
   // fase-14-22: monedas por zona + tienda.
   TIENDA
+}
+
+/**
+ * Cuántas monedas rinde cada zona al cerrar la Sección (fase-14-22 decisiones
+ * 4 y 11). Vive acá y NO en `UmbralZona` a propósito: scoring es un motor de
+ * puntos y no tiene por qué saber que existe una economía. Referencia a
+ * scoring_db solo por ID, validada por REST interno (regla 2).
+ */
+model RendimientoZona {
+  id                 String   @id @default(uuid())
+  organizacionId     String
+  grupoId            String
+  umbralZonaId       String   @unique
+  nombreZonaSnapshot String
+  // Puede ser negativo: dispara la bancarrota de la decisión 5.
+  monedas            Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
+/**
+ * Castigo sorteado por la bancarrota (fase-14-22 decisión 5). No es una compra:
+ * no tiene precio y no se elige. Sale del pozo de ítems CASTIGO del Grupo
+ * (decisión 20), por eso no hay bolsaId.
+ */
+model CastigoAsignado {
+  id             String @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  seccionId      String
+  recompensaId   String
+  nombreRecompensaSnapshot String
+  // Cuánto saldo negativo saldó (positivo), para poder auditar el porqué.
+  deudaSaldada   Int
+  estado              EstadoCanje @default(PENDIENTE_ENTREGA)
+  entregadaPorTutorId String?
+  entregadaEn         DateTime?
+  // Anulación del Tutor (decisión 21). No toca el ledger: la deuda ya se saldó
+  // y el saldo sigue en 0 — lo único que cambia es que el castigo no se aplica.
+  anuladoEn         DateTime?
+  anuladoPorTutorId String?
+  motivoAnulacion   String?
+  createdAt         DateTime    @default(now())
+
+  // Un castigo por usuario por Sección: la bancarrota se evalúa una sola vez.
+  @@unique([usuarioId, seccionId])
+  @@index([organizacionId])
+  @@index([grupoId, estado])
 }
 
 // fase-14-22: tipos de movimiento del ledger de monedas.
@@ -110,10 +172,15 @@ model Recompensa {
   id             String @id @default(uuid())
   organizacionId String
   grupoId        String
-  // referencia a UmbralZona de scoring-service, solo ID, sin join
-  umbralZonaId String
+  // fase-14-22 decisión 7: PREMIO o CASTIGO. Default PREMIO = todo lo
+  // existente sigue siendo un premio, sin migración de datos.
+  tipo TipoItemCatalogo @default(PREMIO)
+  // referencia a UmbralZona de scoring-service, solo ID, sin join.
+  // fase-14-22 decisión 13: NULLABLE — obligatorio solo en modo DIRECTO; en
+  // TIENDA un ítem no está atado a ninguna zona.
+  umbralZonaId String?
   // copiado al crear/editar, para no depender de una llamada en cada lectura
-  nombreZonaSnapshot String
+  nombreZonaSnapshot String?
   nombre             String
   descripcion        String?
   // white-label (Pro): el backend solo guarda el dato; el gating visual es

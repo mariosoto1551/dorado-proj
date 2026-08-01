@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import type {
   CanjeRecompensa,
+  CastigoAsignado,
   ConfiguracionRecompensasGrupo,
   EventoMoneda,
   Recompensa,
+  RendimientoZona,
 } from '../../generated/prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -194,11 +196,48 @@ function crearDelegadoLedger<T extends Fila>(filas: T[], defaults: () => Partial
   };
 }
 
+/** Delegado con clave única sobre un campo arbitrario (ej. `umbralZonaId`). */
+function crearDelegadoPorClave<T extends Fila>(
+  filas: T[],
+  clave: string,
+  defaults: () => Partial<T>
+) {
+  const buscar = (valor: unknown) => filas.find((fila) => fila[clave] === valor);
+
+  return {
+    findFirst: async (args: { where: Where }) =>
+      filas.find((fila) => matchea(fila, args.where)) ?? null,
+    findMany: async (args: { where?: Where } = {}) =>
+      filas.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+    upsert: async (args: {
+      where: Record<string, unknown>;
+      create: Partial<T>;
+      update: Partial<T>;
+    }) => {
+      const existente = buscar(args.where[clave]);
+
+      if (existente) {
+        Object.assign(existente, args.update);
+
+        return existente;
+      }
+
+      const fila = { ...defaults(), ...args.create } as T;
+
+      filas.push(fila);
+
+      return fila;
+    },
+  };
+}
+
 export interface BdEnMemoria {
   recompensas: Recompensa[];
   canjes: CanjeRecompensa[];
   configuraciones: ConfiguracionRecompensasGrupo[];
   monedas: EventoMoneda[];
+  rendimientos: RendimientoZona[];
+  castigos: CastigoAsignado[];
   procesados: FilaEventoProcesado[];
   prisma: PrismaService;
 }
@@ -208,6 +247,8 @@ export function crearBdEnMemoria(datos: {
   canjes?: CanjeRecompensa[];
   configuraciones?: ConfiguracionRecompensasGrupo[];
   monedas?: EventoMoneda[];
+  rendimientos?: RendimientoZona[];
+  castigos?: CastigoAsignado[];
 } = {}): BdEnMemoria {
   const recompensas: Recompensa[] = [...(datos.recompensas ?? [])];
   const canjes: CanjeRecompensa[] = [...(datos.canjes ?? [])];
@@ -215,6 +256,8 @@ export function crearBdEnMemoria(datos: {
     ...(datos.configuraciones ?? []),
   ];
   const monedas: EventoMoneda[] = [...(datos.monedas ?? [])];
+  const rendimientos: RendimientoZona[] = [...(datos.rendimientos ?? [])];
+  const castigos: CastigoAsignado[] = [...(datos.castigos ?? [])];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -238,6 +281,28 @@ export function crearBdEnMemoria(datos: {
         createdAt: new Date(),
       }),
       // @@unique([usuarioId, seccionId]) — un canje por usuario por Sección.
+      (nueva, existente) =>
+        nueva['usuarioId'] === existente['usuarioId'] &&
+        nueva['seccionId'] === existente['seccionId']
+    ),
+    rendimientoZona: crearDelegadoPorClave<RendimientoZona>(
+      rendimientos,
+      'umbralZonaId',
+      () => ({ id: randomUUID(), createdAt: new Date(), updatedAt: new Date() })
+    ),
+    castigoAsignado: crearDelegado<CastigoAsignado>(
+      castigos,
+      () => ({
+        id: randomUUID(),
+        estado: 'PENDIENTE_ENTREGA',
+        entregadaPorTutorId: null,
+        entregadaEn: null,
+        anuladoEn: null,
+        anuladoPorTutorId: null,
+        motivoAnulacion: null,
+        createdAt: new Date(),
+      }),
+      // @@unique([usuarioId, seccionId]) — la bancarrota se evalúa una sola vez.
       (nueva, existente) =>
         nueva['usuarioId'] === existente['usuarioId'] &&
         nueva['seccionId'] === existente['seccionId']
@@ -276,14 +341,41 @@ export function crearBdEnMemoria(datos: {
     },
   };
 
+  // El cierre económico corre TODO dentro de una transacción. Acá alcanza con
+  // ejecutar el callback contra el mismo cliente: la atomicidad real la da
+  // Postgres, y este helper solo tiene que dejar pasar la forma de la llamada.
+  const clienteConTransaccion = {
+    ...client,
+    $transaction: async <T>(fn: (tx: typeof client) => Promise<T>): Promise<T> =>
+      await fn(client),
+  };
+
   return {
     recompensas,
     canjes,
     configuraciones,
     monedas,
+    rendimientos,
+    castigos,
     procesados,
-    prisma: { client } as unknown as PrismaService,
+    prisma: { client: clienteConTransaccion } as unknown as PrismaService,
   };
+}
+
+export function rendimientoDePrueba(
+  sobrescribir: Partial<RendimientoZona> = {}
+): RendimientoZona {
+  return {
+    id: randomUUID(),
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    umbralZonaId: 'umbral-verde',
+    nombreZonaSnapshot: 'Verde',
+    monedas: 12,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...sobrescribir,
+  } as RendimientoZona;
 }
 
 export function movimientoDePrueba(
@@ -328,6 +420,7 @@ export function recompensaDePrueba(sobrescribir: Partial<Recompensa> = {}): Reco
     id: randomUUID(),
     organizacionId: 'org-1',
     grupoId: 'grupo-1',
+    tipo: 'PREMIO',
     umbralZonaId: 'umbral-dorado',
     nombreZonaSnapshot: 'Dorado',
     nombre: 'Recompensa',

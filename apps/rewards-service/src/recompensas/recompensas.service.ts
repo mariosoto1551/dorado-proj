@@ -1,10 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { RecompensaDto, Rol, TenantContext } from '@dorado/shared-types';
+import {
+  ModoRecompensas,
+  RecompensaDto,
+  Rol,
+  TenantContext,
+} from '@dorado/shared-types';
 
 import { ScoringClientService } from '../clientes/scoring-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { recompensaADto } from '../comun/mapeadores';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Recompensa } from '../generated/prisma/client';
 import { EstadoCatalogo } from '../generated/prisma/enums';
@@ -16,10 +22,14 @@ import type {
 } from './dto/recompensas.dto';
 
 /**
- * Catálogo de recompensas por zona (spec fase-08). `umbralZonaId` referencia
- * a scoring SOLO por ID (regla 2 de CLAUDE.md): se valida por REST interno al
- * crear/editar y se copia `nombreZonaSnapshot` para no depender de una llamada
- * en cada lectura.
+ * Catálogo de ítems (spec fase-08, extendido por fase-14-22). `umbralZonaId`
+ * referencia a scoring SOLO por ID (regla 2 de CLAUDE.md): se valida por REST
+ * interno al crear/editar y se copia `nombreZonaSnapshot` para no depender de
+ * una llamada en cada lectura.
+ *
+ * fase-14-22 decisión 13: la zona es **obligatoria solo en modo DIRECTO**. En
+ * TIENDA un ítem no está atado a ninguna zona — el producto de la tienda
+ * decide cómo se obtiene, no el ítem.
  */
 @Injectable()
 export class RecompensasService {
@@ -27,7 +37,8 @@ export class RecompensasService {
     private readonly prisma: PrismaService,
     private readonly scoring: ScoringClientService,
     private readonly acceso: AccesoGrupoService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly configuracion: ConfiguracionService
   ) {}
 
   async crear(
@@ -37,15 +48,16 @@ export class RecompensasService {
   ): Promise<RecompensaDto> {
     await this.acceso.asegurarAccesoEscritura(tenant, grupoId);
 
-    const nombreZona = await this.validarUmbral(datos.umbralZonaId, grupoId);
+    const zona = await this.resolverZona(grupoId, datos.umbralZonaId);
 
     const recompensa = await this.prisma.client.recompensa.create({
       data: {
         // organizacionId SIEMPRE del JWT validado, nunca del cliente (regla 3).
         organizacionId: tenant.organizacionId,
         grupoId,
-        umbralZonaId: datos.umbralZonaId,
-        nombreZonaSnapshot: nombreZona,
+        tipo: datos.tipo ?? 'PREMIO',
+        umbralZonaId: zona.umbralZonaId,
+        nombreZonaSnapshot: zona.nombreZonaSnapshot,
         nombre: datos.nombre,
         descripcion: datos.descripcion ?? null,
         imagenUrl: datos.imagenUrl ?? null,
@@ -106,6 +118,7 @@ export class RecompensasService {
     await this.prisma.client.recompensa.updateMany({
       where: { id },
       data: {
+        ...(datos.tipo !== undefined && { tipo: datos.tipo }),
         ...(datos.umbralZonaId !== undefined && { umbralZonaId: datos.umbralZonaId }),
         nombreZonaSnapshot,
         ...(datos.nombre !== undefined && { nombre: datos.nombre }),
@@ -163,6 +176,34 @@ export class RecompensasService {
       entidadId: recompensa.id,
       detalle,
     });
+  }
+
+  /**
+   * fase-14-22 decisión 13. En `DIRECTO` la zona es obligatoria y se valida
+   * como siempre; en `TIENDA` se ignora aunque venga, porque ahí un ítem no
+   * pertenece a ninguna zona.
+   */
+  private async resolverZona(
+    grupoId: string,
+    umbralZonaId?: string
+  ): Promise<{ umbralZonaId: string | null; nombreZonaSnapshot: string | null }> {
+    const modo = await this.configuracion.obtenerModo(grupoId);
+
+    if (modo === ModoRecompensas.TIENDA) {
+      return { umbralZonaId: null, nombreZonaSnapshot: null };
+    }
+
+    if (!umbralZonaId) {
+      throw new BadRequestException({
+        message: 'umbralZonaId es obligatorio en el modo DIRECTO',
+        code: 'ZONA_REQUERIDA',
+      });
+    }
+
+    return {
+      umbralZonaId,
+      nombreZonaSnapshot: await this.validarUmbral(umbralZonaId, grupoId),
+    };
   }
 
   /**

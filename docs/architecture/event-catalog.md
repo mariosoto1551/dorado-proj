@@ -24,12 +24,14 @@
 | `ActividadPropuestaResuelta` | `activity.actividad_propuesta_resuelta` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
 | `SesionAbierta` | `session.sesion_abierta` | Session/Section | Notification, **Activity** (fase-14-21: sella el turno rotativo del día) | EXTENSIÓN |
 | `SesionCerrada` | `session.sesion_cerrada` | Session/Section | Scoring (si `evaluarUmbralesEn = CADA_SESION`), Notification, Activity (fase-14-08: castigo automático) | EXTENSIÓN |
-| `SeccionAbierta` | `session.seccion_abierta` | Session/Section | Notification | EXTENSIÓN |
+| `SeccionAbierta` | `session.seccion_abierta` | Session/Section | Notification, **Rewards** (fase-14-22: aplica el cambio de modo diferido) | EXTENSIÓN |
 | `SeccionEntroEvaluacion` | `session.seccion_entro_evaluacion` | Session/Section | Scoring, Notification | EXTENSIÓN |
 | `SeccionCerrada` | `session.seccion_cerrada` | Session/Section | Scoring, Rewards, Notification | MÍNIMO |
-| `ZonaAlcanzada` | `scoring.zona_alcanzada` | Scoring Engine | Rewards, Notification | MÍNIMO |
+| `ZonaAlcanzada` | `scoring.zona_alcanzada` | Scoring Engine | Rewards (en modo `TIENDA`, fase-14-22: dispara el cierre económico), Notification | MÍNIMO |
 | `UsuarioDescalificado` | `scoring.usuario_descalificado` | Scoring Engine | Rewards, Notification, Audit | MÍNIMO |
 | `RecompensaCanjeada` | `rewards.recompensa_canjeada` | Rewards | Notification, Audit | MÍNIMO |
+| `MonedasAcreditadas` | `rewards.monedas_acreditadas` | Rewards | Notification, Audit | EXTENSIÓN — fase-14-22 (tienda de monedas). Un solo evento cubre "cobraste N monedas" y "te tocó un castigo": son el mismo hecho. |
+| `CompraRealizada` | `rewards.compra_realizada` | Rewards | Notification, Audit | EXTENSIÓN — fase-14-22 (tienda de monedas) |
 | `AccionAdministrativaRegistrada` | `<servicio>.accion_administrativa` | Cualquier servicio con escrituras admin (Identity, Billing, Activity, Session, Scoring, Rewards) | Audit | EXTENSIÓN — evento genérico para no tener que enumerar un evento por cada acción administrativa posible |
 
 ## Payloads
@@ -247,6 +249,34 @@ interface RecompensaCanjeadaPayload {
   mecanica: 'SELECCION' | 'AZAR';
   organizacionId: string;
   grupoId: string;
+}
+
+// fase-14-22: el cierre económico de la Sección. UN solo evento cubre las dos
+// notificaciones ("cobraste 12 Doradas" y "te tocó un castigo") porque son el
+// mismo hecho.
+interface MonedasAcreditadasPayload {
+  usuarioId: string;
+  organizacionId: string;
+  grupoId: string;
+  seccionId: string;
+  nombreZona: string;
+  monedas: number;        // lo que rindió la zona, con signo
+  saldoResultante: number;
+  castigo: { recompensaId: string; nombre: string } | null;
+}
+
+// fase-14-22: una compra en la tienda.
+interface CompraRealizadaPayload {
+  compraId: string;
+  usuarioId: string;
+  organizacionId: string;
+  grupoId: string;
+  productoId: string;
+  nombreProducto: string;
+  precio: number;
+  obtenidoPorAzar: boolean; // "te salió" vs "lo elegiste"
+  recompensaId: string;
+  nombreRecompensa: string;
 }
 
 interface AccionAdministrativaRegistradaPayload {

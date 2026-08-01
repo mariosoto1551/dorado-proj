@@ -52,6 +52,19 @@ export class ScoringClientService {
   }
 
   /**
+   * Zonas del Grupo, de la más baja a la más alta (fase-14-22): la pantalla de
+   * rendimiento tiene que listar todas, incluidas las que no tienen monedas
+   * configuradas todavía.
+   */
+  async umbralesDelGrupo(grupoId: string): Promise<UmbralZonaDto[]> {
+    const umbrales = await this.obtener<UmbralZonaDto[]>(
+      `/internal/scoring/grupos/${grupoId}/umbrales`
+    );
+
+    return umbrales ?? [];
+  }
+
+  /**
    * Resultado de un usuario en una Sección, o `null` si scoring responde 404
    * (la Sección todavía no fue evaluada — ahí no hay canje posible, spec).
    */

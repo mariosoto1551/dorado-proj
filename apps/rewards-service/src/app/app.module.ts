@@ -5,6 +5,7 @@ import { SharedLoggingModule } from '@dorado/shared-logging';
 
 import { BilleteraModule } from '../billetera/billetera.module';
 import { CanjesModule } from '../canjes/canjes.module';
+import { CierreModule } from '../cierre/cierre.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { validarEnv } from '../config/env.schema';
 import { ConfiguracionModule } from '../configuracion/configuracion.module';
@@ -29,6 +30,7 @@ import { RecompensasModule } from '../recompensas/recompensas.module';
     ClientesModule,
     ConfiguracionModule,
     BilleteraModule,
+    CierreModule,
     ConsumoModule,
     RecompensasModule,
     CanjesModule,

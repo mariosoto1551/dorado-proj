@@ -32,6 +32,9 @@ export const ROUTING_KEYS = {
   ZONA_ALCANZADA: 'scoring.zona_alcanzada',
   USUARIO_DESCALIFICADO: 'scoring.usuario_descalificado',
   RECOMPENSA_CANJEADA: 'rewards.recompensa_canjeada',
+  // fase-14-22 (tienda de monedas)
+  MONEDAS_ACREDITADAS: 'rewards.monedas_acreditadas',
+  COMPRA_REALIZADA: 'rewards.compra_realizada',
 } as const;
 
 export type RoutingKey = (typeof ROUTING_KEYS)[keyof typeof ROUTING_KEYS];

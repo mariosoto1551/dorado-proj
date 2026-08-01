@@ -66,6 +66,12 @@ export interface MiBilleteraResponse extends BilleteraDto {
   total: number;
 }
 
+/** fase-14-22 decisión 7: el catálogo se tipa. Ortogonal al modo. */
+export enum TipoItemCatalogo {
+  PREMIO = 'PREMIO',
+  CASTIGO = 'CASTIGO',
+}
+
 export interface RecompensaDto {
   id: string;
   organizacionId: string;
@@ -73,11 +79,42 @@ export interface RecompensaDto {
   nombre: string;
   descripcion: string | null;
   imagenUrl: string | null;
-  umbralZonaId: string;
-  nombreZonaSnapshot: string;
+  tipo: TipoItemCatalogo;
+  /** null en modo TIENDA: un ítem no está atado a una zona (decisión 13). */
+  umbralZonaId: string | null;
+  nombreZonaSnapshot: string | null;
+  /** Solo los usa el modo DIRECTO (decisión 14). En TIENDA se ignoran. */
   permiteSeleccion: boolean;
   permiteAzar: boolean;
   estado: 'ACTIVA' | 'ARCHIVADA';
+}
+
+/** Cuántas monedas rinde una zona al cerrar la Sección (decisión 4). */
+export interface RendimientoZonaDto {
+  umbralZonaId: string;
+  nombreZona: string;
+  /** Orden de la zona en scoring (1 = más baja), para ordenar la pantalla. */
+  orden: number;
+  colorHex: string;
+  /** Puede ser negativo: dispara la bancarrota. `null` = sin configurar (0). */
+  monedas: number | null;
+}
+
+export interface CastigoAsignadoDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  usuarioId: string;
+  seccionId: string;
+  recompensaId: string;
+  nombreRecompensaSnapshot: string;
+  deudaSaldada: number;
+  estado: EstadoCanje;
+  entregadaPorTutorId: string | null;
+  entregadaEn: string | null;
+  anuladoEn: string | null;
+  anuladoPorTutorId: string | null;
+  motivoAnulacion: string | null;
 }
 
 export interface CanjeRecompensaDto {

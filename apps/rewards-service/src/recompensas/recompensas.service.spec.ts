@@ -1,16 +1,22 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { TenantContext, UmbralZonaDto } from '@dorado/shared-types';
+import {
+  TipoItemCatalogo,
+  type TenantContext,
+  type UmbralZonaDto,
+} from '@dorado/shared-types';
 
 import type { IdentityClientService } from '../clientes/identity-client.service';
 import type { ScoringClientService } from '../clientes/scoring-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
+  configuracionDePrueba,
   crearBdEnMemoria,
   recompensaDePrueba,
   type BdEnMemoria,
 } from '../comun/testing/bd-en-memoria';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
 import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { RecompensasService } from './recompensas.service';
 
@@ -61,8 +67,13 @@ function crearServicio(opciones: { bd?: BdEnMemoria; umbral?: UmbralZonaDto | nu
     publicarAccionAdministrativa: vi.fn(),
   } as unknown as EventosPublisherService;
 
+  const acceso = new AccesoGrupoService(identity);
+  // Real, no mock: el modo por defecto (DIRECTO) es justamente lo que estos
+  // tests tienen que seguir viendo después de fase-14-22.
+  const configuracion = new ConfiguracionService(bd.prisma, acceso, eventos);
+
   return {
-    servicio: new RecompensasService(bd.prisma, scoring, new AccesoGrupoService(identity), eventos),
+    servicio: new RecompensasService(bd.prisma, scoring, acceso, eventos, configuracion),
     bd,
   };
 }
@@ -85,6 +96,65 @@ describe('RecompensasService — crear', () => {
       estado: 'ACTIVA',
     });
     expect(bd.recompensas).toHaveLength(1);
+  });
+
+  it('sin tipo explícito, el ítem nace PREMIO (retro-compatible, decisión 7)', async () => {
+    const { servicio } = crearServicio();
+
+    const recompensa = await servicio.crear(tenantTutor(), 'grupo-1', {
+      umbralZonaId: 'umbral-dorado',
+      nombre: 'Salida al cine',
+    });
+
+    expect(recompensa.tipo).toBe('PREMIO');
+  });
+
+  it('se puede crear un CASTIGO (decisión 7)', async () => {
+    const { servicio } = crearServicio();
+
+    const recompensa = await servicio.crear(tenantTutor(), 'grupo-1', {
+      tipo: TipoItemCatalogo.CASTIGO,
+      umbralZonaId: 'umbral-dorado',
+      nombre: 'Sin postre',
+    });
+
+    expect(recompensa.tipo).toBe('CASTIGO');
+  });
+
+  it('en modo DIRECTO la zona es OBLIGATORIA (decisión 13)', async () => {
+    const { servicio } = crearServicio();
+
+    await expect(
+      servicio.crear(tenantTutor(), 'grupo-1', { nombre: 'Sin zona' })
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('en modo TIENDA el ítem NO se ata a ninguna zona (decisión 13)', async () => {
+    const bd = crearBdEnMemoria({
+      configuraciones: [configuracionDePrueba({ modo: 'TIENDA' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const recompensa = await servicio.crear(tenantTutor(), 'grupo-1', {
+      nombre: 'Bici',
+    });
+
+    expect(recompensa.umbralZonaId).toBeNull();
+    expect(recompensa.nombreZonaSnapshot).toBeNull();
+  });
+
+  it('en modo TIENDA, un umbralZonaId que venga se ignora (decisión 13)', async () => {
+    const bd = crearBdEnMemoria({
+      configuraciones: [configuracionDePrueba({ modo: 'TIENDA' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const recompensa = await servicio.crear(tenantTutor(), 'grupo-1', {
+      umbralZonaId: 'umbral-dorado',
+      nombre: 'Bici',
+    });
+
+    expect(recompensa.umbralZonaId).toBeNull();
   });
 
   it('umbral inexistente en scoring → 400', async () => {

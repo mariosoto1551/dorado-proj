@@ -26,6 +26,8 @@ const MODELOS_TENANT = {
   // sin contexto y pasan sin filtro — por eso los services de monedas mandan
   // SIEMPRE grupoId y usuarioId explícitos en el where, no confían en esto.
   EventoMoneda: { conGrupoId: true },
+  RendimientoZona: { conGrupoId: true },
+  CastigoAsignado: { conGrupoId: true },
 };
 
 export function crearClientePrisma(databaseUrl: string) {

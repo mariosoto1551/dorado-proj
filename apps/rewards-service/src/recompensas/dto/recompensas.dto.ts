@@ -9,6 +9,8 @@ import {
   MaxLength,
 } from 'class-validator';
 
+import { TipoItemCatalogo } from '@dorado/shared-types';
+
 import { EstadoCatalogo } from '../../generated/prisma/enums';
 
 // Requests de recompensas (spec fase-08). Los Response son RecompensaDto de
@@ -16,8 +18,18 @@ import { EstadoCatalogo } from '../../generated/prisma/enums';
 // frontend (Fase 10/14), nunca de este backend.
 
 export class CrearRecompensaRequest {
+  /** fase-14-22 decisión 7. Default PREMIO — retro-compatible. */
+  @IsOptional()
+  @IsIn(Object.values(TipoItemCatalogo))
+  tipo?: TipoItemCatalogo;
+
+  /**
+   * fase-14-22 decisión 13: obligatorio solo en modo DIRECTO (lo valida el
+   * service, que es quien conoce el modo del Grupo). En TIENDA se ignora.
+   */
+  @IsOptional()
   @IsUUID()
-  umbralZonaId!: string;
+  umbralZonaId?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -43,6 +55,10 @@ export class CrearRecompensaRequest {
 }
 
 export class EditarRecompensaRequest {
+  @IsOptional()
+  @IsIn(Object.values(TipoItemCatalogo))
+  tipo?: TipoItemCatalogo;
+
   @IsOptional()
   @IsUUID()
   umbralZonaId?: string;
