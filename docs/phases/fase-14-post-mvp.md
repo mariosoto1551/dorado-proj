@@ -131,6 +131,15 @@ Fase 13 completa y estable.
 - Cierre: (14) el castigo **se puede anular** con motivo (sin tocar el ledger — la deuda ya se saldó y el saldo sigue en 0), pero **no re-sortear**: tirar de nuevo hasta que salga algo leve vacía de sentido el 100 % al azar. **Fuera de alcance a propósito**: stock y límites de compra (la palanca de regulación es el precio), bloquear la tienda a un participante puntual, bolsas ponderadas y más de una moneda por Grupo.
 - Depende de: Fases 6, 7 y 8 — nada de Fase 14. Reutiliza la cola `rewards.q.zonas-alcanzadas` (creada en Fase 8 y hoy sin efecto de negocio, que por fin lo tiene), los internos de scoring que Rewards ya llama y el flujo `PENDIENTE_ENTREGA → ENTREGADA`.
 
+### 23. Claridad del área del Tutor: revisión de UX pantalla por pantalla — *agregado el 2026-08-01 a pedido de José*
+
+- **Ítem por tandas.** A diferencia de los anteriores, este no agrega una capacidad nueva: revisa **lo ya construido**. Nace de tres molestias que José reportó el 2026-08-01 usando la app: (a) no saber si una configuración quedó guardada, (b) no encontrar dónde se toca cada cosa, (c) pantallas sobrecargadas. Alcance acordado: **solo el área Tutor/ORG_ADMIN** (las 16 pantallas de grupo + el panel de organización); las 6 del participante quedan para una segunda vuelta.
+- **Criterio visual acordado**: pulido dentro de la identidad actual por default, con libertad de rediseñar donde el rediseño sea lo que resuelve el problema — no por gusto estético.
+- **Orden decidido** (transversal antes que pantalla por pantalla, para no resolver lo mismo 16 veces): **T1** turnos visibles y guardado único · **T2** extraer a `libs/shared-ui` los patrones hoy copiados a mano en cada página · **T3** arquitectura de navegación (una pantalla de configuración del grupo que reúna lo que hoy vive en 6 lugares, menú reordenado, resumen como home real) · **T4** pantalla por pantalla de la más recargada a la más simple · **T5** pulido final.
+- **Tanda 1 ya especificada en detalle** (decidida con José, 2026-08-01): ver `docs/phases/fase-14-23-claridad-del-area-del-tutor.md`. Las tandas 2–5 se especifican cuando se llegue a cada una, como todos los ítems de esta fase.
+- **No revisa ninguna decisión de producto de un ítem anterior** (a diferencia del #20 sobre el #8 y del #22 sobre Fase 8): las reglas de negocio de los ítems #11, #17, #19, #20 y #21 quedan exactamente como están. Lo que cambia es **qué muestra la interfaz de ellas y cuándo persiste**.
+- Depende de: nada nuevo. Toca `app-web` y, donde haga falta, los DTO de lectura de los servicios ya existentes.
+
 ---
 
 ## Orden de ejecución sugerido para los ítems 18–21 (evaluado el 2026-07-30)
@@ -147,6 +156,8 @@ Fase 13 completa y estable.
 > Los ítems 11, 12, 13, 14 y 15 **no existían** en la redacción original de este archivo: se sumaron al índice el 2026-07-26 cuando José los pidió, con su nota de fecha para que quede claro que es alcance nuevo y no una reescritura de lo ya decidido. Los ítems 16 y 17 se sumaron el 2026-07-27 con el mismo criterio, y los ítems 18, 19, 20 y 21 el 2026-07-30 — estos cuatro quedaron con sus decisiones de alcance ya cerradas con José. El **#18 y el #20 ya tienen su spec ejecutable** (`fase-14-18-historial-de-la-sesion.md` y `fase-14-20-obligatorias-que-suman.md`, ambas del 2026-07-30); los **#19 y #21 todavía no**: cada uno necesita su `fase-14-NN-*.md` antes de tocar código, como todos los anteriores.
 
 > El ítem 22 se sumó el 2026-07-31, con el mismo criterio y con su spec ejecutable escrita en la misma sesión (`fase-14-22-tienda-de-monedas.md`). Es el **segundo ítem que revisa una decisión de una fase ya cerrada** (el primero fue el #20 sobre el #8): igual que aquel, la spec original **no se edita** — `fase-08-rewards.md` sigue siendo la especificación vigente del modo `DIRECTO`, que es el default y el de todos los grupos existentes.
+
+> El ítem 23 se sumó el 2026-08-01 y es **de otra naturaleza que los 22 anteriores**: ninguno de ellos revisaba lo ya construido desde la experiencia de usarlo. Por eso se organiza en tandas y su spec se escribe tanda por tanda, en vez de entera de antemano — cada tanda parte de lo que se aprendió mirando la app en uso, no de un diseño previo. Los ítems 1, 2, 3, 4 y 6 siguen sin ejecutar.
 
 ## Nota para Claude Code
 

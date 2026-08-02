@@ -53,6 +53,9 @@ export interface Organizacion {
   tutorId: string;
   grupoId: string;
   nombre: string;
+  /** Credenciales del tutor, para los tramos que se verifican por navegador. */
+  emailContacto: string;
+  password: string;
 }
 
 /** Sufijo único por corrida para no chocar entre ejecuciones sobre la misma base. */
@@ -71,12 +74,13 @@ export function sufijo(): string {
 export async function crearOrganizacion(base: Api, etiqueta: string): Promise<Organizacion> {
   const nombre = `Org ${etiqueta} ${sufijo()}`;
   const emailContacto = `admin-${sufijo()}@ejemplo.test`;
+  const password = 'contrasena-segura-123';
   const identityUrl = process.env['E2E_IDENTITY_URL'] ?? 'http://localhost:3001';
 
   const res = await fetch(`${identityUrl}/auth/organizaciones`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nombre, emailContacto, password: 'contrasena-segura-123' }),
+    body: JSON.stringify({ nombre, emailContacto, password }),
   });
 
   if (!res.ok) {
@@ -103,6 +107,8 @@ export async function crearOrganizacion(base: Api, etiqueta: string): Promise<Or
     tutorId: registro.tutor.id,
     grupoId: grupo.id,
     nombre,
+    emailContacto,
+    password,
   };
 }
 

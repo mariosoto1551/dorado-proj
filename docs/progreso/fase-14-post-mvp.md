@@ -759,4 +759,50 @@ Al escribir la E2E quedó a la vista que en **modo MANUAL cerrar una sesión no 
 1. **Paseo visual**: el armador de la secuencia y la tarjeta «hoy le toca a…» se verificaron por build, lint y contrato de API, no en el navegador.
 2. **Desplegar la migración en el piloto**. Retro-compatible por construcción: **no toca la tabla `Actividad`** — una actividad sin fila en `TurnoActividad` se comporta exactamente como antes.
 3. **Turnos sobre opcionales**: la spec lo deja fuera (decisión 11 del índice) y el endpoint lo rechaza con 400. Extenderlo sería una validación menos, no un rediseño.
-4. **El armador solo aparece al EDITAR una actividad**, no al crearla: guardar la secuencia necesita el id, que todavía no existe. Si molesta, se resuelve guardando la actividad primero y abriendo el bloque después — es cambio de flujo de UI, no de backend.
+4. **El armador solo aparece al EDITAR una actividad**, no al crearla: guardar la secuencia necesita el id, que todavía no existe. Si molesta, se resuelve guardando la actividad primero y abriendo el bloque después — es cambio de flujo de UI, no de backend. → **Resuelto por el #23 T1 (2026-08-01)**, junto con el resto de los pendientes 1 y 4 de esta lista.
+
+## Ítem 23 · Tanda 1: Turnos visibles y guardado único
+
+- **Estado**: EN_PROGRESO (el ítem es por tandas; **la T1 está completa y verificada**). 58/58 tests de app-web (14 nuevos), 279/279 de activity-service **sin tocar el backend**, lint y build verdes, **suite E2E de navegador nueva 3/3 en dos corridas** y la suite completa **34/34** contra el stack local.
+- **Fecha**: 2026-08-01 / **Spec**: `docs/phases/fase-14-23-claridad-del-area-del-tutor.md` / **Commit**: — (branch `fase-14-tienda-de-monedas`)
+- **Origen**: José, usando la app, reportó tres molestias —no saber si algo quedó guardado, no encontrar dónde está cada cosa, pantallas sobrecargadas— y pidió un orden para revisarlas. Al acotar la primera, la señaló con precisión: *«lo de los turnos no se sabe… no se sabe si la actividad es por turnos o es uno cualquiera»*, aclarando que no era problema de redacción.
+
+### El problema: no era redacción, era que el dato no estaba en la pantalla
+
+Cuatro hallazgos, verificados en el código antes de decidir nada:
+
+1. **La lista de actividades nunca decía que una actividad rota.** La tarjeta tenía chips para equipo, siempre-a-la-vista, roles, días y autor; para turnos, ninguno. Y no era un olvido de maquetado: el turno se pedía **de a una actividad y solo al abrir el modal de edición**, así que el dato no existía en esa pantalla.
+2. **El endpoint que lo resuelve existía desde el #21 y no lo usaba nadie.** `GET /activity/grupos/:grupoId/turnos-de-hoy` se construyó «para el panel operativo», tiene cliente en `activity-api.service.ts` y cobertura E2E — y **ninguna pantalla lo llamaba**. La función estaba entera; faltaba el cable.
+3. **El modal tenía dos modelos de guardado incompatibles**: el formulario persistía en el submit y el bloque de turnos tenía **su propio «Guardar turnos»** que pegaba contra la API al instante. Dos consecuencias reproducibles: armar la secuencia y apretar el «Guardar» principal **no guardaba los turnos**; apretar «Guardar turnos» y después **Cancelar** los dejaba guardados igual.
+4. **Destildar «Por turnos» borraba la rotación en el acto**, sin confirmación: el `DELETE` salía en el mismo `change` del checkbox.
+
+El diagnóstico que importa para las tandas siguientes: **el backend siempre estuvo bien**. La sensación de «esto no quedó guardado» no venía de un dato que faltara sino de una pantalla que no lo pedía y de un formulario con dos dueños. Es el modo de falla que produce construir ítem por ítem sin revisar el conjunto — cada pieza correcta, el conjunto incoherente.
+
+### Decisiones de José en esta sesión
+1. **El chip dice a quién le toca hoy** (`🔁 Hoy: Luciana`), elegido sobre «`🔁 Por turnos · cada día`»: responde de una vez si rota y quién, y la segunda es la pregunta del día a día.
+2. **La ausencia del chip significa «es de todos»** — no se agrega un chip `De todos`: la tarjeta ya llega a cinco chips.
+3. **Un solo Guardar**, sobre las alternativas de «dos botones pero que se note» y «sacar turnos a su propia pantalla».
+4. Sobre lo visual, en general para el ítem: pulido dentro de la identidad actual, con libertad de rediseñar donde el rediseño sea lo que resuelve la molestia.
+
+### Decisiones de implementación que importan
+1. **Cero backend.** Ni endpoint, ni DTO, ni migración: los cuatro hallazgos se resolvieron en `app-web`. Los 279 tests de activity-service quedaron intactos y verdes, que es la prueba de que el alcance se respetó.
+2. **El armador pasó a ser un componente CONTROLADO**: perdió `actividadId`, el `ActivityApiService`, su botón, su toast y el `apagar()` inmediato. Emite `EstadoTurnoForm` y el formulario contenedor decide. Es el patrón que se replica en las tandas siguientes: *un formulario, un botón, cancelar cancela*.
+3. **`accionDeTurno` (en `core/turnos.ts`, testeado aparte) decide qué mandar.** Con un solo submit la pregunta «¿hay algo que persistir?» deja de ser obvia. El caso que justifica la función: **sin cambios no se manda nada**, porque un PUT idempotente igual sellaría una vuelta nueva de la rotación (decisión 15 del #21) — guardar la actividad sin haber tocado los turnos no debe cambiar a quién le toca mañana.
+4. **El turno va segundo y encadenado** (`switchMap`) porque al crear no hay id hasta que el servidor responde: exactamente el motivo por el que el bloque antes solo existía al editar. Si el turno falla con la actividad ya guardada, se recarga igual, para que la pantalla muestre lo que quedó y no lo que se intentó.
+5. **La rotación activa y vacía ahora se avisa.** Antes lo impedía un botón deshabilitado; sin ese botón hacía falta decirlo, en el bloque y al intentar guardar.
+
+### La suite E2E de navegador (primera del repo)
+`apps/e2e/src/turnos-visibles.e2e.ts` (3 tests, gated por `E2E_UI=1`). El resto de la suite es API-first a propósito, pero **acá el objeto de prueba es la pantalla**: los cuatro defectos son invisibles desde la API —«cancelar y que igual quede guardado» no es un estado ilegal del sistema— y solo se manifiestan en la secuencia de clics. Cubre: la lista sin chip / con chip tras guardar (verificando contra la API que el mismo botón guardó las dos cosas), que Cancelar no guarde lo nuevo **ni apague lo que había**, y que el armador exista al crear.
+
+Se sumó `emailContacto`/`password` a `Organizacion` en `support/escenario.ts` — aditivo — porque el login por UI no tiene atajo: el access token vive en memoria (regla 7), así que no se puede inyectar sesión por storage.
+
+**Dos peleas con el entorno, resueltas del lado del test y no del de producción** (mismo criterio que el #17 con su 429):
+- **429 del Gateway**: con una organización y un login por test, la suite se comía las 100 req/min y el navegador —a diferencia de `support/api.ts`— no reintenta. Se resolvió con **un escenario, una pestaña y un login para toda la suite**, y agrupando los casos por flujo en vez de uno por criterio: cada `goto` de esa pantalla cuesta seis llamadas.
+- **Un falso negativo que casi se confunde con un bug de la app**: el test leía la API inmediatamente después del click en Guardar y la encontraba vacía. El PUT salía y respondía 200; lo que faltaba era esperar a que el modal se cerrara, que es lo que marca el fin del encadenado PATCH → PUT. Vale anotarlo porque el síntoma («el turno no se guardó») era idéntico al defecto que este ítem corrige.
+
+### Qué falta / verificar la próxima sesión
+1. **El chip `Hoy: <nombre>` con nombre real** se verificó por unit test, no en el navegador: la E2E corre en modo MANUAL y sin Sesión abierta no hay turno sellado, así que el navegador vio la variante `Por turnos`. Cubrir la otra exige abrir sesión y esperar el sellado por el bus — se hace cuando la T4 vuelva sobre esta pantalla.
+2. **`turnos-de-hoy` es N+1 en llamadas a session-service**: itera las actividades rotativas y cada `asignacionVigente` resuelve la Sección por REST. Preexistente del #21 y acotado (solo actividades con rotación activa; cero consultas si el grupo no usa turnos), pero está a un `Map` de resolverse. **No se tocó porque la T1 declara alcance cero-backend**; queda para cuando haya otro motivo para entrar ahí.
+3. **Turno huérfano al cambiar el tipo de actividad**: si una obligatoria con rotación pasa a OPCIONAL o a EQUIPO, el bloque desaparece y la fila de `TurnoActividad` queda activa sin efecto. Es preexistente —la T1 no cambió el comportamiento— y no rompe nada porque el cierre solo mira obligatorias. Anotado por si conviene apagarla explícitamente.
+4. **Cierra tres pendientes del #21**: el 1 (paseo visual, ahora cubierto por navegador) y el 4 (el armador solo al editar) quedan resueltos; el 2 (desplegar la migración) sigue abierto y no depende de esto.
+5. **Siguiente: la T2** (patrones a `libs/shared-ui`), que hoy tiene solo tres componentes mientras el resto está copiado a mano en cada página.

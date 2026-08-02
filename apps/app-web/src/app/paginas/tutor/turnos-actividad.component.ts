@@ -2,7 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  inject,
+  effect,
   input,
   output,
   signal,
@@ -18,10 +18,7 @@ import {
   type UsuarioDto,
 } from '@dorado/shared-types';
 
-import { ToastService } from '../../componentes/toast.service';
-import { ActivityApiService } from '../../core/api/activity-api.service';
-import { mensajeDeError } from '../../core/api/errores';
-import { resumenDeReparto } from '../../core/turnos';
+import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
 
 /**
  * Armador de la secuencia de turnos de una obligatoria (fase-14-21).
@@ -30,6 +27,13 @@ import { resumenDeReparto } from '../../core/turnos';
  * de posiciones**, no un conjunto de participantes. Agregar dos veces a José es
  * lo esperado —le va a tocar el doble— y por eso el selector nunca lo saca de
  * las opciones disponibles.
+ *
+ * **Es un componente CONTROLADO desde fase-14-23 (T1).** No conoce la API ni el
+ * id de la actividad: emite su estado y el formulario que lo contiene lo guarda
+ * en su propio submit. Antes tenía botón propio y persistía al instante, lo que
+ * producía dos cosas que nadie espera de un formulario — armar la secuencia y
+ * apretar el «Guardar» principal no guardaba los turnos, y apretar «Guardar
+ * turnos» y después Cancelar los dejaba guardados igual.
  */
 @Component({
   selector: 'app-turnos-actividad',
@@ -59,7 +63,8 @@ import { resumenDeReparto } from '../../core/turnos';
             <label class="flex-1">
               <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Orden</span>
               <select
-                [(ngModel)]="modo"
+                [ngModel]="modo()"
+                (ngModelChange)="modo.set($event)"
                 name="modoTurno"
                 class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               >
@@ -70,7 +75,8 @@ import { resumenDeReparto } from '../../core/turnos';
             <label class="flex-1">
               <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Rota</span>
               <select
-                [(ngModel)]="frecuencia"
+                [ngModel]="frecuencia()"
+                (ngModelChange)="frecuencia.set($event)"
                 name="frecuenciaTurno"
                 class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
               >
@@ -141,7 +147,8 @@ import { resumenDeReparto } from '../../core/turnos';
 
           <div class="mt-2 flex gap-2">
             <select
-              [(ngModel)]="aAgregar"
+              [ngModel]="aAgregar()"
+              (ngModelChange)="aAgregar.set($event)"
               name="agregarTurno"
               class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
             >
@@ -153,7 +160,7 @@ import { resumenDeReparto } from '../../core/turnos';
             <button
               type="button"
               (click)="agregar()"
-              [disabled]="aAgregar === ''"
+              [disabled]="aAgregar() === ''"
               class="shrink-0 rounded-lg bg-marca-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
             >
               ＋ Agregar
@@ -186,17 +193,17 @@ import { resumenDeReparto } from '../../core/turnos';
             <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{ texto }}</p>
           }
 
-          <button
-            type="button"
-            (click)="guardar()"
-            [disabled]="guardando() || secuencia().length === 0"
-            class="mt-3 w-full rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-          >
-            Guardar turnos
-          </button>
-          <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-            Los cambios entran en la vuelta siguiente: a quien ya tiene el turno
-            asignado esta vuelta no se le cambia el día.
+          @if (secuencia().length === 0) {
+            <p class="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              Agregá al menos un integrante, o destildá «Por turnos» para que la
+              actividad vuelva a ser de todos.
+            </p>
+          }
+
+          <p class="mt-3 text-xs text-slate-400 dark:text-slate-500">
+            Se guarda junto con la actividad. Los cambios entran en la vuelta
+            siguiente: a quien ya tiene el turno asignado esta vuelta no se le
+            cambia el día.
           </p>
         </div>
       }
@@ -204,8 +211,6 @@ import { resumenDeReparto } from '../../core/turnos';
   `,
 })
 export class TurnosActividadComponent {
-  readonly actividadId = input.required<string>();
-
   readonly usuarios = input.required<UsuarioDto[]>();
 
   readonly roles = input<RolGrupoDto[]>([]);
@@ -213,23 +218,18 @@ export class TurnosActividadComponent {
   /** Configuración ya guardada; null = la actividad todavía no rota. */
   readonly turno = input<TurnoActividadDto | null>(null);
 
-  readonly guardado = output<TurnoActividadDto | null>();
-
-  private readonly api = inject(ActivityApiService);
-
-  private readonly toasts = inject(ToastService);
-
-  protected readonly guardando = signal(false);
+  /** El estado en pantalla, sin persistir. Lo guarda el formulario contenedor. */
+  readonly cambio = output<EstadoTurnoForm>();
 
   protected readonly activo = signal(false);
 
   protected readonly secuencia = signal<string[]>([]);
 
-  protected modo: ModoTurno = ModoTurno.ORDEN_FIJO;
+  protected readonly modo = signal<ModoTurno>(ModoTurno.ORDEN_FIJO);
 
-  protected frecuencia: FrecuenciaTurno = FrecuenciaTurno.SESION;
+  protected readonly frecuencia = signal<FrecuenciaTurno>(FrecuenciaTurno.SESION);
 
-  protected aAgregar = '';
+  protected readonly aAgregar = signal('');
 
   /** «José: 2 de cada 4 días» — la vista previa del reparto que se armó. */
   protected readonly resumen = computed(() =>
@@ -237,8 +237,20 @@ export class TurnosActividadComponent {
   );
 
   constructor() {
-    // El input llega después del primer render (la config se pide aparte).
-    queueMicrotask(() => this.aplicarTurnoExistente());
+    // `turno` llega después del primer render: la config de la actividad en
+    // edición se pide aparte, y al crear no existe hasta que se guarda.
+    effect(() => this.aplicarTurnoExistente(this.turno()));
+
+    // Un solo lugar de emisión: cualquier cambio de los cuatro signals viaja
+    // al contenedor, que decide qué hacer con él recién en su submit.
+    effect(() => {
+      this.cambio.emit({
+        activo: this.activo(),
+        modo: this.modo(),
+        frecuencia: this.frecuencia(),
+        secuencia: this.secuencia(),
+      });
+    });
   }
 
   protected nombreDe(usuarioId: string): string {
@@ -255,24 +267,25 @@ export class TurnosActividadComponent {
       : 'No tiene el rol que pide la actividad — ese turno se saltea';
   }
 
+  /**
+   * Destildar ya NO apaga la rotación en el acto (fase-14-23): antes salía el
+   * DELETE en el mismo `change` del checkbox, sin confirmación y sin vuelta
+   * atrás. Ahora solo cambia el estado en pantalla y se aplica al guardar.
+   */
   protected alternarActivo(): void {
-    const nuevo = !this.activo();
-
-    this.activo.set(nuevo);
-
-    if (!nuevo && this.turno()) {
-      this.apagar();
-    }
+    this.activo.update((valor) => !valor);
   }
 
   protected agregar(): void {
-    if (this.aAgregar === '') {
+    const usuarioId = this.aAgregar();
+
+    if (usuarioId === '') {
       return;
     }
 
     // Sin quitarlo de las opciones: repetir a alguien es justamente el punto.
-    this.secuencia.update((actual) => [...actual, this.aAgregar]);
-    this.aAgregar = '';
+    this.secuencia.update((actual) => [...actual, usuarioId]);
+    this.aAgregar.set('');
   }
 
   protected quitar(indice: number): void {
@@ -306,48 +319,16 @@ export class TurnosActividadComponent {
     );
   }
 
-  protected guardar(): void {
-    this.guardando.set(true);
-    this.api
-      .configurarTurno(this.actividadId(), {
-        modo: this.modo,
-        frecuencia: this.frecuencia,
-        activo: true,
-        posiciones: this.secuencia().map((usuarioId) => ({ usuarioId })),
-      })
-      .subscribe({
-        next: (turno) => {
-          this.toasts.exito('Turnos guardados.');
-          this.guardando.set(false);
-          this.guardado.emit(turno);
-        },
-        error: (e) => {
-          this.toasts.error(mensajeDeError(e));
-          this.guardando.set(false);
-        },
-      });
-  }
-
-  private apagar(): void {
-    this.api.apagarTurno(this.actividadId()).subscribe({
-      next: () => {
-        this.toasts.exito('La actividad vuelve a ser de todos.');
-        this.guardado.emit(null);
-      },
-      error: (e) => this.toasts.error(mensajeDeError(e)),
-    });
-  }
-
-  private aplicarTurnoExistente(): void {
-    const turno = this.turno();
-
-    if (!turno) {
-      return;
-    }
-
-    this.activo.set(turno.activo);
-    this.modo = turno.modo;
-    this.frecuencia = turno.frecuencia;
-    this.secuencia.set(turno.posiciones.map((posicion) => posicion.usuarioId));
+  /**
+   * Sincroniza con lo guardado en el servidor. Sin turno deja el armador en
+   * blanco a propósito: el mismo componente se reusa al abrir otra actividad
+   * (y al crear una nueva), y conservar la secuencia anterior la ofrecería
+   * como si fuera de esta.
+   */
+  private aplicarTurnoExistente(turno: TurnoActividadDto | null): void {
+    this.activo.set(turno?.activo ?? false);
+    this.modo.set(turno?.modo ?? ModoTurno.ORDEN_FIJO);
+    this.frecuencia.set(turno?.frecuencia ?? FrecuenciaTurno.SESION);
+    this.secuencia.set(turno?.posiciones.map((posicion) => posicion.usuarioId) ?? []);
   }
 }

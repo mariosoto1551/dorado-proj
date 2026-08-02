@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { type Observable, of, switchMap } from 'rxjs';
 
 import {
   type ActividadDto,
@@ -35,6 +36,7 @@ import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { describirDias, DIAS_SEMANA } from '../../core/dias-semana';
 import { sinIntegrantesConEsosRoles } from '../../core/roles-grupo';
+import { accionDeTurno, type EstadoTurnoForm, textoDelChipDeTurno } from '../../core/turnos';
 
 /** Las 3 opciones del ítem 10, con el texto que ve el tutor. */
 const OPCIONES_MODO: ReadonlyArray<{
@@ -464,6 +466,17 @@ const FORM_VACIO: FormActividad = {
                     ⚠ hoy no la ve nadie
                   </span>
                 }
+                <!-- fase-14-23: sin este chip no había forma de saber, desde la
+                     lista, si una obligatoria rota o es de todos. Su ausencia
+                     es la que dice «es de todos» (decisión 2). -->
+                @if (chipDeTurno(a); as texto) {
+                  <span
+                    class="rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300"
+                    [title]="tituloDelChipDeTurno(a)"
+                  >
+                    🔁 {{ texto }}
+                  </span>
+                }
                 @if (a.diasSemana.length > 0) {
                   <span
                     class="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
@@ -734,21 +747,17 @@ const FORM_VACIO: FormActividad = {
               </p>
             </div>
 
-            <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual, y
-                 solo al editar: hace falta el id de la actividad para guardar -->
-            @if (
-              editando();
-              as actividadEnEdicion
-            ) {
-              @if (form.tipoPuntaje === TP.OBLIGATORIA && form.alcance === AA.INDIVIDUAL) {
-                <app-turnos-actividad
-                  [actividadId]="actividadEnEdicion.id"
-                  [usuarios]="usuariosDelGrupo()"
-                  [roles]="roles()"
-                  [turno]="turnoDeLaActividad()"
-                  (guardado)="turnoDeLaActividad.set($event)"
-                />
-              }
+            <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual.
+                 fase-14-23: ya no exige estar editando — el armador es
+                 controlado y su estado se persiste en el submit, así que la
+                 secuencia se puede armar mientras se crea la actividad. -->
+            @if (turnosAplican()) {
+              <app-turnos-actividad
+                [usuarios]="usuariosDelGrupo()"
+                [roles]="roles()"
+                [turno]="turnoDeLaActividad()"
+                (cambio)="estadoTurno.set($event)"
+              />
             }
 
             <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
@@ -889,8 +898,19 @@ export class ActividadesPage {
   /** Integrantes del grupo, para armar la secuencia de turnos. */
   protected readonly usuariosDelGrupo = signal<UsuarioDto[]>([]);
 
-  /** Rotación de la actividad en edición; null = no rota. */
+  /** Rotación de la actividad en edición, tal como está en el servidor. */
   protected readonly turnoDeLaActividad = signal<TurnoActividadDto | null>(null);
+
+  // ---- fase-14-23 ----
+  /** Lo que el armador de turnos tiene en pantalla, todavía sin persistir. */
+  protected readonly estadoTurno = signal<EstadoTurnoForm | null>(null);
+
+  /**
+   * A quién le toca hoy cada actividad rotativa, por actividadId. Sale de una
+   * sola llamada por pantalla (`turnos-de-hoy`), que devuelve lista vacía sin
+   * consultar nada si el grupo no usa turnos.
+   */
+  protected readonly turnosDeHoy = signal<Map<string, string | null>>(new Map());
 
   // ---- fase-14-17: plan del día ----
   protected readonly planDelDiaActivo = signal(false);
@@ -1071,6 +1091,10 @@ export class ActividadesPage {
   protected abrirNueva(): void {
     this.editando.set(null);
     this.form = { ...FORM_VACIO };
+    // fase-14-23: sin rotación previa, pero el bloque ya está disponible al
+    // crear — antes había que guardar y volver a abrir para que apareciera.
+    this.turnoDeLaActividad.set(null);
+    this.estadoTurno.set(null);
     this.formAbierto.set(true);
   }
 
@@ -1079,6 +1103,7 @@ export class ActividadesPage {
     // fase-14-21: la rotación se pide aparte (404 = la actividad no rota, que
     // es lo normal). Falla en silencio: es un bloque accesorio del formulario.
     this.turnoDeLaActividad.set(null);
+    this.estadoTurno.set(null);
 
     if (a.tipoPuntaje === TipoPuntaje.OBLIGATORIA) {
       this.api.obtenerTurno(a.id).subscribe({
@@ -1136,6 +1161,19 @@ export class ActividadesPage {
     return sinIntegrantesConEsosRoles(actividad.rolesPermitidos, this.roles());
   }
 
+  /** fase-14-23: «Hoy: Luciana», «Por turnos», o null si no rota. */
+  protected chipDeTurno(actividad: ActividadDto): string | null {
+    const turnos = this.turnosDeHoy();
+
+    return textoDelChipDeTurno(turnos.has(actividad.id), turnos.get(actividad.id) ?? null);
+  }
+
+  protected tituloDelChipDeTurno(actividad: ActividadDto): string {
+    return this.turnosDeHoy().get(actividad.id)
+      ? 'Rota entre los integrantes; hoy le toca a esta persona'
+      : 'Rota entre los integrantes; todavía no hay turno asignado';
+  }
+
   protected resumenDias(): string {
     return describirDias(this.form.diasSemana);
   }
@@ -1148,10 +1186,28 @@ export class ActividadesPage {
     this.formAbierto.set(false);
   }
 
+  /** El bloque de turnos solo tiene sentido en una obligatoria individual. */
+  protected turnosAplican(): boolean {
+    return this.form.tipoPuntaje === TipoPuntaje.OBLIGATORIA
+      && this.form.alcance === AlcanceActividad.INDIVIDUAL;
+  }
+
   protected guardar(evento: Event): void {
     evento.preventDefault();
 
     if (this.form.nombre.trim().length === 0) {
+      return;
+    }
+
+    // fase-14-23: con un solo botón, una rotación activa y vacía ya no queda
+    // frenada por un botón deshabilitado — hay que decirlo.
+    const turno = this.estadoTurno();
+
+    if (this.turnosAplican() && turno?.activo && turno.secuencia.length === 0) {
+      this.toasts.error(
+        'Agregá al menos un integrante al turno, o destildá «Por turnos».'
+      );
+
       return;
     }
 
@@ -1163,18 +1219,54 @@ export class ActividadesPage {
       ? this.api.editarActividad(actual.id, datos)
       : this.api.crearActividad(this.grupoId(), datos);
 
-    peticion.subscribe({
-      next: () => {
-        this.toasts.exito(actual ? 'Actividad actualizada.' : 'Actividad creada.');
-        this.guardando.set(false);
-        this.formAbierto.set(false);
-        this.cargar(this.grupoId());
-      },
-      error: (e) => {
-        this.toasts.error(mensajeDeError(e));
-        this.guardando.set(false);
-      },
-    });
+    // fase-14-23: la actividad y sus turnos se guardan con el mismo botón. El
+    // turno va SEGUNDO y encadenado porque al crear no hay id hasta que el
+    // servidor responde — que es justamente por lo que antes este bloque solo
+    // existía al editar.
+    peticion
+      .pipe(switchMap((guardada) => this.persistirTurno(guardada.id)))
+      .subscribe({
+        next: () => {
+          this.toasts.exito(actual ? 'Actividad actualizada.' : 'Actividad creada.');
+          this.guardando.set(false);
+          this.formAbierto.set(false);
+          this.cargar(this.grupoId());
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.guardando.set(false);
+          // La actividad puede haberse guardado y el turno no: recargar deja la
+          // pantalla mostrando lo que realmente quedó, no lo que se intentó.
+          this.cargar(this.grupoId());
+        },
+      });
+  }
+
+  /**
+   * La parte de turnos del submit (fase-14-23). Devuelve un observable que no
+   * hace nada cuando no hay nada que mandar, para que el encadenado del submit
+   * sea uno solo y no dos caminos distintos según haya turnos o no.
+   */
+  private persistirTurno(actividadId: string): Observable<unknown> {
+    const estado = this.estadoTurno();
+
+    if (!estado || !this.turnosAplican()) {
+      return of(null);
+    }
+
+    switch (accionDeTurno(this.turnoDeLaActividad(), estado)) {
+      case 'guardar':
+        return this.api.configurarTurno(actividadId, {
+          modo: estado.modo,
+          frecuencia: estado.frecuencia,
+          activo: true,
+          posiciones: estado.secuencia.map((usuarioId) => ({ usuarioId })),
+        });
+      case 'apagar':
+        return this.api.apagarTurno(actividadId);
+      default:
+        return of(null);
+    }
   }
 
   protected pedirArchivar(a: ActividadDto): void {
@@ -1281,6 +1373,17 @@ export class ActividadesPage {
     this.identity.listarRolesGrupo(grupoId).subscribe({
       next: (roles) => this.roles.set(roles),
       error: () => this.roles.set([]),
+    });
+    // fase-14-23: una sola llamada para toda la lista — el endpoint ya venía
+    // resuelto del #21 y ninguna pantalla lo usaba. Solo trae las actividades
+    // con rotación ACTIVA, así que estar en el mapa ya significa «rota».
+    this.api.turnosDeHoy(grupoId).subscribe({
+      next: (filas) => {
+        this.turnosDeHoy.set(
+          new Map(filas.map((fila) => [fila.actividadId, fila.asignacion?.nombre ?? null]))
+        );
+      },
+      error: () => this.turnosDeHoy.set(new Map()),
     });
   }
 
