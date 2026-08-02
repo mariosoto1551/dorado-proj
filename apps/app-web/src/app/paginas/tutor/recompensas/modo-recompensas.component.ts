@@ -24,7 +24,9 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ModalComponent, CampoComponent, FormsModule],
   template: `
-    <div class="tarjeta">
+    <!-- Sin tarjeta propia: desde la T3 vive DENTRO del bloque «Qué se gana»
+         del hub, que ya es una tarjeta. Anidar dos daba borde sobre borde. -->
+    <div>
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p class="text-sm font-bold text-slate-900 dark:text-white">Modo de recompensas</p>

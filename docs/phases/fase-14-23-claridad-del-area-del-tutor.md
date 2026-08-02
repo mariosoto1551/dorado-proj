@@ -2,7 +2,7 @@
 
 > Sub-spec detallada del ítem 23 de `fase-14-post-mvp.md`. Este archivo es la especificación decidida con José (2026-08-01); las desviaciones de implementación se registran en `docs/progreso/`, no acá. **No se edita una vez escrito** (protocolo de specs de `CLAUDE.md`).
 >
-> **Ítem por tandas.** Este archivo se escribe tanda por tanda: cada una se especifica cuando se llega a ella, partiendo de lo aprendido mirando la app en uso. Hoy contiene las **tandas 1 y 2** completas. Las tandas 3–5 tienen acá solo su alcance, igual que un ítem del índice de la fase.
+> **Ítem por tandas.** Este archivo se escribe tanda por tanda: cada una se especifica cuando se llega a ella, partiendo de lo aprendido mirando la app en uso. Hoy contiene las **tandas 1, 2 y 3** completas. Las tandas 4 y 5 tienen acá solo su alcance, igual que un ítem del índice de la fase.
 
 ## Prerrequisitos
 
@@ -33,7 +33,7 @@ Este ítem es también un registro de un modo de falla del proceso mismo: constr
 |---|---|---|
 | T1 | Turnos visibles y guardado único | **Especificada acá** |
 | T2 | Extraer a `libs/shared-ui` los patrones hoy copiados a mano en cada página | **Especificada acá** |
-| T3 | Arquitectura de navegación del área Tutor | Alcance solamente |
+| T3 | Arquitectura de navegación del área Tutor | **Especificada acá** |
 | T4 | Pantalla por pantalla, de la más recargada a la más simple | Alcance solamente |
 | T5 | Pulido final (transiciones, teclado, responsive, textos) | Alcance solamente |
 
@@ -202,3 +202,91 @@ Renderiza un `<label>` que envuelve al control proyectado (click en la etiqueta 
 5. Ninguna pantalla del área Usuario cambia de aspecto (no se migran, y las clases nuevas no pisan las que ya usan).
 6. Los tests de los servicios backend siguen verdes sin modificarse: esta tanda no toca el backend.
 7. `nx lint` y `nx build` verdes en los proyectos afectados, y los tests de `app-web` verdes con los casos nuevos de los tres componentes.
+
+---
+
+## Tanda 3 — Navegación
+
+### El diagnóstico
+
+Relevado el 2026-08-02 sobre las 16 pantallas, con capturas de todas ellas contra un grupo cargado (`apps/e2e/src/capturas-tutor.e2e.ts`, herramienta que se escribió para esto).
+
+1. **La configuración del grupo vive en seis lugares y tres están escondidos adentro de otra pantalla.** Con pantalla propia: configuración de sesión, Zonas, Roles. Sin pantalla propia: el **modo de recompensas** (tarjeta arriba de todo en `/recompensas`), el **contenido de los integrantes** (#10) y el **plan del día** (#17), los dos apilados en `/actividades`. Nadie que no supiera que existen los encuentra, y **ninguno de los seis dice en qué estado están los otros cinco**.
+2. **Las dos de `/actividades` ocupan el primer tercio de la pantalla.** Se entra a esa pantalla a ver el catálogo y lo primero que hay son dos bloques de configuración que se tocan una vez en la vida del grupo. Es el caso más claro de «pantalla sobrecargada» de los tres síntomas que José reportó.
+3. **El menú mezcla lo diario con lo que se define una vez.** El grupo «Sistema de puntos» junta **Zonas** (se configura al empezar y no se vuelve) con **Entregas** (se usa todas las semanas). Son 14 ítems en 3 grupos, y los títulos de grupo no ayudan a decidir dónde buscar.
+4. **El Resumen no es un home.** Es la pantalla de aterrizaje del grupo y, sin Sección activa, muestra **una sola tarjeta vacía**. Con Sección activa ya trae el ranking de participantes, pero no dice en qué día va la semana, qué toca hacer ahora, ni qué está esperando al Tutor.
+5. **«Primeros pasos» aparece tres veces en la misma pantalla**: ítem del menú (arriba de todo), tarjeta grande dentro del Resumen y píldora flotante abajo a la derecha. Las tres llevan al mismo lado.
+
+### Decisiones (cerradas con José el 2026-08-02)
+
+1. **La configuración del grupo es un HUB que edita lo chico y linkea lo que es CRUD.** Los cuatro interruptores (sesión, modo de recompensas, plan del día, contenido de integrantes) se editan ahí mismo; **Zonas y Roles siguen siendo pantallas propias** y desde el hub se ve su estado y se entra. Se eligió sobre «todo adentro» (metía dos listas con modales en una pantalla ya larga) y sobre «índice de solo lectura» (dejaba los tres interruptores escondidos donde están, solo agregando un lugar donde enterarse de que existen).
+2. **El menú pasa a cuatro grupos**: *Día a día* / *Catálogo* / *Gente* / *Ajustes*. **Entregas y Reportes suben a «Día a día»** (hoy Entregas está entre la configuración) y **Zonas baja a «Ajustes»**.
+3. **El Resumen muestra las cuatro cosas, pero con jerarquía, no en paralelo.** José preguntó explícitamente si no era demasiado; la respuesta de diseño es que **no tengan el mismo peso y que una de ellas casi siempre no esté**:
+   - **una sola cosa grande**: en qué va la semana y el botón de lo que toca hacer ahora;
+   - **«te esperan» es condicional**: si no hay pendientes, el bloque no existe, y el home tiene tres bloques y no cuatro;
+   - **«Hoy» son tres líneas** con «ver todo», no el historial entero (que ya vive completo en la pestaña del #18);
+   - **«Cómo van» es una fila por persona**, no una tarjeta por persona.
+4. **Ninguna regla de negocio cambia** (decisión de alcance 4 del ítem): lo que se mueve es dónde está cada control, no qué hace.
+
+### La pantalla de configuración del grupo
+
+Ruta nueva `/grupos/:grupoId/configuracion`. Tres bloques, agrupados por la pregunta que responden y no por el servicio que los guarda:
+
+| Bloque | Qué trae | Cómo |
+|---|---|---|
+| **Cómo corre la semana** | modo (manual/automático), sesiones por sección, cuándo evaluar zonas, y en automático el horario y los días | se edita ahí (es lo que hoy es `/configuracion-sesion`, absorbido entero) |
+| **Qué se gana** | modo de recompensas (directo/tienda) + nombre e ícono de la moneda; **Zonas** con su cantidad y los puntos iniciales | el modo se edita ahí; **Zonas** muestra estado y linkea |
+| **Qué ve el integrante** | plan del día (on/off), contenido de los integrantes (modo + topes); **Roles** con su cantidad | los dos primeros se editan ahí; **Roles** muestra estado y linkea |
+
+`/configuracion-sesion` deja de ser una pantalla y **su ruta redirige** a `/configuracion` (no se rompe ningún enlace guardado, y el «Configurar sesión» del Resumen sigue funcionando).
+
+Las tres tarjetas que hoy están embebidas —modo de recompensas en `/recompensas`, contenido y plan del día en `/actividades`— **se van de esas pantallas**. En su lugar, cada una queda con una línea discreta al pie que dice el estado vigente y linkea al hub (ej. en Actividades: *«Plan del día: apagado · Contenido: restrictivo — Ajustes»*), para que quien ya sabía dónde estaban no se quede sin rastro.
+
+### El menú
+
+| Grupo | Ítems |
+|---|---|
+| **Día a día** | Resumen · Semana actual · Entregas · Reportes |
+| **Catálogo** | Actividades · Conductas · Recompensas |
+| **Gente** | Usuarios · Equipos · Tutores *(solo ORG_ADMIN)* · Invitaciones |
+| **Ajustes** | Configuración del grupo · Zonas · Roles |
+
+Siguen siendo 14 ítems de grupo —«Configuración» pasa a ser «Configuración del grupo» y apunta al hub en vez de a la config de sesión— y lo que se va del menú es «Primeros pasos». Lo que cambia no es la cantidad sino que **cada grupo responde a una pregunta distinta**: *qué hago hoy* / *qué se puede hacer y cuánto vale* / *quiénes son* / *cómo está armado el grupo*. Las tres mudanzas que lo logran son Entregas y Reportes hacia «Día a día», y Zonas hacia «Ajustes».
+
+**«Primeros pasos» deja de estar tres veces**: se queda como **la tarjeta del Resumen** —que es donde tiene sentido, porque el home es lo primero que se ve— y se van el ítem del menú y la píldora flotante. Mientras la guía no esté completa, la tarjeta del Resumen va arriba de todo; una vez completa, desaparece.
+
+### El Resumen como home
+
+De arriba abajo:
+
+1. **La semana** (tarjeta grande): número de Sección y sesión, estado, cuándo cierra, y **un botón primario con lo que toca hacer ahora** — `Registrar lo de hoy` con sesión abierta, `Abrir la sesión de hoy` en modo manual sin sesión, `Ir a evaluación` en EVALUACION, `Iniciar la primera semana` si no hay Sección. Sin Sección activa esta tarjeta reemplaza a la tarjeta vacía de hoy.
+2. **«Te esperan» (condicional)**: aparece solo si hay reportes por aprobar o entregas por dar; una línea por tipo, cada una linkeando a su pantalla. Si no hay nada, el bloque no se renderiza.
+3. **«Cómo van»**: una fila por participante con nombre, puntaje, badge de zona y una barra de progreso hacia la zona siguiente. Es lo que ya existe, con la barra agregada.
+4. **«Hoy»**: las **tres** últimas marcas del día con hora, quién y qué, y un «ver todo →» a la pestaña de historial de Semana actual. Si no pasó nada hoy, una línea sola.
+
+### Alcance del cambio
+
+**Backend: ninguno.** Los cuatro datos del home ya tienen cliente en `app-web` (`session.seccionActual`, `scoring.puntajesDeGrupo` + `identity.listarUsuarios`, `activity.historial`, `activity.listarReportes` + `rewards.pendientesDeEntrega`), y los interruptores del hub son los mismos endpoints que hoy usan las pantallas de donde salen.
+
+| Archivo | Cambio |
+|---|---|
+| `paginas/tutor/configuracion-grupo.page.ts` | **Nuevo**: el hub de tres bloques. |
+| `paginas/tutor/configuracion-sesion.page.ts` | Su contenido pasa a ser el bloque «Cómo corre la semana» del hub. |
+| `paginas/tutor/actividades.page.ts` | Se le van las dos tarjetas de configuración; queda la línea de estado al pie. |
+| `paginas/tutor/recompensas.page.ts` + `recompensas/modo-recompensas.component.ts` | El interruptor de modo pasa al hub; queda la línea de estado. |
+| `paginas/tutor/resumen-grupo.page.ts` | Reescrito como home (los cuatro bloques). |
+| `paginas/shell/shell.component.ts` | Menú de cuatro grupos; se va el ítem «Primeros pasos». |
+| `paginas/shell/guia-flotante.component.ts` | Se elimina la píldora flotante. |
+| `app.routes.ts` | Ruta `configuracion` nueva; `configuracion-sesion` redirige. |
+
+### Criterios de aceptación
+
+1. Existe `/grupos/:grupoId/configuracion` y muestra, sin entrar a ningún lado, el estado de las seis cosas: modo de sesión, zonas, modo de recompensas, plan del día, contenido de integrantes y roles.
+2. Los cuatro interruptores se editan desde el hub y quedan guardados; Zonas y Roles se abren desde ahí y siguen funcionando como hoy.
+3. `/grupos/:grupoId/configuracion-sesion` redirige a `/configuracion` — ningún enlace guardado se rompe.
+4. `/actividades` ya no tiene bloques de configuración arriba del catálogo, y `/recompensas` ya no tiene el interruptor de modo arriba del catálogo; las dos conservan una línea de estado que linkea al hub.
+5. El menú tiene los cuatro grupos de la tabla, con Entregas y Reportes en «Día a día» y Zonas en «Ajustes».
+6. «Primeros pasos» aparece **una sola vez** en pantalla (la tarjeta del Resumen), y desaparece cuando la guía está completa.
+7. El Resumen muestra la semana con su acción principal, cómo van los participantes y las últimas tres marcas de hoy; «te esperan» aparece solo si hay pendientes.
+8. Con un grupo sin nada configurado, el Resumen no muestra una tarjeta vacía: muestra qué falta y cómo empezar.
+9. Los tests de los servicios backend siguen verdes sin modificarse: esta tanda no toca el backend.

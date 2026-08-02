@@ -11,12 +11,11 @@ import { FormsModule } from '@angular/forms';
 import { EvaluarUmbralesEn, ModoSesion } from '@dorado/shared-types';
 import { CampoComponent } from '@dorado/shared-ui';
 
-import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
-import { ToastService } from '../../componentes/toast.service';
-import type { GuardarConfiguracionRequest } from '../../core/api/api.types';
-import { mensajeDeError } from '../../core/api/errores';
-import { SessionApiService } from '../../core/api/session-api.service';
-import { describirDias, DIAS_SEMANA } from '../../core/dias-semana';
+import { ToastService } from '../../../componentes/toast.service';
+import type { GuardarConfiguracionRequest } from '../../../core/api/api.types';
+import { mensajeDeError } from '../../../core/api/errores';
+import { SessionApiService } from '../../../core/api/session-api.service';
+import { describirDias, DIAS_SEMANA } from '../../../core/dias-semana';
 
 /** Construye "m h * * dows" a partir de una hora HH:mm y días elegidos. */
 function armarCron(hora: string, dias: number[]): string {
@@ -52,21 +51,26 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
   return { hora: `${hora}:${min}`, dias };
 }
 
-/** Config de Sesión/Sección (fase-10): modo manual/automático con selector amigable de cron. */
+/**
+ * «Cómo corre la semana» — primer bloque del hub de configuración del grupo
+ * (fase-14-23 T3). Era la pantalla `/configuracion-sesion` de la fase 10; su
+ * ruta ahora redirige al hub y este componente es su contenido.
+ *
+ * Config de Sesión/Sección: modo manual/automático con selector amigable de
+ * cron (el tutor elige días y hora, no escribe un cron).
+ */
 @Component({
-  selector: 'app-configuracion-sesion',
+  selector: 'app-bloque-semana',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CampoComponent, FormsModule, EncabezadoPaginaComponent],
+  imports: [CampoComponent, FormsModule],
   template: `
-    <section class="mx-auto max-w-2xl px-4 py-6">
-      <app-encabezado-pagina titulo="Configuración de sesión" subtitulo="Cómo se abren y cierran las semanas." />
-
+    <section>
       @if (cargando()) {
-        <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
+        <p class="py-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else {
-        <form (submit)="guardar($event)" class="mt-5 space-y-5">
+        <form (submit)="guardar($event)" class="space-y-4">
           <!-- Modo -->
-          <div class="tarjeta">
+          <div>
             <span class="text-sm font-bold text-slate-900 dark:text-white">Modo</span>
             <div class="mt-3 grid grid-cols-2 gap-2">
               <label
@@ -90,7 +94,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
 
           @if (modo === M.AUTOMATICO) {
             <!-- Apertura de sesión -->
-            <div class="tarjeta animate-fade-in">
+            <div class="animate-fade-in border-t border-slate-100 pt-4 dark:border-slate-800">
               <span class="text-sm font-bold text-slate-900 dark:text-white">Apertura de sesión</span>
               <div class="mt-3">
                 <span class="etiqueta-campo">Días</span>
@@ -119,7 +123,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
             </div>
 
             <!-- Cierre de sección -->
-            <div class="tarjeta animate-fade-in">
+            <div class="animate-fade-in border-t border-slate-100 pt-4 dark:border-slate-800">
               <span class="text-sm font-bold text-slate-900 dark:text-white">Cierre de sección</span>
               <div class="mt-3">
                 <span class="etiqueta-campo">Días</span>
@@ -149,7 +153,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
           }
 
           <!-- Comunes -->
-          <div class="tarjeta">
+          <div class="border-t border-slate-100 pt-4 dark:border-slate-800">
             <ui-campo etiqueta="Sesiones por sección">
               <input
                 [(ngModel)]="sesionesPorSeccion"
@@ -197,7 +201,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
     </section>
   `,
 })
-export class ConfiguracionSesionPage {
+export class BloqueSemanaComponent {
   readonly grupoId = input.required<string>();
 
   protected readonly M = ModoSesion;

@@ -74,5 +74,7 @@ test-results/
 playwright-report/
 blob-report/
 apps/e2e/test-results/
+# Paseo visual del área Tutor (herramienta de la fase-14-23 T3): se regenera.
+apps/e2e/capturas/
 apps/e2e/playwright-report/
 apps/e2e/.cache/

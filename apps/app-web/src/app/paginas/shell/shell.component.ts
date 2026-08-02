@@ -18,7 +18,6 @@ import { NotificationApiService } from '../../core/api/notification-api.service'
 import { AuthService } from '../../core/auth/auth.service';
 import { GuiaSetupService } from '../../core/guia/guia-setup.service';
 import { CampanaNotificacionesComponent } from './campana-notificaciones.component';
-import { GuiaFlotanteComponent } from './guia-flotante.component';
 import { SelectorGrupoUsuarioComponent } from './selector-grupo-usuario.component';
 
 interface ItemNav {
@@ -49,7 +48,6 @@ interface GrupoNav {
     RouterLinkActive,
     CampanaNotificacionesComponent,
     IconoComponent,
-    GuiaFlotanteComponent,
     SelectorGrupoUsuarioComponent,
   ],
   templateUrl: './shell.component.html',
@@ -86,9 +84,14 @@ export class ShellComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Menú del área Tutor agrupado por propósito (fase-14): sigue el mismo orden
-   * lógico de armado que la guía de primeros pasos, para que menú y guía
-   * "cuenten la misma historia".
+   * Menú del área Tutor (fase-14-23 T3), agrupado por LA PREGUNTA que responde
+   * cada grupo: *qué hago hoy* / *qué se puede hacer y cuánto vale* / *quiénes
+   * son* / *cómo está armado el grupo*.
+   *
+   * Antes había tres grupos y el del medio ("Sistema de puntos") mezclaba
+   * **Zonas** —que se configura una vez y no se vuelve— con **Entregas**, que
+   * se usa todas las semanas. Las tres mudanzas que arreglan eso son Entregas y
+   * Reportes hacia «Día a día», y Zonas hacia «Ajustes».
    */
   protected readonly navTutor = computed<GrupoNav[]>(() => {
     const g = this.grupoIdActivo();
@@ -105,17 +108,16 @@ export class ShellComponent implements OnInit, OnDestroy {
         items: [
           { ruta: base, etiqueta: 'Resumen', icono: 'home' },
           { ruta: `${base}/secciones/actual`, etiqueta: 'Semana actual', icono: 'calendar' },
+          { ruta: `${base}/entregas`, etiqueta: 'Entregas', icono: 'gift' },
+          { ruta: `${base}/reportes`, etiqueta: 'Reportes', icono: 'flag' },
         ],
       },
       {
-        titulo: 'Sistema de puntos',
+        titulo: 'Catálogo',
         items: [
-          { ruta: `${base}/umbrales`, etiqueta: 'Zonas', icono: 'chart' },
           { ruta: `${base}/actividades`, etiqueta: 'Actividades', icono: 'check' },
           { ruta: `${base}/conductas`, etiqueta: 'Conductas', icono: 'flag' },
           { ruta: `${base}/recompensas`, etiqueta: 'Recompensas', icono: 'gift' },
-          { ruta: `${base}/entregas`, etiqueta: 'Entregas', icono: 'check' },
-          { ruta: `${base}/configuracion-sesion`, etiqueta: 'Configuración', icono: 'cog' },
         ],
       },
       {
@@ -123,31 +125,20 @@ export class ShellComponent implements OnInit, OnDestroy {
         items: [
           { ruta: `${base}/usuarios`, etiqueta: 'Usuarios', icono: 'users' },
           { ruta: `${base}/equipos`, etiqueta: 'Equipos', icono: 'shield' },
-          { ruta: `${base}/roles`, etiqueta: 'Roles', icono: 'tag' },
-          { ruta: `${base}/reportes`, etiqueta: 'Reportes', icono: 'flag' },
           { ruta: `${base}/tutores`, etiqueta: 'Tutores', icono: 'shield', soloAdmin: true },
           { ruta: `${base}/invitaciones`, etiqueta: 'Invitaciones', icono: 'link' },
         ],
       },
+      {
+        titulo: 'Ajustes',
+        items: [
+          { ruta: `${base}/configuracion`, etiqueta: 'Configuración del grupo', icono: 'cog' },
+          { ruta: `${base}/umbrales`, etiqueta: 'Zonas', icono: 'chart' },
+          { ruta: `${base}/roles`, etiqueta: 'Roles', icono: 'tag' },
+        ],
+      },
     ];
   });
-
-  /** Ruta de la guía de primeros pasos del grupo activo. */
-  protected readonly rutaGuia = computed<string | null>(() => {
-    const g = this.grupoIdActivo();
-
-    return g ? `/grupos/${g}/guia` : null;
-  });
-
-  /** El link "Primeros pasos" se muestra hasta completar el setup del grupo. */
-  protected readonly mostrarGuia = computed(
-    () => this.grupoIdActivo() !== null && this.guia.cargado() && !this.guia.completa()
-  );
-
-  /** El widget flotante acompaña en todas las páginas menos la guía misma. */
-  protected readonly mostrarGuiaFlotante = computed(
-    () => this.mostrarGuia() && !this.urlActual().endsWith('/guia')
-  );
 
   protected readonly navUsuario: ItemNav[] = [
     { ruta: '/', etiqueta: 'Inicio', icono: 'home' },
@@ -158,8 +149,9 @@ export class ShellComponent implements OnInit, OnDestroy {
   ];
 
   constructor() {
-    // Mantiene cargado el progreso de setup del grupo activo (cacheado) para el
-    // link "Primeros pasos" del menú. Al salir del contexto de un grupo, limpia.
+    // Mantiene cargado el progreso de setup del grupo activo (cacheado) para la
+    // tarjeta «Primeros pasos» del Resumen — desde la T3 es el único lugar donde
+    // aparece. Al salir del contexto de un grupo, limpia.
     effect(() => {
       const g = this.grupoIdActivo();
 

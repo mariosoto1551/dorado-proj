@@ -10,47 +10,77 @@ import {
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 
-import type { PuntajeUsuarioDto, UsuarioDto } from '@dorado/shared-types';
-import { EstadoSeccionBadgeComponent, ZonaBadgeComponent, EstadoVacioComponent } from '@dorado/shared-ui';
+import {
+  EstadoReporte,
+  ModoSesion,
+  type EventoHistorialDto,
+  type PuntajeUsuarioDto,
+  type UmbralZonaDto,
+  type UsuarioDto,
+} from '@dorado/shared-types';
+import { EstadoSeccionBadgeComponent, ZonaBadgeComponent } from '@dorado/shared-ui';
 
 import { IconoComponent } from '../../componentes/icono.component';
+import { ActivityApiService } from '../../core/api/activity-api.service';
 import { IdentityApiService } from '../../core/api/identity-api.service';
+import { RewardsApiService } from '../../core/api/rewards-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
 import type { SeccionConSesionesResponse } from '../../core/api/api.types';
 import { GuiaSetupService } from '../../core/guia/guia-setup.service';
+import {
+  accionPrincipal,
+  progresoHaciaLaZonaSiguiente,
+  textoDePendientes,
+} from '../../core/home-grupo';
+import { formatearHora, iconoDeEvento } from './historial-sesion.util';
 
 interface FilaRanking extends PuntajeUsuarioDto {
   nombre: string;
   posicion: number;
+  /** 0–1 hacia el techo de su zona; alimenta la barra. */
+  progreso: number;
 }
 
-/** Resumen del Grupo (fase-10): estado de la Sección actual + ranking en vivo. */
+interface Pendiente {
+  texto: string;
+  destino: string[];
+}
+
+/** Cuántas marcas del día muestra el home antes de mandar al historial completo. */
+const MARCAS_EN_EL_HOME = 3;
+
+/**
+ * Home del grupo (fase-14-23 T3).
+ *
+ * Antes era el «Resumen»: la pantalla de aterrizaje mostraba, sin Sección
+ * activa, **una sola tarjeta vacía** con dos botones del mismo peso. No decía en
+ * qué día iba la semana, qué tocaba hacer, ni qué estaba esperando al Tutor.
+ *
+ * Muestra cuatro cosas, pero **con jerarquía y no en paralelo** (decisión 3 de
+ * la tanda), que es lo que hace que no pese:
+ *  1. una sola cosa grande — la semana y el botón de lo que toca ahora;
+ *  2. «te esperan» **condicional**: sin pendientes el bloque no existe, así que
+ *     el caso normal son tres bloques y no cuatro;
+ *  3. «cómo van», una FILA por persona (no una tarjeta);
+ *  4. «hoy», tres líneas con «ver todo» al historial del #18.
+ */
 @Component({
   selector: 'app-resumen-grupo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EstadoVacioComponent, RouterLink, EstadoSeccionBadgeComponent, ZonaBadgeComponent, IconoComponent],
+  imports: [RouterLink, EstadoSeccionBadgeComponent, ZonaBadgeComponent, IconoComponent],
   template: `
-    <section class="mx-auto max-w-4xl px-4 py-6">
+    <section class="mx-auto max-w-3xl px-4 py-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">Resumen del grupo</h1>
+        <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-2xl">
+          Resumen del grupo
+        </h1>
         @if (seccion(); as s) {
           <ui-estado-seccion-badge [estado]="s.estado" />
         }
       </div>
 
-      <!-- Base de puntos con la que cada participante arranca cada semana (fase-14) -->
-      @if (puntosIniciales() !== null) {
-        <a
-          [routerLink]="['/grupos', grupoId(), 'umbrales']"
-          class="mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-marca-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-marca-700"
-        >
-          <span class="h-4 w-4 text-marca-500"><app-icono nombre="chart" /></span>
-          Puntos iniciales: <span class="font-bold text-slate-900 dark:text-white">{{ puntosIniciales() }}</span>
-        </a>
-      }
-
-      <!-- Banner de primeros pasos: aparece hasta terminar de configurar el grupo -->
+      <!-- Primeros pasos: desde la T3, el ÚNICO lugar donde aparece la guía -->
       @if (guia.cargado() && !guia.completa()) {
         <a
           [routerLink]="['/grupos', grupoId(), 'guia']"
@@ -62,7 +92,7 @@ interface FilaRanking extends PuntajeUsuarioDto {
           <div class="min-w-0 flex-1">
             <p class="font-bold text-slate-900 dark:text-white">Terminá de configurar tu grupo</p>
             <p class="mt-0.5 text-sm text-slate-600 dark:text-slate-300">
-              Vas {{ guia.completados() }} de {{ guia.totalPasos }} pasos. Seguí la guía para dejarlo listo.
+              Vas {{ guia.completados() }} de {{ guia.totalPasos }} pasos.
             </p>
             <div class="mt-2 h-2 overflow-hidden rounded-full bg-marca-200/70 dark:bg-marca-900/50">
               <div
@@ -71,92 +101,140 @@ interface FilaRanking extends PuntajeUsuarioDto {
               ></div>
             </div>
           </div>
-          <span class="hidden flex-none text-marca-600 dark:text-marca-400 sm:block">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
-          </span>
         </a>
       }
 
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
-      } @else if (!seccion()) {
-        <ui-estado-vacio class="mt-6">
-          <p class="text-sm text-slate-500 dark:text-slate-400">
-            No hay una Sección activa todavía. Configurá la sesión e iniciá la primera semana.
-          </p>
-          <div class="mt-4 flex flex-wrap justify-center gap-2">
-            <a
-              [routerLink]="['/grupos', grupoId(), 'configuracion-sesion']"
-              class="boton boton-primario"
-            >
-              Configurar sesión
-            </a>
-            <a
-              [routerLink]="['/grupos', grupoId(), 'secciones', 'actual']"
-              class="boton boton-neutro"
-            >
-              Panel de la semana
-            </a>
-          </div>
-        </ui-estado-vacio>
       } @else {
-        <!-- Sección activa -->
-        <div class="mt-4 grid gap-3 sm:grid-cols-3">
-          <div class="tarjeta">
-            <p class="text-xs font-medium text-slate-400 dark:text-slate-500">Sección</p>
-            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">#{{ seccion()!.numero }}</p>
-          </div>
-          <div class="tarjeta">
-            <p class="text-xs font-medium text-slate-400 dark:text-slate-500">Sesiones</p>
-            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ seccion()!.sesiones.length }}</p>
-          </div>
-          <div class="tarjeta">
-            <p class="text-xs font-medium text-slate-400 dark:text-slate-500">Participantes</p>
-            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ ranking().length }}</p>
-          </div>
+        <!-- ===== 1. La semana (lo único grande) ===== -->
+        <div class="mt-4 tarjeta">
+          @if (seccion(); as s) {
+            <p class="text-sm font-bold text-slate-900 dark:text-white">
+              Semana {{ s.numero }} ·
+              {{ s.sesiones.length }} {{ s.sesiones.length === 1 ? 'sesión' : 'sesiones' }}
+            </p>
+            <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {{ ranking().length }}
+              {{ ranking().length === 1 ? 'participante' : 'participantes' }}
+              @if (puntosIniciales() !== null) {
+                · arrancan con {{ puntosIniciales() }}
+              }
+            </p>
+          } @else {
+            <p class="text-sm font-bold text-slate-900 dark:text-white">
+              Todavía no arrancó ninguna semana
+            </p>
+            <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Cuando inicies la primera, acá vas a ver en qué día va y qué falta.
+            </p>
+          }
+
+          <a
+            [routerLink]="['/grupos', grupoId(), ...accion().destino]"
+            class="mt-4 w-full boton boton-primario py-3"
+          >
+            {{ accion().etiqueta }}
+          </a>
         </div>
 
-        <!-- Ranking -->
-        <div class="mt-5 overflow-hidden tarjeta p-0">
-          <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-            <h2 class="text-sm font-bold text-slate-900 dark:text-white">
-              Ranking {{ seccion()!.estado === 'ABIERTA' ? '(preview)' : '(definitivo)' }}
-            </h2>
-            @if (seccion()!.estado !== 'ABIERTA') {
-              <a
-                [routerLink]="['/grupos', grupoId(), 'secciones', seccion()!.id, 'evaluacion']"
-                class="text-xs font-semibold text-marca-600 hover:text-marca-700 dark:text-marca-400 dark:hover:text-marca-300"
-              >
-                Ir a evaluación →
-              </a>
-            }
+        <!-- ===== 2. Te esperan (SOLO si hay algo) ===== -->
+        @if (pendientes().length > 0) {
+          <div class="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 animate-fade-in dark:border-amber-500/30 dark:bg-amber-500/10">
+            <p class="text-sm font-bold text-amber-800 dark:text-amber-200">
+              ⚠ {{ textoPendientes() }}
+            </p>
+            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              @for (p of pendientes(); track p.texto) {
+                <a
+                  [routerLink]="['/grupos', grupoId(), ...p.destino]"
+                  class="text-sm font-semibold text-amber-800 underline-offset-2 hover:underline dark:text-amber-200"
+                >
+                  {{ p.texto }}
+                </a>
+              }
+            </div>
           </div>
+        }
 
-          @if (ranking().length === 0) {
-            <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Sin participantes aún.</p>
-          } @else {
-            <ul class="divide-y divide-slate-50 dark:divide-slate-800">
-              @for (fila of ranking(); track fila.usuarioId) {
-                <li class="flex items-center gap-3 px-4 py-3" [class.opacity-50]="fila.descalificado">
-                  <span
-                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold"
-                    [class]="fila.posicion <= 3 ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-                  >
-                    {{ fila.posicion }}
-                  </span>
-                  <span class="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-100">
+        <!-- ===== 3. Cómo van (una fila por persona) ===== -->
+        @if (ranking().length > 0) {
+          <h2 class="mt-6 text-sm font-bold text-slate-900 dark:text-white">Cómo van</h2>
+          <ul class="mt-2 space-y-1.5">
+            @for (fila of ranking(); track fila.usuarioId) {
+              <li
+                class="flex items-center gap-3 tarjeta px-4 py-2.5"
+                [class.opacity-50]="fila.descalificado"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
                     {{ fila.nombre }}
                     @if (fila.descalificado) {
-                      <span class="ml-1 text-xs font-normal text-red-500 dark:text-red-400">(descalificado)</span>
+                      <span class="text-xs font-normal text-red-500 dark:text-red-400">
+                        (descalificado)
+                      </span>
                     }
                   </span>
+                  <span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    <span
+                      class="block h-full rounded-full transition-all duration-700"
+                      [style.width.%]="fila.progreso * 100"
+                      [style.background-color]="fila.zona?.colorHex ?? '#94a3b8'"
+                    ></span>
+                  </span>
+                </span>
+                @if (fila.zona) {
                   <ui-zona-badge [zona]="fila.zona" tamano="sm" />
-                  <span class="w-14 text-right text-sm font-bold text-slate-900 dark:text-white">{{ fila.puntajeTotal }}</span>
-                </li>
-              }
-            </ul>
+                }
+                <span class="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-slate-900 dark:text-white">
+                  {{ fila.puntajeTotal }}
+                </span>
+              </li>
+            }
+          </ul>
+        }
+
+        <!-- ===== 4. Hoy (tres líneas) ===== -->
+        <div class="mt-6 flex items-baseline justify-between gap-3">
+          <h2 class="text-sm font-bold text-slate-900 dark:text-white">Hoy</h2>
+          @if (marcas().length > 0) {
+            <a
+              [routerLink]="['/grupos', grupoId(), 'secciones', 'actual']"
+              class="text-xs font-semibold text-marca-600 hover:underline dark:text-marca-300"
+            >
+              ver todo →
+            </a>
           }
         </div>
+
+        @if (marcas().length === 0) {
+          <p class="mt-2 text-sm text-slate-400 dark:text-slate-500">
+            Todavía no se registró nada hoy.
+          </p>
+        } @else {
+          <ul class="mt-2 space-y-1">
+            @for (e of marcas(); track e.id) {
+              <li class="flex items-baseline gap-2.5 text-sm">
+                <span class="font-mono text-xs text-slate-400 dark:text-slate-500">
+                  {{ hora(e) }}
+                </span>
+                <span aria-hidden="true">{{ icono(e) }}</span>
+                <span class="font-semibold text-slate-800 dark:text-slate-100">
+                  {{ e.usuarioNombre ?? e.equipoNombre }}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-slate-500 dark:text-slate-400">
+                  {{ e.itemNombre }}
+                </span>
+                <span
+                  class="shrink-0 font-bold tabular-nums"
+                  [class]="e.puntos < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'"
+                >
+                  {{ e.puntos > 0 ? '+' : '' }}{{ e.puntos }}
+                </span>
+              </li>
+            }
+          </ul>
+        }
       }
     </section>
   `,
@@ -169,6 +247,10 @@ export class ResumenGrupoPage {
   private readonly scoring = inject(ScoringApiService);
 
   private readonly identity = inject(IdentityApiService);
+
+  private readonly activity = inject(ActivityApiService);
+
+  private readonly rewards = inject(RewardsApiService);
 
   protected readonly guia = inject(GuiaSetupService);
 
@@ -183,8 +265,21 @@ export class ResumenGrupoPage {
 
   private readonly usuarios = signal<UsuarioDto[]>([]);
 
+  private readonly umbrales = signal<UmbralZonaDto[]>([]);
+
+  private readonly esManual = signal(true);
+
+  private readonly eventos = signal<EventoHistorialDto[]>([]);
+
+  private readonly timezone = signal('UTC');
+
+  private readonly reportesPendientes = signal(0);
+
+  private readonly entregasPendientes = signal(0);
+
   protected readonly ranking = computed<FilaRanking[]>(() => {
     const mapa = new Map(this.usuarios().map((u) => [u.id, u.nombre]));
+    const umbrales = this.umbrales();
 
     return [...this.puntajes()]
       .sort((a, b) => b.puntajeTotal - a.puntajeTotal)
@@ -192,17 +287,63 @@ export class ResumenGrupoPage {
         ...p,
         nombre: mapa.get(p.usuarioId) ?? 'Usuario',
         posicion: i + 1,
+        progreso: progresoHaciaLaZonaSiguiente(p.puntajeTotal, umbrales),
       }));
   });
+
+  protected readonly accion = computed(() =>
+    accionPrincipal({
+      seccion: this.seccion(),
+      esManual: this.esManual(),
+    })
+  );
+
+  /** Lo que espera al Tutor. Vacío = el bloque no se renderiza. */
+  protected readonly pendientes = computed<Pendiente[]>(() => {
+    const lista: Pendiente[] = [];
+    const reportes = this.reportesPendientes();
+    const entregas = this.entregasPendientes();
+
+    if (reportes > 0) {
+      lista.push({
+        texto: `${reportes} reporte${reportes === 1 ? '' : 's'} por aprobar`,
+        destino: ['reportes'],
+      });
+    }
+
+    if (entregas > 0) {
+      lista.push({
+        texto: `${entregas} entrega${entregas === 1 ? '' : 's'} por dar`,
+        destino: ['entregas'],
+      });
+    }
+
+    return lista;
+  });
+
+  protected readonly textoPendientes = computed(() =>
+    textoDePendientes(this.reportesPendientes() + this.entregasPendientes())
+  );
+
+  /** Las últimas marcas del día, acotadas: el historial completo vive en el panel. */
+  protected readonly marcas = computed(() => this.eventos().slice(0, MARCAS_EN_EL_HOME));
 
   constructor() {
     effect(() => {
       const g = this.grupoId();
       this.cargar(g);
-      // Refresco forzado del progreso de setup: el Resumen es el "home" del
-      // grupo, punto natural para reevaluar qué falta configurar.
+      // Refresco forzado del progreso de setup: el home es el punto natural
+      // para reevaluar qué falta configurar.
       this.guia.cargar(g, true);
     });
+  }
+
+  protected hora(evento: EventoHistorialDto): string {
+    return formatearHora(evento.ocurridoEn, this.timezone());
+  }
+
+  protected icono(evento: EventoHistorialDto): string {
+    return iconoDeEvento(evento);
   }
 
   private cargar(grupoId: string): void {
@@ -210,9 +351,41 @@ export class ResumenGrupoPage {
     this.seccion.set(null);
     this.puntajes.set([]);
     this.puntosIniciales.set(null);
+    this.eventos.set([]);
+    this.reportesPendientes.set(0);
+    this.entregasPendientes.set(0);
 
+    // Las cuatro secundarias son best-effort: si una falla, el home igual sirve.
     this.scoring.obtenerConfiguracion(grupoId).subscribe({
       next: (config) => this.puntosIniciales.set(config.puntosIniciales),
+      error: () => undefined,
+    });
+
+    this.scoring.listarUmbrales(grupoId).subscribe({
+      next: (u) => this.umbrales.set(u),
+      error: () => undefined,
+    });
+
+    this.session.obtenerConfiguracion(grupoId).subscribe({
+      next: (c) => this.esManual.set(c.modo === ModoSesion.MANUAL),
+      error: () => undefined,
+    });
+
+    this.activity.historial(grupoId, { limite: MARCAS_EN_EL_HOME }).subscribe({
+      next: (h) => {
+        this.eventos.set(h.eventos);
+        this.timezone.set(h.timezoneGrupo);
+      },
+      error: () => undefined,
+    });
+
+    this.activity.listarReportes(grupoId, EstadoReporte.PENDIENTE).subscribe({
+      next: (r) => this.reportesPendientes.set(r.length),
+      error: () => undefined,
+    });
+
+    this.rewards.pendientesDeEntrega(grupoId).subscribe({
+      next: (p) => this.entregasPendientes.set(p.length),
       error: () => undefined,
     });
 

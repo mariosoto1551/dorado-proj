@@ -898,3 +898,52 @@ Y además, **la suite E2E completa 34/34 en dos corridas seguidas** contra el st
 3. **Cuidado al meter un `<ui-modal>` nuevo**: va **siempre** con su `@if` adentro. Sin él, el estado del formulario sobrevive al cierre (ver la regresión de arriba) y no lo va a detectar ningún unit test.
 4. **La T3 (navegación) hereda terreno parejo**, que era el punto de hacer la T2 antes: la pantalla de configuración del grupo que propone la T3 se arma con `ui-modal`, `ui-campo` y las clases, sin inventar nada.
 5. **Fuera de alcance a propósito**: el área Usuario (decisión 4 de la tanda) y los patrones con una sola forma de uso (pestañas, chips de filtro, interruptores). Si la T4 los toca en más de una pantalla, ahí conviene bajarlos a `shared-ui`.
+
+## Ítem 23 · Tanda 3: Navegación del área Tutor
+
+- **Estado**: EN_PROGRESO (el ítem es por tandas; **la T3 está completa y verificada**). 70/70 tests de app-web (12 nuevos), 18/18 de shared-ui, lint y build verdes, y la **suite E2E completa 37/37 en dos corridas seguidas** (3 de ellos nuevos). **Cero backend**, igual que la T1 y la T2.
+- **Fecha**: 2026-08-02 / **Spec**: `docs/phases/fase-14-23-claridad-del-area-del-tutor.md` (sección «Tanda 3», escrita en esta sesión) / **Commit**: — (branch `fase-14-tienda-de-monedas`)
+- **Origen**: el síntoma 2 de los tres que José reportó el 2026-08-01 —«no encontrar dónde está cada cosa»—, relevado esta vez **mirando las 16 pantallas**.
+
+### La herramienta que hizo falta para poder decidir
+
+Las tandas 1 y 2 se diagnosticaron leyendo código. La T3 es sobre *dónde está cada cosa*, y eso no se ve leyendo archivos sueltos: hay que mirar el área entera de una sentada. Se escribió `apps/e2e/src/capturas-tutor.e2e.ts` —gated por `E2E_CAPTURAS=1`, **no verifica nada**— que arma un grupo cargado, recorre las 16 pantallas y deja una captura de cada una. Sirvió para las dos cosas de esta sesión: **cerrar el pendiente 1 de la T2** (el paseo visual que había quedado sin hacer) y relevar la T3 sobre hechos y no sobre memoria.
+
+Dos cosas que salieron de mirar y no se habrían visto de otro modo:
+- **«Primeros pasos» aparecía TRES veces en la misma pantalla**: ítem del menú, tarjeta del Resumen y píldora flotante, las tres al mismo destino.
+- **El Resumen, sin Sección activa, era una sola tarjeta vacía** con dos botones del mismo peso («Configurar sesión» y «Panel de la semana»), ninguno de los cuales era claramente el siguiente paso.
+
+Y una que la herramienta **descartó**: el contador de la guía parecía inconsistente entre pantallas (3/6 en una, 4/6 en otra). Al capturar todo contra la misma organización quedó claro que eran dos orgs distintas de dos corridas. No se reportó como hallazgo.
+
+### El diagnóstico
+
+1. **La configuración vivía en seis lugares y tres no tenían pantalla propia**: modo de recompensas (arriba del catálogo de `/recompensas`), plan del día y contenido de los integrantes (los dos arriba del catálogo de `/actividades`, ocupando el primer tercio de una pantalla a la que se entra a ver otra cosa). Y **ninguno de los seis decía en qué estado estaban los otros cinco**.
+2. **El menú mezclaba lo diario con lo que se define una vez**: el grupo «Sistema de puntos» juntaba **Zonas** —se configura al empezar y no se vuelve— con **Entregas**, que se usa todas las semanas.
+
+### Decisiones de José en esta sesión
+1. **Hub que edita lo chico y linkea lo que es CRUD**: los cuatro interruptores se editan en `/configuracion`; Zonas y Roles siguen siendo pantallas propias y desde el hub se ve su estado. Sobre «todo adentro» (metía dos listas con modales en una pantalla ya larga) y «índice de solo lectura» (no sacaba los interruptores de donde estaban escondidos).
+2. **Menú de cuatro grupos** (*Día a día* / *Catálogo* / *Gente* / *Ajustes*), sobre el corte binario «usar/configurar» y sobre dejarlo como estaba.
+3. **El home muestra las cuatro cosas**, y José preguntó explícitamente si no era demasiado. La respuesta de diseño —que aprobó viendo el boceto— es **jerarquía, no paralelo**: una sola cosa grande, «te esperan» **condicional** (sin pendientes el bloque no existe y quedan tres), «Hoy» en tres líneas con «ver todo», y «cómo van» como **fila** por persona y no tarjeta.
+
+### Decisiones de implementación que importan
+1. **Los bloques del hub agrupan por LA PREGUNTA que responden, no por el servicio que los guarda.** «Qué se gana» cruza rewards y scoring; «qué ve el integrante» cruza activity e identity. Al tutor esa frontera no le significa nada, y agrupar por servicio habría reproducido el problema que la tanda viene a resolver.
+2. **`/configuracion-sesion` redirige en vez de desaparecer.** Es la única ruta del área que alguien pudo haber guardado, y además el «Configurar sesión» del Resumen apuntaba ahí.
+3. **Las pantallas de catálogo conservan una línea de estado que linkea al hub** (`Plan del día: apagado · Contenido: restrictivo — Ajustes →`). Mudar un control sin dejar rastro convierte «no sé dónde está» en «desapareció», que es peor.
+4. **`actividades.page.ts` sigue leyendo la config aunque ya no la edite**: el modo habilita la pestaña «Propuestas» y el plan del día habilita «siempre a la vista» en el modal. Se fue el formulario, no la lectura.
+5. **`ModoRecompensasComponent` se mudó de padre sin tocarlo** —ya era controlado, con su propio diálogo de confirmación— salvo por sacarle su tarjeta: adentro del bloque del hub daba borde sobre borde.
+6. **La acción principal del home es UNA sola** y sale de `accionPrincipal()` en `core/home-grupo.ts`, testeada aparte: sin Sección «Iniciar la primera semana», en EVALUACION «Ir a evaluación», en manual sin sesión abierta «Abrir la sesión de hoy», y si no «Registrar lo de hoy». **En automático no ofrece abrir la sesión**, porque ahí la abre el scheduler y el botón mentiría.
+
+### Tests nuevos (12 unit + 3 E2E)
+- `core/home-grupo.spec.ts` (12, nuevo): los seis caminos de `accionPrincipal` —incluido el que distingue manual de automático—, el progreso hacia la zona siguiente (piso, techo, **la zona sin tope que se muestra llena y no a medias**, sin umbrales, y un puntaje fuera de todo tramo) y la concordancia singular/plural de los pendientes.
+- `apps/e2e/src/navegacion-tutor.e2e.ts` (3, nuevo): el hub mostrando las seis y guardando desde ahí + la redirección de la ruta vieja; el catálogo sin configuración arriba pero con el rastro que linkea; y el menú de cuatro grupos con la guía **una sola vez** y el home ofreciendo una sola acción.
+
+### Peleas con el entorno
+- **El home es ahora la pantalla más cara del área: nueve llamadas** (sección, usuarios, puntajes, umbrales, config de scoring, config de sesión, historial, reportes y entregas). Con un test de E2E por criterio, la cuarta carga se pasaba de las **100 req/min** del Gateway, el 429 le pegaba al refresh silencioso y la pestaña volvía al login. Se resolvió **agrupando menú y home en un solo caso**, que es la misma lección que la T1 ya había dejado escrita. Queda anotado como deuda: si el home se vuelve más pesado, conviene un endpoint de resumen en vez de nueve llamadas.
+- La herramienta de capturas también pega contra los dos límites: **una pausa de ventana cada 6 pantallas** y **reintento del login** (`/auth/login` tiene el límite estricto de 10/min, y correrla varias veces seguidas mientras se la ajusta lo agota).
+- **Un backtick dentro de un comentario HTML** en un template literal de Angular corta el template y produce `TS: template must be a string / Value could not be determined statically`, más warnings falsos de «componente importado y no usado». El síntoma no se parece a la causa.
+
+### Qué falta / verificar la próxima sesión
+1. **El home con Sección activa no se vio en el navegador**: las capturas y la E2E corren sin Sección abierta, así que «Cómo van» con sus barras y «te esperan» con pendientes reales se verificaron por unit test y contrato, no mirando. Se cubre cuando la T4 vuelva sobre el panel operativo.
+2. **Las nueve llamadas del home** (punto de arriba). No es un problema hoy —el piloto es un grupo chico— pero es lo primero que va a doler si crece.
+3. **`guia-flotante.component.ts` se eliminó**: si en algún momento se quiere volver a un recordatorio flotante, conviene que **no duplique** algo que ya está en pantalla.
+4. **Siguiente: la T4** (pantalla por pantalla, de la más recargada a la más simple). El orden que fija la spec arranca por Actividades, que **acaba de bajar de 1399 a ~1290 líneas** al mudarse los dos bloques de configuración — parte del trabajo de la T4 ya está hecho.

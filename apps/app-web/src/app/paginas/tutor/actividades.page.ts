@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { type Observable, of, switchMap } from 'rxjs';
 
 import {
@@ -107,12 +108,16 @@ const FORM_VACIO: FormActividad = {
 @Component({
   selector: 'app-actividades',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, 
+  imports: [
     FormsModule,
+    RouterLink,
     EncabezadoPaginaComponent,
     IconoComponent,
     ConfirmDialogComponent,
     TurnosActividadComponent,
+    ModalComponent,
+    CampoComponent,
+    EstadoVacioComponent,
   ],
   template: `
     <section class="mx-auto max-w-4xl px-4 py-6">
@@ -127,127 +132,18 @@ const FORM_VACIO: FormActividad = {
         </button>
       </app-encabezado-pagina>
 
-      <!-- ===== fase-14-10: contenido creado por los integrantes ===== -->
-      <div class="mt-5 overflow-hidden tarjeta p-0">
-        <button
-          type="button"
-          (click)="configAbierta.set(!configAbierta())"
-          class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
-        >
-          <span class="min-w-0">
-            <span class="block text-sm font-semibold text-slate-900 dark:text-white">
-              Contenido de los integrantes
-            </span>
-            <span class="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
-              {{ resumenModo() }}
-            </span>
-          </span>
-          <span
-            class="h-4 w-4 shrink-0 text-slate-400 transition-transform"
-            [class.rotate-90]="configAbierta()"
-          >
-            <app-icono nombre="chevron" />
-          </span>
-        </button>
-
-        @if (configAbierta()) {
-          <div class="border-t border-slate-100 p-4 animate-fade-in dark:border-slate-800">
-            <div class="space-y-2">
-              @for (opcion of OPCIONES_MODO; track opcion.modo) {
-                <label
-                  class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition"
-                  [class]="
-                    modoElegido() === opcion.modo
-                      ? 'border-marca-500 bg-marca-50 dark:border-marca-400 dark:bg-marca-900/20'
-                      : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60'
-                  "
-                >
-                  <input
-                    type="radio"
-                    name="modoContenido"
-                    [value]="opcion.modo"
-                    [checked]="modoElegido() === opcion.modo"
-                    (change)="modoElegido.set(opcion.modo)"
-                    class="mt-0.5 h-4 w-4 shrink-0 border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
-                  />
-                  <span class="min-w-0">
-                    <span class="block text-sm font-semibold text-slate-800 dark:text-slate-100">
-                      {{ opcion.titulo }}
-                    </span>
-                    <span class="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                      {{ opcion.descripcion }}
-                    </span>
-                  </span>
-                </label>
-              }
-            </div>
-
-            @if (modoElegido() !== MC.RESTRICTIVO) {
-              <div class="mt-3 grid grid-cols-2 gap-3 animate-fade-in">
-                <ui-campo etiqueta="Máx. puntos por actividad">
-                  <input
-                    [(ngModel)]="formConfig.maxPuntosActividadUsuario"
-                    name="maxPuntos"
-                    type="number"
-                    min="1"
-                    max="100"
-                    class="campo"
-                  />
-                </ui-campo>
-                <ui-campo etiqueta="Máx. activas por integrante">
-                  <input
-                    [(ngModel)]="formConfig.maxActividadesActivasPorUsuario"
-                    name="maxActivas"
-                    type="number"
-                    min="1"
-                    max="50"
-                    class="campo"
-                  />
-                </ui-campo>
-              </div>
-            }
-
-            <p class="mt-3 text-xs text-slate-400 dark:text-slate-500">
-              Cambiar el modo no toca lo que ya crearon: las actividades activas siguen activas y
-              las propuestas pendientes se pueden seguir aprobando.
-            </p>
-
-            <div class="mt-3 flex justify-end">
-              <button
-                type="button"
-                (click)="guardarConfig()"
-                [disabled]="guardandoConfig()"
-                class="boton boton-primario"
-              >
-                {{ guardandoConfig() ? 'Guardando…' : 'Guardar' }}
-              </button>
-            </div>
-          </div>
-        }
-      </div>
-
-      <!-- ===== fase-14-17: plan del día ===== -->
-      <div class="mt-3 tarjeta">
-        <label class="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            [checked]="planDelDiaActivo()"
-            [disabled]="guardandoPlan()"
-            (change)="alternarPlanDelDia(!planDelDiaActivo())"
-            class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 disabled:opacity-50 dark:border-slate-600"
-          />
-          <span class="min-w-0">
-            <span class="block text-sm font-semibold text-slate-900 dark:text-white">
-              Plan del día
-            </span>
-            <span class="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-              Las opcionales dejan de aparecer en la lista del integrante hasta que él las elige
-              (cada día arranca de cero). Las obligatorias, las de equipo y las que marques
-              «siempre a la vista» se ven igual.
-            </span>
-          </span>
-        </label>
-      </div>
+      <!-- fase-14-23 T3: los dos interruptores que vivían acá (contenido de los
+           integrantes y plan del día) se mudaron al hub de configuración. Queda
+           la línea de estado para que quien los buscaba acá no se quede sin
+           rastro. -->
+      <a
+        [routerLink]="['/grupos', grupoId(), 'configuracion']"
+        class="mt-4 flex items-center gap-2 text-xs text-slate-500 transition hover:text-marca-600 dark:text-slate-400 dark:hover:text-marca-300"
+      >
+        <span class="h-3.5 w-3.5 shrink-0"><app-icono nombre="cog" /></span>
+        <span class="min-w-0 truncate">{{ resumenAjustes() }}</span>
+        <span class="shrink-0 font-semibold">Ajustes →</span>
+      </a>
 
       <!-- ===== Pestañas ===== -->
       <div class="mt-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
@@ -286,8 +182,12 @@ const FORM_VACIO: FormActividad = {
         @if (propuestas().length === 0) {
           <ui-estado-vacio class="mt-6">
             @if (modoActual() === MC.RESTRICTIVO) {
-              Los integrantes no pueden crear actividades todavía. Cambiá el modo arriba para
-              habilitarlo.
+              Los integrantes no pueden crear actividades todavía. Se habilita en
+              <a
+                [routerLink]="['/grupos', grupoId(), 'configuracion']"
+                class="font-semibold text-marca-600 hover:underline dark:text-marca-300"
+                >Configuración del grupo</a
+              >.
             } @else {
               Nadie propuso nada por ahora.
             }
@@ -838,16 +738,8 @@ export class ActividadesPage {
   // ---- fase-14-10 ----
   protected readonly pestania = signal<'grupo' | 'propuestas'>('grupo');
 
-  protected readonly configAbierta = signal(false);
-
-  protected readonly guardandoConfig = signal(false);
-
   /** Modo guardado en el servidor (para los textos), separado del elegido en el form. */
   protected readonly modoActual = signal<ModoCreacionContenidoUsuario>(
-    ModoCreacionContenidoUsuario.RESTRICTIVO
-  );
-
-  protected readonly modoElegido = signal<ModoCreacionContenidoUsuario>(
     ModoCreacionContenidoUsuario.RESTRICTIVO
   );
 
@@ -875,8 +767,6 @@ export class ActividadesPage {
   // ---- fase-14-17: plan del día ----
   protected readonly planDelDiaActivo = signal(false);
 
-  protected readonly guardandoPlan = signal(false);
-
   protected readonly propuestas = signal<PropuestaActividadDto[]>([]);
 
   protected readonly pendientes = computed(() =>
@@ -889,11 +779,6 @@ export class ActividadesPage {
   protected readonly rechazando = signal<string | null>(null);
 
   protected motivoRechazo = '';
-
-  protected formConfig = {
-    maxPuntosActividadUsuario: 5,
-    maxActividadesActivasPorUsuario: 5,
-  };
 
   private readonly nombresPorUsuario = signal<Record<string, string>>({});
 
@@ -916,10 +801,18 @@ export class ActividadesPage {
 
   // ---- fase-14-10: contenido de los integrantes ----
 
-  protected resumenModo(): string {
+  /**
+   * fase-14-23 T3: los dos ajustes que definen qué ve el integrante ya no se
+   * editan acá (se mudaron al hub), pero SÍ deciden qué muestra esta pantalla —
+   * el modo habilita la pestaña «Propuestas» y el plan del día habilita
+   * «siempre a la vista» en el modal. Se sigue leyendo la config y se resume en
+   * una línea, para que quien los buscaba acá tenga por dónde seguir.
+   */
+  protected resumenAjustes(): string {
     const opcion = OPCIONES_MODO.find((o) => o.modo === this.modoActual());
+    const plan = this.planDelDiaActivo() ? 'activado' : 'apagado';
 
-    return opcion ? `${opcion.titulo} — ${opcion.descripcion}` : '';
+    return `Plan del día: ${plan} · Contenido de los integrantes: ${opcion?.titulo ?? '—'}`;
   }
 
   /** Nombre del integrante autor; su id como fallback si todavía no cargó. */
@@ -943,58 +836,6 @@ export class ActividadesPage {
     return p.estado === EstadoPropuesta.RECHAZADA
       ? 'text-red-600 dark:text-red-400'
       : 'text-marca-700 dark:text-marca-300';
-  }
-
-  protected guardarConfig(): void {
-    this.guardandoConfig.set(true);
-
-    this.api
-      .actualizarConfiguracionContenido(this.grupoId(), {
-        modoCreacionUsuario: this.modoElegido(),
-        maxPuntosActividadUsuario: Number(this.formConfig.maxPuntosActividadUsuario),
-        maxActividadesActivasPorUsuario: Number(
-          this.formConfig.maxActividadesActivasPorUsuario
-        ),
-      })
-      .subscribe({
-        next: (config) => {
-          this.aplicarConfig(config);
-          this.guardandoConfig.set(false);
-          this.toasts.exito('Configuración guardada.');
-        },
-        error: (e) => {
-          this.toasts.error(mensajeDeError(e));
-          this.guardandoConfig.set(false);
-        },
-      });
-  }
-
-  /**
-   * fase-14-17: enciende/apaga el plan del día del grupo. Guarda al instante (es
-   * un solo interruptor, no un formulario) y revierte el switch si falla.
-   */
-  protected alternarPlanDelDia(activo: boolean): void {
-    this.guardandoPlan.set(true);
-    this.planDelDiaActivo.set(activo);
-
-    this.api
-      .actualizarConfiguracionContenido(this.grupoId(), { planDelDiaActivo: activo })
-      .subscribe({
-        next: (config) => {
-          this.aplicarConfig(config);
-          this.guardandoPlan.set(false);
-          this.toasts.exito(
-            activo
-              ? 'Plan del día activado: cada integrante elige sus opcionales.'
-              : 'Plan del día desactivado: vuelven a verse todas.'
-          );
-        },
-        error: (e) => {
-          this.planDelDiaActivo.set(!activo);
-          this.toasts.error(mensajeDeError(e));
-          this.guardandoPlan.set(false);
-        },
-      });
   }
 
   protected aprobar(p: PropuestaActividadDto): void {
@@ -1349,11 +1190,6 @@ export class ActividadesPage {
 
   private aplicarConfig(config: ConfiguracionContenidoGrupoDto): void {
     this.modoActual.set(config.modoCreacionUsuario);
-    this.modoElegido.set(config.modoCreacionUsuario);
     this.planDelDiaActivo.set(config.planDelDiaActivo);
-    this.formConfig = {
-      maxPuntosActividadUsuario: config.maxPuntosActividadUsuario,
-      maxActividadesActivasPorUsuario: config.maxActividadesActivasPorUsuario,
-    };
   }
 }

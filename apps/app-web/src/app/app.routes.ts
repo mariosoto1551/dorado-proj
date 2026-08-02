@@ -130,12 +130,17 @@ export const appRoutes: Route[] = [
               import('./paginas/tutor/tutores.page').then((m) => m.TutoresPage),
           },
           {
-            path: 'configuracion-sesion',
+            path: 'configuracion',
             loadComponent: () =>
-              import('./paginas/tutor/configuracion-sesion.page').then(
-                (m) => m.ConfiguracionSesionPage
+              import('./paginas/tutor/configuracion/configuracion-grupo.page').then(
+                (m) => m.ConfiguracionGrupoPage
               ),
           },
+          // fase-14-23 T3: la config de sesión dejó de ser pantalla y pasó a ser
+          // el primer bloque del hub. La ruta vieja se conserva redirigiendo
+          // para no romper enlaces guardados ni el «Configurar sesión» del
+          // Resumen.
+          { path: 'configuracion-sesion', redirectTo: 'configuracion', pathMatch: 'full' },
           {
             path: 'secciones/actual',
             loadComponent: () =>

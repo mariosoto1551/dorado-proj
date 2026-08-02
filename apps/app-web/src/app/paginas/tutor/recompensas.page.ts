@@ -7,15 +7,16 @@ import {
   input,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { ModoRecompensas, type ConfiguracionRecompensasGrupoDto } from '@dorado/shared-types';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { IconoComponent } from '../../componentes/icono.component';
 import { RewardsApiService } from '../../core/api/rewards-api.service';
 import { BilleterasComponent } from './recompensas/billeteras.component';
 import { BolsasComponent } from './recompensas/bolsas.component';
 import { CatalogoItemsComponent } from './recompensas/catalogo-items.component';
-import { ModoRecompensasComponent } from './recompensas/modo-recompensas.component';
 import { ProductosComponent } from './recompensas/productos.component';
 import { RendimientosComponent } from './recompensas/rendimientos.component';
 
@@ -35,8 +36,9 @@ type Pestana = 'CATALOGO' | 'RENDIMIENTO' | 'BOLSAS' | 'TIENDA' | 'BILLETERAS';
   selector: 'app-recompensas',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    RouterLink,
     EncabezadoPaginaComponent,
-    ModoRecompensasComponent,
+    IconoComponent,
     CatalogoItemsComponent,
     RendimientosComponent,
     BolsasComponent,
@@ -51,13 +53,22 @@ type Pestana = 'CATALOGO' | 'RENDIMIENTO' | 'BOLSAS' | 'TIENDA' | 'BILLETERAS';
       />
 
       @if (config(); as c) {
-        <div class="mt-4">
-          <app-modo-recompensas
-            [grupoId]="grupoId()"
-            [config]="c"
-            (cambiado)="config.set($event)"
-          />
-        </div>
+        <!-- fase-14-23 T3: el interruptor de modo se mudó al hub de
+             configuración; acá queda su estado, que es lo que cambia el
+             significado de todo el catálogo de abajo. -->
+        <a
+          [routerLink]="['/grupos', grupoId(), 'configuracion']"
+          class="mt-4 flex items-center gap-2 text-xs text-slate-500 transition hover:text-marca-600 dark:text-slate-400 dark:hover:text-marca-300"
+        >
+          <span class="h-3.5 w-3.5 shrink-0"><app-icono nombre="cog" /></span>
+          <span class="min-w-0 truncate">
+            Modo: {{ c.modo === 'TIENDA' ? 'Tienda' : 'Premio directo' }}
+            @if (c.modoPendiente) {
+              · cambia a {{ c.modoPendiente }} la semana que viene
+            }
+          </span>
+          <span class="shrink-0 font-semibold">Ajustes →</span>
+        </a>
 
         @if (pestanas().length > 1) {
           <nav class="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800">
