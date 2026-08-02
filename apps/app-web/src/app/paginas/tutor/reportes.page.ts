@@ -16,12 +16,13 @@ import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { mensajeDeError } from '../../core/api/errores';
+import { EstadoVacioComponent } from '@dorado/shared-ui';
 
 /** Bandeja de reportes del jefe de equipo (fase-14-09): aprobar / rechazar. */
 @Component({
   selector: 'app-reportes',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EncabezadoPaginaComponent],
+  imports: [EstadoVacioComponent, EncabezadoPaginaComponent],
   template: `
     <section class="mx-auto max-w-2xl px-4 py-6">
       <app-encabezado-pagina
@@ -36,13 +37,13 @@ import { mensajeDeError } from '../../core/api/errores';
           Pendientes ({{ pendientes().length }})
         </h2>
         @if (pendientes().length === 0) {
-          <div class="mt-3 rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+          <ui-estado-vacio class="mt-3">
             No hay reportes pendientes.
-          </div>
+          </ui-estado-vacio>
         } @else {
           <ul class="mt-3 space-y-3">
             @for (r of pendientes(); track r.id) {
-              <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <li class="tarjeta">
                 <div class="flex items-start gap-3">
                   <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg dark:bg-slate-800">🙂</span>
                   <div class="min-w-0 flex-1">

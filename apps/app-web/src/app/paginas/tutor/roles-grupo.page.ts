@@ -9,7 +9,12 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import type { RolGrupoDto } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import {
+  CampoComponent,
+  ConfirmDialogComponent,
+  EstadoVacioComponent,
+  ModalComponent,
+} from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
@@ -35,7 +40,14 @@ const COLORES = [
 @Component({
   selector: 'app-roles-grupo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, EncabezadoPaginaComponent, ConfirmDialogComponent],
+  imports: [
+    FormsModule,
+    EncabezadoPaginaComponent,
+    ConfirmDialogComponent,
+    EstadoVacioComponent,
+    ModalComponent,
+    CampoComponent,
+  ],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
       <app-encabezado-pagina
@@ -49,20 +61,20 @@ const COLORES = [
         <button
           type="button"
           (click)="abrirCrear()"
-          class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-marca-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-marca-700"
+          class="mt-5 flex w-full items-center justify-center gap-2 boton boton-primario rounded-2xl py-3"
         >
           ＋ Nuevo rol
         </button>
 
         @if (activos().length === 0) {
-          <div class="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+          <ui-estado-vacio class="mt-4">
             Todavía no hay roles en este grupo. Sin roles, todas las actividades
             las ven todos los integrantes — que es como funciona hoy.
-          </div>
+          </ui-estado-vacio>
         } @else {
           <ul class="mt-4 space-y-2">
             @for (rol of activos(); track rol.id) {
-              <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <li class="flex items-center gap-3 tarjeta">
                 <span
                   class="h-8 w-8 shrink-0 rounded-full"
                   [style.background-color]="rol.colorHex"
@@ -79,14 +91,14 @@ const COLORES = [
                   <button
                     type="button"
                     (click)="abrirEditar(rol)"
-                    class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    class="boton boton-neutro boton-sm"
                   >
                     Editar
                   </button>
                   <button
                     type="button"
                     (click)="aArchivar.set(rol)"
-                    class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-slate-700 dark:hover:bg-red-500/10"
+                    class="boton boton-peligro boton-sm"
                   >
                     Archivar
                   </button>
@@ -104,35 +116,26 @@ const COLORES = [
     </section>
 
     <!-- Alta / edición -->
-    @if (editor(); as modo) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button
-          type="button"
-          aria-label="Cerrar"
-          (click)="cerrarEditor()"
-          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
-        ></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative w-full max-w-sm rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ modo === 'crear' ? 'Nuevo rol' : 'Editar rol' }}
-          </h2>
-
-          <label class="mt-4 block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
+    <ui-modal
+      [abierto]="editor() !== null"
+      [titulo]="editor() === 'crear' ? 'Nuevo rol' : 'Editar rol'"
+      ancho="sm"
+      (cerrar)="cerrarEditor()"
+    >
+      @if (editor() !== null) {
+        <form (submit)="guardar($event)">
+          <ui-campo etiqueta="Nombre" class="mt-4">
             <input
               [(ngModel)]="nombre"
               name="nombre"
               required
               maxlength="30"
               placeholder="Cocina"
-              class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              class="campo"
             />
-          </label>
-
-          <span class="mt-4 block text-xs font-semibold text-slate-600 dark:text-slate-300">Color</span>
+          </ui-campo>
+  
+          <span class="mt-4 block etiqueta-campo">Color</span>
           <div class="mt-2 flex flex-wrap gap-2">
             @for (color of colores; track color) {
               <button
@@ -146,26 +149,22 @@ const COLORES = [
               ></button>
             }
           </div>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="cerrarEditor()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+  
+          <div class="botonera">
+            <button type="button" (click)="cerrarEditor()" class="boton boton-neutro">
               Cancelar
             </button>
             <button
               type="submit"
               [disabled]="guardando() || nombre.trim().length === 0"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+              class="boton boton-primario"
             >
               Guardar
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aArchivar() !== null"

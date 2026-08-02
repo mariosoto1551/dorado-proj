@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import type { Observable } from 'rxjs';
 
+import { EstadoVacioComponent, ModalComponent } from '@dorado/shared-ui';
 import {
   type ConductaDto,
   EstadoSesion,
@@ -46,7 +47,7 @@ const MS_AUTO_REFRESCO = 30_000;
 @Component({
   selector: 'app-historial-sesion',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [ModalComponent, EstadoVacioComponent, FormsModule],
   template: `
     <!-- Filtros -->
     <div class="flex flex-wrap items-center gap-2">
@@ -107,11 +108,11 @@ const MS_AUTO_REFRESCO = 30_000;
     @if (cargando() && eventos().length === 0) {
       <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
     } @else if (eventos().length === 0) {
-      <div class="mt-6 rounded-2xl border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
+      <ui-estado-vacio class="mt-6">
         <p class="text-sm text-slate-500 dark:text-slate-400">
           {{ sinSesion() ? 'Todavía no hay una sesión en curso.' : 'Todavía no pasó nada hoy.' }}
         </p>
-      </div>
+      </ui-estado-vacio>
     } @else {
       <ol class="mt-3 space-y-1.5" aria-live="polite">
         @for (evento of eventos(); track evento.id) {
@@ -179,7 +180,7 @@ const MS_AUTO_REFRESCO = 30_000;
                     type="button"
                     (click)="deshacer(evento)"
                     [disabled]="procesando()"
-                    class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    class="boton boton-neutro boton-sm"
                   >
                     Deshacer
                   </button>
@@ -209,7 +210,7 @@ const MS_AUTO_REFRESCO = 30_000;
           type="button"
           (click)="cargarMas()"
           [disabled]="cargando()"
-          class="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          class="mt-3 w-full boton boton-neutro boton-sm py-2"
         >
           Cargar más
         </button>
@@ -218,7 +219,7 @@ const MS_AUTO_REFRESCO = 30_000;
 
     <!-- Conducta rápida -->
     @if (!soloLectura() && !sinSesion()) {
-      <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+      <div class="mt-4 tarjeta p-3 shadow-none">
         <h3 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
           Registrar conducta rápida
         </h3>
@@ -256,21 +257,13 @@ const MS_AUTO_REFRESCO = 30_000;
     }
 
     <!-- Hoja de notas internas -->
-    @if (eventoConNotas(); as evento) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button
-          type="button"
-          aria-label="Cerrar"
-          (click)="cerrarNotas()"
-          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
-        ></button>
-        <div
-          class="relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Notas internas</h3>
-          <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Sobre «{{ evento.itemNombre }}». El integrante no las ve.
-          </p>
+    <ui-modal
+      [abierto]="eventoConNotas() !== null"
+      titulo="Notas internas"
+      [subtitulo]="'Sobre «' + (eventoConNotas()?.itemNombre ?? '') + '». El integrante no las ve.'"
+      (cerrar)="cerrarNotas()"
+    >
+      @if (eventoConNotas(); as evento) {
 
           @if (evento.notas.length === 0) {
             <p class="mt-3 text-xs text-slate-400 dark:text-slate-500">Todavía no hay notas.</p>
@@ -302,33 +295,28 @@ const MS_AUTO_REFRESCO = 30_000;
             [maxlength]="maxLargoNota"
             rows="3"
             placeholder="Escribí una nota para vos y los otros tutores…"
-            class="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+            class="mt-3 campo"
           ></textarea>
           <div class="mt-2 flex items-center justify-between">
             <span class="text-xs text-slate-400 dark:text-slate-500">
               {{ textoNota.length }}/{{ maxLargoNota }}
             </span>
             <div class="flex gap-2">
-              <button
-                type="button"
-                (click)="cerrarNotas()"
-                class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
-              >
+              <button type="button" (click)="cerrarNotas()" class="boton boton-neutro boton-sm">
                 Cerrar
               </button>
               <button
                 type="button"
                 (click)="agregarNota()"
                 [disabled]="procesando() || !textoNota.trim()"
-                class="rounded-lg bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-marca-700 disabled:opacity-40"
+                class="boton boton-primario boton-sm"
               >
                 Agregar
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    }
+      }
+    </ui-modal>
   `,
 })
 export class HistorialSesionComponent {

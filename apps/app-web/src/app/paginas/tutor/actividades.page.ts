@@ -24,7 +24,7 @@ import {
   TipoLimiteTiempo,
   TipoPuntaje,
 } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { TurnosActividadComponent } from './turnos-actividad.component';
@@ -107,7 +107,7 @@ const FORM_VACIO: FormActividad = {
 @Component({
   selector: 'app-actividades',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, 
     FormsModule,
     EncabezadoPaginaComponent,
     IconoComponent,
@@ -120,7 +120,7 @@ const FORM_VACIO: FormActividad = {
         <button
           type="button"
           (click)="abrirNueva()"
-          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+          class="boton boton-primario"
         >
           <span class="h-4 w-4"><app-icono nombre="plus" /></span>
           Nueva
@@ -128,7 +128,7 @@ const FORM_VACIO: FormActividad = {
       </app-encabezado-pagina>
 
       <!-- ===== fase-14-10: contenido creado por los integrantes ===== -->
-      <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div class="mt-5 overflow-hidden tarjeta p-0">
         <button
           type="button"
           (click)="configAbierta.set(!configAbierta())"
@@ -184,32 +184,26 @@ const FORM_VACIO: FormActividad = {
 
             @if (modoElegido() !== MC.RESTRICTIVO) {
               <div class="mt-3 grid grid-cols-2 gap-3 animate-fade-in">
-                <label class="block">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    Máx. puntos por actividad
-                  </span>
+                <ui-campo etiqueta="Máx. puntos por actividad">
                   <input
                     [(ngModel)]="formConfig.maxPuntosActividadUsuario"
                     name="maxPuntos"
                     type="number"
                     min="1"
                     max="100"
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                    class="campo"
                   />
-                </label>
-                <label class="block">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    Máx. activas por integrante
-                  </span>
+                </ui-campo>
+                <ui-campo etiqueta="Máx. activas por integrante">
                   <input
                     [(ngModel)]="formConfig.maxActividadesActivasPorUsuario"
                     name="maxActivas"
                     type="number"
                     min="1"
                     max="50"
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                    class="campo"
                   />
-                </label>
+                </ui-campo>
               </div>
             }
 
@@ -223,7 +217,7 @@ const FORM_VACIO: FormActividad = {
                 type="button"
                 (click)="guardarConfig()"
                 [disabled]="guardandoConfig()"
-                class="rounded-lg bg-marca-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+                class="boton boton-primario"
               >
                 {{ guardandoConfig() ? 'Guardando…' : 'Guardar' }}
               </button>
@@ -233,7 +227,7 @@ const FORM_VACIO: FormActividad = {
       </div>
 
       <!-- ===== fase-14-17: plan del día ===== -->
-      <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div class="mt-3 tarjeta">
         <label class="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
@@ -290,18 +284,18 @@ const FORM_VACIO: FormActividad = {
 
       @if (pestania() === 'propuestas') {
         @if (propuestas().length === 0) {
-          <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+          <ui-estado-vacio class="mt-6">
             @if (modoActual() === MC.RESTRICTIVO) {
               Los integrantes no pueden crear actividades todavía. Cambiá el modo arriba para
               habilitarlo.
             } @else {
               Nadie propuso nada por ahora.
             }
-          </div>
+          </ui-estado-vacio>
         } @else {
           <ul class="mt-5 space-y-3">
             @for (p of propuestas(); track p.id) {
-              <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <li class="tarjeta">
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0">
                     <p class="truncate font-semibold text-slate-900 dark:text-white">{{ p.nombre }}</p>
@@ -326,23 +320,20 @@ const FORM_VACIO: FormActividad = {
                 @if (p.estado === 'PENDIENTE') {
                   @if (rechazando() === p.id) {
                     <div class="mt-3 border-t border-slate-50 pt-3 animate-fade-in dark:border-slate-800">
-                      <label class="block">
-                        <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                          Motivo del rechazo (opcional — el integrante lo va a leer)
-                        </span>
+                      <ui-campo etiqueta="Motivo del rechazo (opcional — el integrante lo va a leer)">
                         <textarea
                           [(ngModel)]="motivoRechazo"
                           name="motivoRechazo"
                           rows="2"
                           maxlength="500"
-                          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                          class="campo"
                         ></textarea>
-                      </label>
+                      </ui-campo>
                       <div class="mt-2 flex justify-end gap-2">
                         <button
                           type="button"
                           (click)="rechazando.set(null)"
-                          class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                          class="boton boton-neutro boton-sm"
                         >
                           Cancelar
                         </button>
@@ -362,7 +353,7 @@ const FORM_VACIO: FormActividad = {
                         type="button"
                         (click)="pedirRechazo(p)"
                         [disabled]="resolviendo() === p.id"
-                        class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        class="boton boton-neutro boton-sm"
                       >
                         Rechazar
                       </button>
@@ -370,7 +361,7 @@ const FORM_VACIO: FormActividad = {
                         type="button"
                         (click)="aprobar(p)"
                         [disabled]="resolviendo() === p.id"
-                        class="rounded-lg bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+                        class="boton boton-primario boton-sm"
                       >
                         Aprobar
                       </button>
@@ -388,13 +379,13 @@ const FORM_VACIO: FormActividad = {
       } @else if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (actividades().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <ui-estado-vacio class="mt-6">
           Todavía no hay actividades. Creá la primera.
-        </div>
+        </ui-estado-vacio>
       } @else {
         <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           @for (a of actividades(); track a.id) {
-            <li class="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <li class="flex flex-col tarjeta">
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
                   <p class="truncate font-semibold text-slate-900 dark:text-white">{{ a.nombre }}</p>
@@ -520,325 +511,294 @@ const FORM_VACIO: FormActividad = {
     </section>
 
     <!-- ===== Modal form ===== -->
-    @if (formAbierto()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button
-          type="button"
-          aria-label="Cerrar"
-          (click)="cerrarForm()"
-          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
-        ></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ editando() ? 'Editar actividad' : 'Nueva actividad' }}
-          </h2>
-
-          <div class="mt-4 space-y-3">
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
-              <input
-                [(ngModel)]="form.nombre"
-                name="nombre"
-                required
-                maxlength="120"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Descripción (opcional)</span>
-              <textarea
-                [(ngModel)]="form.descripcion"
-                name="descripcion"
-                rows="2"
-                maxlength="1000"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              ></textarea>
-            </label>
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Alcance</span>
-              <select
-                [(ngModel)]="form.alcance"
-                name="alcance"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              >
-                <option [ngValue]="AA.INDIVIDUAL">Individual</option>
-                <option [ngValue]="AA.EQUIPO">Equipo</option>
-              </select>
-            </label>
-
-            @if (form.alcance === AA.EQUIPO) {
-              <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 animate-fade-in dark:bg-teal-500/10 dark:text-teal-200">
-                👥 La completa el <strong>jefe</strong> del equipo una vez y los puntos se reparten a cada integrante. Las tareas de equipo son opcionales (suman).
-              </div>
-              <div class="grid grid-cols-2 gap-3 animate-fade-in">
-                <label class="block">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos por integrante</span>
-                  <input
-                    [(ngModel)]="form.valorPuntos"
-                    name="valorPuntos"
-                    type="number"
-                    min="1"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                  />
-                </label>
-                <label class="block">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Bono al jefe</span>
-                  <input
-                    [(ngModel)]="form.bonoJefePuntos"
-                    name="bonoJefePuntos"
-                    type="number"
-                    min="0"
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                  />
-                </label>
-              </div>
-            } @else {
-              <div class="grid grid-cols-2 gap-3">
-                <label class="block">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos</span>
-                  <input
-                    [(ngModel)]="form.valorPuntos"
-                    name="valorPuntos"
-                    type="number"
-                    min="1"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                  />
-                </label>
-                <label class="block">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</span>
-                  <select
-                    [(ngModel)]="form.tipoPuntaje"
-                    name="tipoPuntaje"
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                  >
-                    <option [ngValue]="TP.OPCIONAL">Opcional</option>
-                    <option [ngValue]="TP.OBLIGATORIA">Obligatoria</option>
-                  </select>
-                </label>
-              </div>
-            }
-
-            @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OBLIGATORIA) {
-              <label
-                class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
-              >
+    <ui-modal
+      [abierto]="formAbierto()"
+      [titulo]="editando() ? 'Editar actividad' : 'Nueva actividad'"
+      ancho="lg"
+      (cerrar)="cerrarForm()"
+    >
+      @if (formAbierto()) {
+        <form (submit)="guardar($event)">
+  
+            <div class="mt-4 space-y-3">
+              <ui-campo etiqueta="Nombre">
                 <input
-                  [(ngModel)]="form.requiereConfirmacion"
-                  name="requiereConfirmacion"
-                  type="checkbox"
-                  class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+                  [(ngModel)]="form.nombre"
+                  name="nombre"
+                  required
+                  maxlength="120"
+                  class="campo"
                 />
-                <span class="text-xs text-slate-600 dark:text-slate-300">
-                  <span class="font-semibold text-slate-700 dark:text-slate-100">¿Requiere que el usuario confirme?</span>
-                  <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
-                    Si se activa, el usuario debe marcar «Ya lo hice» durante la sesión. Si no lo
-                    confirma, al cerrar la sesión se le descuentan los puntos automáticamente.
-                  </span>
-                </span>
-              </label>
-
-              <!-- fase-14-20: el premio solo existe si hay algo que confirmar. -->
-              @if (form.requiereConfirmacion) {
-                <label class="block animate-fade-in">
-                  <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    Puntos por cumplirla
-                  </span>
-                  <input
-                    [(ngModel)]="form.puntosPorCumplir"
-                    name="puntosPorCumplir"
-                    type="number"
-                    min="0"
-                    class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                  />
-                  <span class="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                    Lo que gana si la hace. Dejalo en 0 si cumplir es solo evitar el descuento.
-                    @if (form.puntosPorCumplir > 0) {
-                      <strong class="text-slate-600 dark:text-slate-300">
-                        Queda +{{ form.puntosPorCumplir }} si la hace, −{{ form.valorPuntos }} si no.
-                      </strong>
-                    }
-                  </span>
-                </label>
+              </ui-campo>
+  
+              <ui-campo etiqueta="Descripción (opcional)">
+                <textarea
+                  [(ngModel)]="form.descripcion"
+                  name="descripcion"
+                  rows="2"
+                  maxlength="1000"
+                  class="campo"
+                ></textarea>
+              </ui-campo>
+  
+              <ui-campo etiqueta="Alcance">
+                <select
+                  [(ngModel)]="form.alcance"
+                  name="alcance"
+                  class="campo"
+                >
+                  <option [ngValue]="AA.INDIVIDUAL">Individual</option>
+                  <option [ngValue]="AA.EQUIPO">Equipo</option>
+                </select>
+              </ui-campo>
+  
+              @if (form.alcance === AA.EQUIPO) {
+                <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 animate-fade-in dark:bg-teal-500/10 dark:text-teal-200">
+                  👥 La completa el <strong>jefe</strong> del equipo una vez y los puntos se reparten a cada integrante. Las tareas de equipo son opcionales (suman).
+                </div>
+                <div class="grid grid-cols-2 gap-3 animate-fade-in">
+                  <ui-campo etiqueta="Puntos por integrante">
+                    <input
+                      [(ngModel)]="form.valorPuntos"
+                      name="valorPuntos"
+                      type="number"
+                      min="1"
+                      required
+                      class="campo"
+                    />
+                  </ui-campo>
+                  <ui-campo etiqueta="Bono al jefe">
+                    <input
+                      [(ngModel)]="form.bonoJefePuntos"
+                      name="bonoJefePuntos"
+                      type="number"
+                      min="0"
+                      class="campo"
+                    />
+                  </ui-campo>
+                </div>
+              } @else {
+                <div class="grid grid-cols-2 gap-3">
+                  <ui-campo etiqueta="Puntos">
+                    <input
+                      [(ngModel)]="form.valorPuntos"
+                      name="valorPuntos"
+                      type="number"
+                      min="1"
+                      required
+                      class="campo"
+                    />
+                  </ui-campo>
+                  <ui-campo etiqueta="Tipo">
+                    <select
+                      [(ngModel)]="form.tipoPuntaje"
+                      name="tipoPuntaje"
+                      class="campo"
+                    >
+                      <option [ngValue]="TP.OPCIONAL">Opcional</option>
+                      <option [ngValue]="TP.OBLIGATORIA">Obligatoria</option>
+                    </select>
+                  </ui-campo>
+                </div>
               }
-            }
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Límite de tiempo</span>
-              <select
-                [(ngModel)]="form.tipoLimiteTiempo"
-                name="tipoLimiteTiempo"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              >
-                <option [ngValue]="TLT.SIN_LIMITE">Sin límite</option>
-                <option [ngValue]="TLT.DEADLINE">Hora límite (deadline)</option>
-                <option [ngValue]="TLT.CRONOMETRO">Cronómetro</option>
-              </select>
-            </label>
-
-            @if (form.tipoLimiteTiempo === TLT.DEADLINE) {
-              <label class="block animate-fade-in">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Hora límite (HH:mm)</span>
+  
+              @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OBLIGATORIA) {
+                <label
+                  class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
+                >
+                  <input
+                    [(ngModel)]="form.requiereConfirmacion"
+                    name="requiereConfirmacion"
+                    type="checkbox"
+                    class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+                  />
+                  <span class="text-xs text-slate-600 dark:text-slate-300">
+                    <span class="font-semibold text-slate-700 dark:text-slate-100">¿Requiere que el usuario confirme?</span>
+                    <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
+                      Si se activa, el usuario debe marcar «Ya lo hice» durante la sesión. Si no lo
+                      confirma, al cerrar la sesión se le descuentan los puntos automáticamente.
+                    </span>
+                  </span>
+                </label>
+  
+                <!-- fase-14-20: el premio solo existe si hay algo que confirmar. -->
+                @if (form.requiereConfirmacion) {
+                  <ui-campo etiqueta="Puntos por cumplirla" class="animate-fade-in">
+                    <input
+                      [(ngModel)]="form.puntosPorCumplir"
+                      name="puntosPorCumplir"
+                      type="number"
+                      min="0"
+                      class="campo"
+                    />
+                    <span class="block text-xs text-slate-500 dark:text-slate-400">
+                      Lo que gana si la hace. Dejalo en 0 si cumplir es solo evitar el descuento.
+                      @if (form.puntosPorCumplir > 0) {
+                        <strong class="text-slate-600 dark:text-slate-300">
+                          Queda +{{ form.puntosPorCumplir }} si la hace, −{{ form.valorPuntos }} si no.
+                        </strong>
+                      }
+                    </span>
+                  </ui-campo>
+                }
+              }
+  
+              <ui-campo etiqueta="Límite de tiempo">
+                <select
+                  [(ngModel)]="form.tipoLimiteTiempo"
+                  name="tipoLimiteTiempo"
+                  class="campo"
+                >
+                  <option [ngValue]="TLT.SIN_LIMITE">Sin límite</option>
+                  <option [ngValue]="TLT.DEADLINE">Hora límite (deadline)</option>
+                  <option [ngValue]="TLT.CRONOMETRO">Cronómetro</option>
+                </select>
+              </ui-campo>
+  
+              @if (form.tipoLimiteTiempo === TLT.DEADLINE) {
+                <ui-campo etiqueta="Hora límite (HH:mm)" class="animate-fade-in">
+                  <input
+                    [(ngModel)]="form.deadlineHora"
+                    name="deadlineHora"
+                    type="time"
+                    class="campo"
+                  />
+                </ui-campo>
+              }
+  
+              @if (form.tipoLimiteTiempo === TLT.CRONOMETRO) {
+                <ui-campo etiqueta="Duración (minutos)" class="animate-fade-in">
+                  <input
+                    [(ngModel)]="form.duracionCronometroMinutos"
+                    name="duracionCronometroMinutos"
+                    type="number"
+                    min="1"
+                    class="campo"
+                  />
+                </ui-campo>
+              }
+  
+              <ui-campo etiqueta="Repeticiones máx. por sesión">
                 <input
-                  [(ngModel)]="form.deadlineHora"
-                  name="deadlineHora"
-                  type="time"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                />
-              </label>
-            }
-
-            @if (form.tipoLimiteTiempo === TLT.CRONOMETRO) {
-              <label class="block animate-fade-in">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Duración (minutos)</span>
-                <input
-                  [(ngModel)]="form.duracionCronometroMinutos"
-                  name="duracionCronometroMinutos"
+                  [(ngModel)]="form.repeticionesMaximasSesion"
+                  name="repeticionesMaximasSesion"
                   type="number"
                   min="1"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="campo"
                 />
-              </label>
-            }
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Repeticiones máx. por sesión</span>
-              <input
-                [(ngModel)]="form.repeticionesMaximasSesion"
-                name="repeticionesMaximasSesion"
-                type="number"
-                min="1"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              />
-            </label>
-
-            <!-- fase-14-11: días en que se puede hacer -->
-            <div>
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                ¿Qué días se puede hacer?
-              </span>
-              <div class="mt-1.5 flex flex-wrap gap-1.5">
-                @for (d of DIAS; track d.valor) {
-                  <button
-                    type="button"
-                    (click)="alternarDia(d.valor)"
-                    class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-                    [class]="
-                      form.diasSemana.includes(d.valor)
-                        ? 'border-marca-500 bg-marca-600 text-white'
-                        : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
-                    "
-                  >
-                    {{ d.etiqueta }}
-                  </button>
-                }
-              </div>
-              <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                {{ resumenDias() }}
-                @if (form.diasSemana.length === 0) {
-                  <span class="text-slate-400 dark:text-slate-500">— sin marcar ninguno, se puede todos los días.</span>
-                }
-              </p>
-            </div>
-
-            <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual.
-                 fase-14-23: ya no exige estar editando — el armador es
-                 controlado y su estado se persiste en el submit, así que la
-                 secuencia se puede armar mientras se crea la actividad. -->
-            @if (turnosAplican()) {
-              <app-turnos-actividad
-                [usuarios]="usuariosDelGrupo()"
-                [roles]="roles()"
-                [turno]="turnoDeLaActividad()"
-                (cambio)="estadoTurno.set($event)"
-              />
-            }
-
-            <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
-            @if (roles().length > 0 && form.alcance === AA.INDIVIDUAL) {
-              <div class="animate-fade-in">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  Restringir a roles
+              </ui-campo>
+  
+              <!-- fase-14-11: días en que se puede hacer -->
+              <div>
+                <span class="etiqueta-campo">
+                  ¿Qué días se puede hacer?
                 </span>
                 <div class="mt-1.5 flex flex-wrap gap-1.5">
-                  @for (rol of roles(); track rol.id) {
+                  @for (d of DIAS; track d.valor) {
                     <button
                       type="button"
-                      (click)="alternarRol(rol.id)"
-                      [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
-                      class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-                      [class]="form.rolesPermitidos.includes(rol.id)
-                        ? 'border-transparent text-white'
-                        : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
-                      [style.background-color]="
-                        form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
+                      (click)="alternarDia(d.valor)"
+                      class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+                      [class]="
+                        form.diasSemana.includes(d.valor)
+                          ? 'border-marca-500 bg-marca-600 text-white'
+                          : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
                       "
                     >
-                      {{ rol.nombre }}
+                      {{ d.etiqueta }}
                     </button>
                   }
                 </div>
-                <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                  @if (form.rolesPermitidos.length === 0) {
-                    Sin marcar ninguno, la ven todos los integrantes.
-                  } @else {
-                    Solo la ven quienes tengan alguno de esos roles — al resto no
-                    le aparece, y tampoco se les descuenta si es obligatoria.
+                <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  {{ resumenDias() }}
+                  @if (form.diasSemana.length === 0) {
+                    <span class="text-slate-400 dark:text-slate-500">— sin marcar ninguno, se puede todos los días.</span>
                   }
                 </p>
               </div>
-            }
-
-            <!-- fase-14-17: solo tiene efecto con el plan del día del grupo activo -->
-            @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
-              <label
-                class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
-              >
-                <input
-                  [(ngModel)]="form.siempreVisible"
-                  name="siempreVisible"
-                  type="checkbox"
-                  class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+  
+              <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual.
+                   fase-14-23: ya no exige estar editando — el armador es
+                   controlado y su estado se persiste en el submit, así que la
+                   secuencia se puede armar mientras se crea la actividad. -->
+              @if (turnosAplican()) {
+                <app-turnos-actividad
+                  [usuarios]="usuariosDelGrupo()"
+                  [roles]="roles()"
+                  [turno]="turnoDeLaActividad()"
+                  (cambio)="estadoTurno.set($event)"
                 />
-                <span class="text-xs text-slate-600 dark:text-slate-300">
-                  <span class="font-semibold text-slate-700 dark:text-slate-100">📌 Siempre a la vista</span>
-                  <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
-                    @if (planDelDiaActivo()) {
-                      Aparece en la lista del integrante sin que tenga que elegirla.
-                    } @else {
-                      Solo aplica si activás el «Plan del día» del grupo (arriba).
-                    }
+              }
+  
+              <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
+              @if (roles().length > 0 && form.alcance === AA.INDIVIDUAL) {
+                <div class="animate-fade-in">
+                  <span class="etiqueta-campo">
+                    Restringir a roles
                   </span>
-                </span>
-              </label>
-            }
-          </div>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="cerrarForm()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              [disabled]="guardando()"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-            >
+                  <div class="mt-1.5 flex flex-wrap gap-1.5">
+                    @for (rol of roles(); track rol.id) {
+                      <button
+                        type="button"
+                        (click)="alternarRol(rol.id)"
+                        [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
+                        class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+                        [class]="form.rolesPermitidos.includes(rol.id)
+                          ? 'border-transparent text-white'
+                          : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
+                        [style.background-color]="
+                          form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
+                        "
+                      >
+                        {{ rol.nombre }}
+                      </button>
+                    }
+                  </div>
+                  <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                    @if (form.rolesPermitidos.length === 0) {
+                      Sin marcar ninguno, la ven todos los integrantes.
+                    } @else {
+                      Solo la ven quienes tengan alguno de esos roles — al resto no
+                      le aparece, y tampoco se les descuenta si es obligatoria.
+                    }
+                  </p>
+                </div>
+              }
+  
+              <!-- fase-14-17: solo tiene efecto con el plan del día del grupo activo -->
+              @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
+                <label
+                  class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
+                >
+                  <input
+                    [(ngModel)]="form.siempreVisible"
+                    name="siempreVisible"
+                    type="checkbox"
+                    class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+                  />
+                  <span class="text-xs text-slate-600 dark:text-slate-300">
+                    <span class="font-semibold text-slate-700 dark:text-slate-100">📌 Siempre a la vista</span>
+                    <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
+                      @if (planDelDiaActivo()) {
+                        Aparece en la lista del integrante sin que tenga que elegirla.
+                      } @else {
+                        Solo aplica si activás el «Plan del día» del grupo (arriba).
+                      }
+                    </span>
+                  </span>
+                </label>
+              }
+            </div>
+  
+          <div class="botonera">
+            <button type="button" (click)="cerrarForm()" class="boton boton-neutro">Cancelar</button>
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">
               {{ guardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aArchivar() !== null"

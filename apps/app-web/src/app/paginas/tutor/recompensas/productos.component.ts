@@ -24,6 +24,7 @@ import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
+import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 interface FormProducto {
   nombre: string;
@@ -54,14 +55,14 @@ const FORM_VACIO: FormProducto = {
 @Component({
   selector: 'app-productos-tienda',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconoComponent],
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule, IconoComponent],
   template: `
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-500 dark:text-slate-400">Lo que los integrantes pueden comprar.</p>
       <button
         type="button"
         (click)="abrirNuevo()"
-        class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+        class="boton boton-primario"
       >
         <span class="h-4 w-4"><app-icono nombre="plus" /></span>
         Nuevo producto
@@ -71,13 +72,13 @@ const FORM_VACIO: FormProducto = {
     @if (cargando()) {
       <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
     } @else if (productos().length === 0) {
-      <div class="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+      <ui-estado-vacio class="mt-5">
         La tienda está vacía.
-      </div>
+      </ui-estado-vacio>
     } @else {
       <ul class="mt-5 grid gap-3 sm:grid-cols-2">
         @for (p of productos(); track p.id) {
-          <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <li class="tarjeta">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0">
                 <p class="truncate font-semibold text-slate-900 dark:text-white">{{ p.nombre }}</p>
@@ -113,136 +114,121 @@ const FORM_VACIO: FormProducto = {
       </ul>
     }
 
-    @if (formAbierto()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="formAbierto.set(false)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ editando() ? 'Editar producto' : 'Nuevo producto' }}
-          </h2>
-
-          <div class="mt-4 space-y-3">
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
-              <input
-                [(ngModel)]="form.nombre"
-                name="nombre"
-                required
-                maxlength="120"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Precio</span>
-              <input
-                type="number"
-                min="1"
-                [(ngModel)]="form.precio"
-                name="precio"
-                class="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              />
-              <span class="ml-2 text-xs text-slate-400 dark:text-slate-500">{{ semanasPara(form.precio) }}</span>
-            </label>
-
-            <!-- Pregunta 1: ¿de dónde sale? -->
-            <fieldset>
-              <legend class="text-xs font-semibold text-slate-600 dark:text-slate-300">¿De dónde sale?</legend>
-              <div class="mt-1.5 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  (click)="form.fuente = FUENTE.ITEM"
-                  [class]="claseOpcion(form.fuente === FUENTE.ITEM)"
-                >
-                  Un premio puntual
-                </button>
-                <button
-                  type="button"
-                  (click)="form.fuente = FUENTE.BOLSA"
-                  [disabled]="bolsas().length === 0"
-                  [class]="claseOpcion(form.fuente === FUENTE.BOLSA)"
-                >
-                  Una bolsa
-                </button>
-              </div>
-            </fieldset>
-
-            @if (form.fuente === FUENTE.ITEM) {
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Premio</span>
-                <select
-                  [(ngModel)]="form.recompensaId"
-                  name="recompensaId"
+    <ui-modal
+      [abierto]="formAbierto()"
+      [titulo]="editando() ? 'Editar producto' : 'Nuevo producto'"
+      (cerrar)="formAbierto.set(false)"
+    >
+      @if (formAbierto()) {
+        <form (submit)="guardar($event)">
+  
+            <div class="mt-4 space-y-3">
+              <ui-campo etiqueta="Nombre">
+                <input
+                  [(ngModel)]="form.nombre"
+                  name="nombre"
                   required
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                >
-                  <option value="" disabled>Elegí un premio…</option>
-                  @for (p of premios(); track p.id) {
-                    <option [value]="p.id">{{ p.nombre }}</option>
-                  }
-                </select>
-              </label>
-            } @else {
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Bolsa</span>
-                <select
-                  [(ngModel)]="form.bolsaId"
-                  name="bolsaId"
-                  required
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                >
-                  <option value="" disabled>Elegí una bolsa…</option>
-                  @for (b of bolsas(); track b.id) {
-                    <option [value]="b.id">{{ b.nombre }} ({{ b.recompensaIds.length }})</option>
-                  }
-                </select>
-              </label>
-
-              <!-- Pregunta 2: solo tiene sentido si la fuente es una bolsa. -->
+                  maxlength="120"
+                  class="campo"
+                />
+              </ui-campo>
+  
+              <ui-campo etiqueta="Precio">
+                <input
+                  type="number"
+                  min="1"
+                  [(ngModel)]="form.precio"
+                  name="precio"
+                  class="w-32 campo"
+                />
+                <span class="ml-2 text-xs text-slate-400 dark:text-slate-500">{{ semanasPara(form.precio) }}</span>
+              </ui-campo>
+  
+              <!-- Pregunta 1: ¿de dónde sale? -->
               <fieldset>
-                <legend class="text-xs font-semibold text-slate-600 dark:text-slate-300">¿Cómo se obtiene?</legend>
+                <legend class="etiqueta-campo">¿De dónde sale?</legend>
                 <div class="mt-1.5 grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    (click)="form.mecanica = MECANICA.AZAR"
-                    [class]="claseOpcion(form.mecanica === MECANICA.AZAR)"
+                    (click)="form.fuente = FUENTE.ITEM"
+                    [class]="claseOpcion(form.fuente === FUENTE.ITEM)"
                   >
-                    Sale una al azar
+                    Un premio puntual
                   </button>
                   <button
                     type="button"
-                    (click)="form.mecanica = MECANICA.ELECCION"
-                    [class]="claseOpcion(form.mecanica === MECANICA.ELECCION)"
+                    (click)="form.fuente = FUENTE.BOLSA"
+                    [disabled]="bolsas().length === 0"
+                    [class]="claseOpcion(form.fuente === FUENTE.BOLSA)"
                   >
-                    La elige
+                    Una bolsa
                   </button>
                 </div>
               </fieldset>
-            }
-          </div>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="formAbierto.set(false)"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+  
+              @if (form.fuente === FUENTE.ITEM) {
+                <ui-campo etiqueta="Premio">
+                  <select
+                    [(ngModel)]="form.recompensaId"
+                    name="recompensaId"
+                    required
+                    class="campo"
+                  >
+                    <option value="" disabled>Elegí un premio…</option>
+                    @for (p of premios(); track p.id) {
+                      <option [value]="p.id">{{ p.nombre }}</option>
+                    }
+                  </select>
+                </ui-campo>
+              } @else {
+                <ui-campo etiqueta="Bolsa">
+                  <select
+                    [(ngModel)]="form.bolsaId"
+                    name="bolsaId"
+                    required
+                    class="campo"
+                  >
+                    <option value="" disabled>Elegí una bolsa…</option>
+                    @for (b of bolsas(); track b.id) {
+                      <option [value]="b.id">{{ b.nombre }} ({{ b.recompensaIds.length }})</option>
+                    }
+                  </select>
+                </ui-campo>
+  
+                <!-- Pregunta 2: solo tiene sentido si la fuente es una bolsa. -->
+                <fieldset>
+                  <legend class="etiqueta-campo">¿Cómo se obtiene?</legend>
+                  <div class="mt-1.5 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      (click)="form.mecanica = MECANICA.AZAR"
+                      [class]="claseOpcion(form.mecanica === MECANICA.AZAR)"
+                    >
+                      Sale una al azar
+                    </button>
+                    <button
+                      type="button"
+                      (click)="form.mecanica = MECANICA.ELECCION"
+                      [class]="claseOpcion(form.mecanica === MECANICA.ELECCION)"
+                    >
+                      La elige
+                    </button>
+                  </div>
+                </fieldset>
+              }
+            </div>
+  
+          <div class="botonera">
+            <button type="button" (click)="formAbierto.set(false)" class="boton boton-neutro">
               Cancelar
             </button>
-            <button
-              type="submit"
-              [disabled]="guardando()"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-            >
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">
               {{ guardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
   `,
 })
 export class ProductosComponent {

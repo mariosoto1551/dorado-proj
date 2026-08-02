@@ -17,7 +17,7 @@ import {
   type TareaEquipoDeHoyDto,
   type UsuarioDto,
 } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
@@ -30,7 +30,7 @@ import { mensajeDeError } from '../../core/api/errores';
 @Component({
   selector: 'app-equipos',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, EncabezadoPaginaComponent, ConfirmDialogComponent],
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule, EncabezadoPaginaComponent, ConfirmDialogComponent],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
       <app-encabezado-pagina
@@ -45,7 +45,7 @@ import { mensajeDeError } from '../../core/api/errores';
           type="button"
           (click)="abrirCrear()"
           [disabled]="disponibles().length === 0"
-          class="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-marca-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+          class="mt-5 flex w-full items-center justify-center gap-2 boton boton-primario rounded-2xl py-3"
         >
           ＋ Nuevo equipo
         </button>
@@ -56,13 +56,13 @@ import { mensajeDeError } from '../../core/api/errores';
         }
 
         @if (equipos().length === 0) {
-          <div class="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+          <ui-estado-vacio class="mt-4">
             Todavía no hay equipos en este grupo.
-          </div>
+          </ui-estado-vacio>
         } @else {
           <ul class="mt-4 space-y-3">
             @for (e of equipos(); track e.id) {
-              <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <li class="tarjeta">
                 <div class="flex items-center gap-3">
                   <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-lg dark:bg-amber-500/20">🛡️</span>
                   <div class="min-w-0 flex-1">
@@ -91,12 +91,12 @@ import { mensajeDeError } from '../../core/api/errores';
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <button type="button" (click)="abrirJefe(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Sustituir jefe</button>
-                  <button type="button" (click)="abrirMiembros(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Integrantes</button>
-                  <button type="button" (click)="alternarTareas(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+                  <button type="button" (click)="abrirJefe(e)" class="boton boton-neutro boton-sm">Sustituir jefe</button>
+                  <button type="button" (click)="abrirMiembros(e)" class="boton boton-neutro boton-sm">Integrantes</button>
+                  <button type="button" (click)="alternarTareas(e)" class="boton boton-neutro boton-sm">
                     {{ equipoAbierto() === e.id ? 'Ocultar tareas' : 'Tareas de hoy' }}
                   </button>
-                  <button type="button" (click)="aArchivar.set(e)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-slate-700 dark:hover:bg-red-500/10">Archivar</button>
+                  <button type="button" (click)="aArchivar.set(e)" class="boton boton-peligro boton-sm">Archivar</button>
                 </div>
 
                 <!-- Tareas de hoy: anular una completada o deshacer la anulación (fase-14-13) -->
@@ -114,7 +114,7 @@ import { mensajeDeError } from '../../core/api/errores';
                         [(ngModel)]="motivoAnular"
                         maxlength="200"
                         placeholder="Motivo (opcional) — lo ve el equipo"
-                        class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                        class="mt-2 campo"
                       />
 
                       @if (completadasDeHoy().length === 0) {
@@ -177,71 +177,72 @@ import { mensajeDeError } from '../../core/api/errores';
     </section>
 
     <!-- Modal crear equipo -->
-    @if (creando()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="creando.set(false)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form (submit)="crear($event)" class="relative max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl">
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">Nuevo equipo</h2>
-          <label class="mt-4 block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
-            <input [(ngModel)]="nombre" name="nombre" required maxlength="120" placeholder="Equipo Fénix" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white" />
-          </label>
-          <label class="mt-4 block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Jefe del equipo</span>
-            <select [(ngModel)]="jefeId" name="jefe" required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white">
-              <option value="" disabled>Elegí un participante…</option>
-              @for (u of disponibles(); track u.id) {
-                <option [value]="u.id">{{ u.nombre }}</option>
-              }
-            </select>
-          </label>
-          <fieldset class="mt-4">
-            <legend class="text-xs font-semibold text-slate-600 dark:text-slate-300">Integrantes</legend>
-            <div class="mt-2 space-y-1.5">
-              @for (u of disponibles(); track u.id) {
-                @if (u.id !== jefeId) {
-                  <label class="flex items-center gap-2.5 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
-                    <input type="checkbox" [checked]="miembrosSel().has(u.id)" (change)="alternarMiembro(u.id)" class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500" />
-                    <span class="text-slate-800 dark:text-slate-100">{{ u.nombre }}</span>
-                  </label>
+    <ui-modal [abierto]="creando()" titulo="Nuevo equipo" ancho="sm" (cerrar)="creando.set(false)">
+      @if (creando()) {
+        <form (submit)="crear($event)">
+            <ui-campo etiqueta="Nombre" class="mt-4">
+              <input [(ngModel)]="nombre" name="nombre" required maxlength="120" placeholder="Equipo Fénix" class="campo" />
+            </ui-campo>
+            <ui-campo etiqueta="Jefe del equipo" class="mt-4">
+              <select [(ngModel)]="jefeId" name="jefe" required class="campo">
+                <option value="" disabled>Elegí un participante…</option>
+                @for (u of disponibles(); track u.id) {
+                  <option [value]="u.id">{{ u.nombre }}</option>
                 }
-              }
-            </div>
-          </fieldset>
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" (click)="creando.set(false)" class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Cancelar</button>
-            <button type="submit" [disabled]="guardando() || jefeId === ''" class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50">Crear equipo</button>
+              </select>
+            </ui-campo>
+            <fieldset class="mt-4">
+              <legend class="etiqueta-campo">Integrantes</legend>
+              <div class="mt-2 space-y-1.5">
+                @for (u of disponibles(); track u.id) {
+                  @if (u.id !== jefeId) {
+                    <label class="flex items-center gap-2.5 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
+                      <input type="checkbox" [checked]="miembrosSel().has(u.id)" (change)="alternarMiembro(u.id)" class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500" />
+                      <span class="text-slate-800 dark:text-slate-100">{{ u.nombre }}</span>
+                    </label>
+                  }
+                }
+              </div>
+            </fieldset>
+          <div class="botonera">
+            <button type="button" (click)="creando.set(false)" class="boton boton-neutro">Cancelar</button>
+            <button type="submit" [disabled]="guardando() || jefeId === ''" class="boton boton-primario">Crear equipo</button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <!-- Modal sustituir jefe -->
-    @if (editandoJefe(); as e) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="editandoJefe.set(null)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form (submit)="guardarJefe($event)" class="relative w-full max-w-sm rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl">
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">Sustituir jefe</h2>
+    <ui-modal
+      [abierto]="editandoJefe() !== null"
+      titulo="Sustituir jefe"
+      ancho="sm"
+      (cerrar)="editandoJefe.set(null)"
+    >
+      @if (editandoJefe(); as e) {
+        <form (submit)="guardarJefe($event)">
           <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ e.nombre }} · el jefe anterior pasa a integrante.</p>
-          <select [(ngModel)]="nuevoJefeId" name="nuevoJefe" class="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white">
+          <select [(ngModel)]="nuevoJefeId" name="nuevoJefe" class="mt-4 campo">
             @for (m of e.miembros; track m.usuarioId) {
               <option [value]="m.usuarioId" [disabled]="m.rol === 'JEFE'">{{ m.nombre }}{{ m.rol === 'JEFE' ? ' (jefe actual)' : '' }}</option>
             }
           </select>
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" (click)="editandoJefe.set(null)" class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Cancelar</button>
-            <button type="submit" [disabled]="guardando()" class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50">Guardar</button>
+          <div class="botonera">
+            <button type="button" (click)="editandoJefe.set(null)" class="boton boton-neutro">Cancelar</button>
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">Guardar</button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <!-- Modal integrantes -->
-    @if (editandoMiembros(); as e) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="editandoMiembros.set(null)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <div class="relative max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl">
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">Integrantes · {{ e.nombre }}</h2>
+    <ui-modal
+      [abierto]="editandoMiembros() !== null"
+      [titulo]="'Integrantes · ' + (editandoMiembros()?.nombre ?? '')"
+      ancho="sm"
+      (cerrar)="editandoMiembros.set(null)"
+    >
+      @if (editandoMiembros(); as e) {
           <ul class="mt-3 space-y-1.5">
             @for (m of e.miembros; track m.usuarioId) {
               <li class="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
@@ -256,19 +257,18 @@ import { mensajeDeError } from '../../core/api/errores';
           </ul>
           @if (disponibles().length > 0) {
             <div class="mt-4 flex gap-2">
-              <select [(ngModel)]="agregarId" name="agregar" class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white">
+              <select [(ngModel)]="agregarId" name="agregar" class="flex-1 campo">
                 <option value="">Agregar integrante…</option>
                 @for (u of disponibles(); track u.id) {
                   <option [value]="u.id">{{ u.nombre }}</option>
                 }
               </select>
-              <button type="button" (click)="agregarMiembro(e)" [disabled]="guardando() || agregarId === ''" class="rounded-lg bg-marca-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50">Agregar</button>
+              <button type="button" (click)="agregarMiembro(e)" [disabled]="guardando() || agregarId === ''" class="boton boton-primario">Agregar</button>
             </div>
           }
-          <button type="button" (click)="editandoMiembros.set(null)" class="mt-4 w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Listo</button>
-        </div>
-      </div>
-    }
+          <button type="button" (click)="editandoMiembros.set(null)" class="mt-4 w-full boton boton-neutro">Listo</button>
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aArchivar() !== null"

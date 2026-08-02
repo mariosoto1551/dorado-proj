@@ -818,3 +818,83 @@ Se sumó `emailContacto`/`password` a `Organizacion` en `support/escenario.ts` �
    Los tres cubren prácticamente toda la superficie del área Tutor, y **el orden de extracción debería ser ese**: la tarjeta es la que más archivos toca (29) y la que fija el ritmo visual; el campo es el que más se repite por archivo (15 veces solo en `actividades.page.ts`) y es el que tiene que quedar alineado con el contrato de guardado que salió de la T1; el estado vacío es el más barato y el que más se nota, porque hoy cada pantalla redacta el suyo.
 
    Cuidado al entrar: `actividades.page.ts` (1182 líneas), `panel-operativo.page.ts` y `configuracion-sesion.page.ts` concentran los tres patrones a la vez — conviene extraer contra una pantalla chica primero (`roles-grupo.page.ts` o `tutores.page.ts`) y recién después bajarlo a las grandes.
+
+## Ítem 23 · Tanda 2: Patrones a `shared-ui`
+
+- **Estado**: EN_PROGRESO (el ítem es por tandas; **la T2 está completa y verificada**). 58/58 tests de app-web y **18/18 de shared-ui (los 18 son nuevos: la librería no tenía ningún test de componente)**, lint y build verdes, y la **suite E2E completa 34/34 en dos corridas seguidas** contra el stack local. **Cero backend**, igual que la T1.
+- **Fecha**: 2026-08-02 / **Spec**: `docs/phases/fase-14-23-claridad-del-area-del-tutor.md` (sección «Tanda 2», escrita en esta sesión) / **Commit**: — (branch `fase-14-tienda-de-monedas`)
+- **Origen**: el inventario que la T1 dejó anotado el 2026-08-01, ampliado al empezar esta sesión.
+
+### El inventario creció al re-contarlo, y en la dirección que importaba
+
+El relevamiento preliminar de la T1 listaba tres patrones (tarjeta 44/29, campo 64/18, estado vacío 30/25). Al re-contar antes de escribir la spec aparecieron dos cosas que cambian el encuadre:
+
+1. **El modal no estaba contado y era la duplicación más cara.** Quince pantallas del área Tutor reescribían las mismas doce líneas, **once de ellas con las clases del panel idénticas carácter por carácter** (`max-w-md` ×7, `max-w-sm` ×4). Y es el patrón con más superficie de accesibilidad: ninguna de las quince declaraba `role="dialog"` ni `aria-modal`, ni cerraba con Escape. La única implementación correcta del repo era `ConfirmDialog`, que nadie reusó para los formularios.
+2. **Dieciséis de los sesenta y cuatro campos no tenían anillo de foco.** No era una variante de diseño: era la cadena completa **menos** `focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none`. En esos dieciséis, navegando con Tab no se veía dónde estaba el cursor (WCAG 2.4.7). Nadie lo eligió — salió de copiar la cadena equivocada.
+
+Y la lectura de fondo, que es lo que justifica que la tanda exista: **casi toda la divergencia era espaciado**. Las 10 formas de tarjeta son una sola con `p-4`/`p-3`/`p-3.5`/sin padding; los 9 botones primarios son dos tamaños tipeados distinto cada vez; los 12 estados vacíos son uno solo con `mt-6`/`mt-5`/`mt-4`/`mt-3`. No había decisiones de diseño detrás — había tipeo.
+
+### Decisiones de José en esta sesión
+1. **Forma mixta**: clase CSS para lo que es solo piel (tarjeta, campo, botón, etiqueta, botonera), componente para lo que tiene estructura (modal, estado vacío, campo con etiqueta). Sobre las alternativas «todo componente» (obligaba a un `input` por cada variante de layout de las 44 tarjetas) y «todo clase CSS» (dejaba el modal copiado quince veces).
+2. **Migración del área Tutor completa**, las tres grandes incluidas, sobre «solo las chicas y medianas»: dejar las grandes para la T4 haría convivir dos estilos justo donde más se nota.
+3. **La extracción corrige el foco en los dieciséis**, sobre conservar una variante «sin foco» para no mover nada visualmente.
+
+### Decisiones de implementación que importan
+1. **Las clases traen el caso dominante incluido** (`.tarjeta` con `p-4`, `.campo` con `w-full`) porque **Tailwind 4 ordena `components` antes que `utilities`**: una utilidad en el markup siempre las pisa. Así `class="tarjeta p-0"` funciona y la excepción queda a la vista en el markup, en vez de escondida en otra cadena de doce clases. Es lo que permitió colapsar las 10 variantes de tarjeta en una clase sin perder ninguna.
+2. **El `<form>` lo pone la página adentro del `<ui-modal>`**, no lo provee el componente. Es lo que deja el submit en manos del formulario — el contrato que salió de la T1 (*un formulario, un botón, cancelar cancela*) — sin que el modal tenga que reenviar eventos.
+3. **`.btn-primario`/`.btn-secundario` no se tocaron.** Son los CTA grandes de marca que comparte `public-site`; el botón de un panel de gestión es otra cosa. Las clases nuevas van en español (`.boton`, `.boton-primario`, `.boton-neutro`, `.boton-peligro`, `.boton-sm`) como el resto del código.
+4. **Los `@if (x(); as alias)` que envolvían un modal se resolvieron con el `@if` ADENTRO del `ui-modal`**, no reescribiendo el alias: el modal decide visibilidad (`[abierto]="x() !== null"`) y el `@if` sigue estrechando el tipo. Menos churn y sin tocar la lógica.
+5. **Tres pasadas mecánicas con script, el resto a mano.** Las cadenas de clases (225 reemplazos), los estados vacíos (17) y los pares etiqueta+campo (38) son suficientemente regulares para automatizar casando `</div>`/`</label>` **por profundidad, no con una regex glotona**. Los 15 modales se hicieron a mano: la condición del `@if` y el título varían pantalla por pantalla, y un error ahí rompe un modal en silencio.
+6. **`ui-campo` y `ui-estado-vacio` llevan `host: { class: 'block' }`**: un custom element es inline por defecto, y sin eso el `class="mt-6"` que le pone la página no hace nada.
+
+### La regresión que encontró la E2E (y que ningún unit test iba a encontrar)
+
+Con tests, lint y build **todos verdes**, la E2E de navegador de la T1 falló dos de sus tres casos. La causa es una diferencia de semántica que el `ui-modal` introdujo sin que se note:
+
+**El contenido proyectado lo crea la PÁGINA, no el modal.** El `@if (abierto())` que vive adentro de `ui-modal` controla su propio template, pero no destruye lo que le proyectan. Antes de la T2 cada modal estaba envuelto en su propio `@if` en la página, que **sí** destruía el formulario al cerrar. Al reemplazar ese `@if` por `<ui-modal [abierto]>`, el formulario dejó de destruirse: **todo estado de un componente hijo sobrevive al cierre y reaparece al reabrir**.
+
+El síntoma concreto: `app-turnos-actividad` guarda `activo`, `secuencia`, `modo` y `frecuencia` en signals propios, y solo los resetea cuando cambia su input `turno`. Después de armar una secuencia y **cancelar**, el siguiente modal abría con la casilla «Por turnos» ya tildada; el click del test la **destildaba** y el armador nunca aparecía. Es exactamente el tipo de defecto que este ítem existe para eliminar —«no sé si esto quedó guardado»— y lo habría reintroducido en las quince pantallas a la vez.
+
+**Corregido** devolviendo el `@if` a la página, adentro del `ui-modal` (`<ui-modal [abierto]="x()"> @if (x()) { <form>…</form> } </ui-modal>`), en los 9 modales que no lo tenían; los otros 6 ya lo tenían por su `@if (…; as alias)`. Queda documentado en el JSDoc de `ModalComponent` porque **no es evidente leyendo el componente**: el `@if` de la página parece redundante con el `[abierto]` y no lo es.
+
+Vale anotar el método: los 58 unit tests de app-web y los 18 de shared-ui pasaban con la regresión adentro. Solo la aparece una secuencia real de clics —abrir, armar, cancelar, reabrir—, que es justo lo que la T1 argumentó al escribir la primera E2E de navegador del repo.
+
+### Lo que se agregó y no existía
+- `<ui-modal>`: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` al título, **cierre con Escape** y foco llevado al primer campo del modal al abrir (antes quedaba en el botón que lo abrió, atrás del fondo).
+- `.campo`: anillo de foco en los 64, no en 48.
+- `.boton`: `focus-visible:ring` en los 66 botones del área.
+
+### Tests nuevos (18, todos en shared-ui)
+`libs/shared-ui` no tenía **ningún** test de componente antes de esto (solo el `should create` del scaffold). Los tres componentes nuevos se probaron con un **componente anfitrión**, no aislados: los tres son controlados o proyectan contenido, y aislados no se ejercita lo que importa.
+- `modal.component.spec.ts` (9): `aria-modal`, `aria-labelledby` apuntando al título real, **Escape que emite `(cerrar)` sin cerrarse solo** (el padre manda), el click en el fondo, el foco al primer campo, los tres anchos y el `<form>` proyectado adentro del panel.
+- `estado-vacio.component.spec.ts` (4): icono/título/detalle, el icono `aria-hidden`, el caso sin icono ni título y el borde punteado.
+- `campo.component.spec.ts` (5): el `<label>` que envuelve al control, la ayuda, el error tapando la ayuda con `role="alert"` y el `(opcional)`.
+
+**Un hallazgo del entorno, anotado para la próxima**: `shared-ui` corre sus tests **con zone.js**, a diferencia de `app-web` que es zoneless. El fixture no auto-detecta, así que `await fixture.whenStable()` sola no renderiza nada y todas las aserciones de DOM dan vacío — hace falta `fixture.detectChanges()` antes. Los primeros 13 de 18 fallaron por eso y el síntoma (`expected '' to contain …`) parecía un componente roto.
+
+### Verificación de los criterios de aceptación
+
+| # | Criterio | Cómo se verificó |
+|---|---|---|
+| 1 | Las cuatro cadenas ya no aparecen en `paginas/tutor` | `grep`: 0 archivos para las cuatro. Los dos `border-dashed` que quedan **no son estados vacíos** (una fila informativa en `guia-primeros-pasos` y una nota chica en `turnos-actividad`) y se dejaron a propósito. |
+| 2 | Los 64 campos con anillo de foco | Está en `.campo`, que es la única forma que quedó. |
+| 3 | Los 15 modales con Escape y `role="dialog"` | Unit test del `ui-modal` + los 15 pasaron a usarlo. |
+| 4 | El contrato de la T1 intacto | El `<form>` sigue siendo de la página; ninguna acción se movió al modal. |
+| 5 | El área Usuario sin cambios | `git diff --name-only` → **0 archivos** en `paginas/usuario`. |
+| 6 | Backend sin tocar | Ningún archivo de servicio en el diff. |
+| 7 | Lint y build verdes, tests con los casos nuevos | 58/58 app-web + 18/18 shared-ui, lint y build de ambos. |
+
+Y además, **la suite E2E completa 34/34 en dos corridas seguidas** contra el stack local (incluida la de navegador de la T1, que es la que destapó la regresión del proyectado).
+
+### Peleas con el entorno, para no repetirlas
+- **`scripts/e2e-up.mjs` falló tres veces antes de levantar**, siempre por el mismo flake: el **worker de plugins de Nx** muere por timeout (`Plugin worker … exited unexpectedly` a los 10s) al arrancar los 9 `serve` a la vez, tumba uno distinto cada vez (session-service, después gateway) y dispara el teardown completo. Se resolvió con `nx daemon --start` + `NX_PLUGIN_NO_TIMEOUTS=true`. **Ojo con `--no-infra`**: si un teardown anterior bajó los contenedores, la migración muere con `P1001` y parece otro problema.
+- **La suite falló una vez con 32/34** (los dos casos de `turnos-visibles`) y pasó 34/34 las dos corridas siguientes. Se verificó que **no era rate limit**: cero respuestas `429` en todo el log del stack. Es timing en la carga de la lista; anotado por si reaparece.
+- **El smoke UI de `flujo-completo` necesita `public-site` en :4321**, que `e2e-up.mjs` no levanta. Sin eso falla con un `goto` a un puerto muerto y parece un bug de la app.
+
+### Qué falta / verificar la próxima sesión
+
+1. **Paseo visual**: la migración se verificó por tests, lint, build, `grep` de las cadenas y la E2E de navegador, **pero no mirando las 16 pantallas una por una**. Los tres cambios de comportamiento deliberados (anillo de foco donde no había, Escape que cierra, foco que entra al modal) conviene verlos.
+2. **`shared-ui` ahora tiene tests de componente**: si se agregan más, arrancar por el patrón de componente anfitrión + `detectChanges()` que quedó en los tres specs, para no repetir el rato perdido con zone.js.
+3. **Cuidado al meter un `<ui-modal>` nuevo**: va **siempre** con su `@if` adentro. Sin él, el estado del formulario sobrevive al cierre (ver la regresión de arriba) y no lo va a detectar ningún unit test.
+4. **La T3 (navegación) hereda terreno parejo**, que era el punto de hacer la T2 antes: la pantalla de configuración del grupo que propone la T3 se arma con `ui-modal`, `ui-campo` y las clases, sin inventar nada.
+5. **Fuera de alcance a propósito**: el área Usuario (decisión 4 de la tanda) y los patrones con una sola forma de uso (pestañas, chips de filtro, interruptores). Si la T4 los toca en más de una pantalla, ahí conviene bajarlos a `shared-ui`.

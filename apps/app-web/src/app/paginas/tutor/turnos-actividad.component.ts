@@ -61,24 +61,24 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
         <div class="mt-4 animate-fade-in">
           <div class="flex flex-wrap gap-3">
             <label class="flex-1">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Orden</span>
+              <span class="etiqueta-campo">Orden</span>
               <select
                 [ngModel]="modo()"
                 (ngModelChange)="modo.set($event)"
                 name="modoTurno"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="mt-1 campo"
               >
                 <option value="ORDEN_FIJO">Tal como lo armo</option>
                 <option value="AZAR">Al azar, sin repetir</option>
               </select>
             </label>
             <label class="flex-1">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Rota</span>
+              <span class="etiqueta-campo">Rota</span>
               <select
                 [ngModel]="frecuencia()"
                 (ngModelChange)="frecuencia.set($event)"
                 name="frecuenciaTurno"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="mt-1 campo"
               >
                 <option value="SESION">Cada día</option>
                 <option value="SECCION">Cada semana</option>
@@ -87,7 +87,7 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
           </div>
 
           <!-- La secuencia: lista ordenada, con repetidos permitidos -->
-          <span class="mt-4 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <span class="mt-4 block etiqueta-campo">
             Orden de los turnos
           </span>
 
@@ -150,7 +150,7 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
               [ngModel]="aAgregar()"
               (ngModelChange)="aAgregar.set($event)"
               name="agregarTurno"
-              class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              class="min-w-0 flex-1 campo"
             >
               <option value="">Elegir integrante…</option>
               @for (usuario of usuarios(); track usuario.id) {
@@ -161,7 +161,7 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
               type="button"
               (click)="agregar()"
               [disabled]="aAgregar() === ''"
-              class="shrink-0 rounded-lg bg-marca-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+              class="shrink-0 boton boton-primario"
             >
               ＋ Agregar
             </button>

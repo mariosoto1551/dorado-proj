@@ -9,7 +9,12 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import type { RolGrupoDto, UsuarioDto } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import {
+  CampoComponent,
+  ConfirmDialogComponent,
+  EstadoVacioComponent,
+  ModalComponent,
+} from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { IconoComponent } from '../../componentes/icono.component';
@@ -21,7 +26,15 @@ import { mensajeDeError } from '../../core/api/errores';
 @Component({
   selector: 'app-usuarios',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, EncabezadoPaginaComponent, IconoComponent, ConfirmDialogComponent],
+  imports: [
+    FormsModule,
+    EncabezadoPaginaComponent,
+    IconoComponent,
+    ConfirmDialogComponent,
+    EstadoVacioComponent,
+    ModalComponent,
+    CampoComponent,
+  ],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
       <app-encabezado-pagina titulo="Usuarios" subtitulo="Quiénes participan en este grupo." />
@@ -29,13 +42,13 @@ import { mensajeDeError } from '../../core/api/errores';
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (usuarios().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <ui-estado-vacio class="mt-6">
           Todavía no hay usuarios. Generá una invitación en «Invitaciones».
-        </div>
+        </ui-estado-vacio>
       } @else {
         <ul class="mt-5 space-y-2">
           @for (u of usuarios(); track u.id) {
-            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <li class="flex items-center gap-3 tarjeta">
               <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-marca-100 text-sm font-bold text-marca-700 dark:bg-marca-900/40 dark:text-marca-300">
                 {{ iniciales(u.nombre) }}
               </span>
@@ -50,7 +63,7 @@ import { mensajeDeError } from '../../core/api/errores';
                     [name]="'rol-' + u.id"
                     [disabled]="asignando() === u.id"
                     [style.border-color]="u.rolGrupo?.colorHex"
-                    class="mt-1.5 w-full max-w-44 rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-200"
+                    class="mt-1.5 w-full max-w-44 boton boton-neutro boton-sm"
                   >
                     <option value="">Sin rol</option>
                     @for (rol of roles(); track rol.id) {
@@ -88,48 +101,34 @@ import { mensajeDeError } from '../../core/api/errores';
       }
     </section>
 
-    @if (editando(); as u) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button
-          type="button"
-          aria-label="Cerrar"
-          (click)="editando.set(null)"
-          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
-        ></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative w-full max-w-sm rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">Editar usuario</h2>
-          <label class="mt-4 block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
+    <ui-modal
+      [abierto]="editando() !== null"
+      titulo="Editar usuario"
+      ancho="sm"
+      (cerrar)="editando.set(null)"
+    >
+      @if (editando() !== null) {
+        <form (submit)="guardar($event)">
+          <ui-campo etiqueta="Nombre" class="mt-4">
             <input
               [(ngModel)]="nombreEdit"
               name="nombre"
               required
               maxlength="120"
-              class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              class="campo"
             />
-          </label>
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="editando.set(null)"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+          </ui-campo>
+          <div class="botonera">
+            <button type="button" (click)="editando.set(null)" class="boton boton-neutro">
               Cancelar
             </button>
-            <button
-              type="submit"
-              [disabled]="guardando()"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-            >
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">
               Guardar
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aDesactivar() !== null"

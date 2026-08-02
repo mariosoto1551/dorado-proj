@@ -50,7 +50,7 @@ import { EstadoPasos, GuiaSetupService } from '../../core/guia/guia-setup.servic
         </div>
       } @else {
         <!-- Barra de progreso -->
-        <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="mt-6 tarjeta">
           <div class="flex items-center justify-between text-sm">
             <span class="font-semibold text-slate-700 dark:text-slate-200">Tu progreso</span>
             <span class="font-bold tabular-nums text-marca-600 dark:text-marca-400">

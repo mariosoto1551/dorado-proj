@@ -19,7 +19,7 @@ import {
   type MarcaRojaDto,
   type UsuarioDto,
 } from '@dorado/shared-types';
-import { ConfirmDialogComponent, EstadoSeccionBadgeComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, EstadoSeccionBadgeComponent, EstadoVacioComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
@@ -39,7 +39,7 @@ type VistaPanel = 'registrar' | 'historial';
 @Component({
   selector: 'app-panel-operativo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [EstadoVacioComponent, 
     FormsModule,
     EncabezadoPaginaComponent,
     EstadoSeccionBadgeComponent,
@@ -84,20 +84,20 @@ type VistaPanel = 'registrar' | 'historial';
       } @else if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (!seccion()) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+        <ui-estado-vacio class="mt-6">
           <p class="text-sm text-slate-500 dark:text-slate-400">No hay una Sección activa.</p>
           <button
             type="button"
             (click)="iniciarSeccion()"
             [disabled]="procesando()"
-            class="mt-4 rounded-lg bg-marca-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+            class="mt-4 boton boton-primario"
           >
             Iniciar primera sección
           </button>
-        </div>
+        </ui-estado-vacio>
       } @else {
         <!-- Sesiones -->
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="mt-4 tarjeta">
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-bold text-slate-900 dark:text-white">Sección #{{ seccion()!.numero }}</h2>
             <span class="text-xs text-slate-400 dark:text-slate-500">{{ seccion()!.sesiones.length }} sesiones</span>
@@ -119,11 +119,11 @@ type VistaPanel = 'registrar' | 'historial';
           @if (sesionAbierta()) {
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
               <!-- No hizo -->
-              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div class="tarjeta">
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white">Registrar «no hizo»</h3>
                 <select
                   [(ngModel)]="usuarioNoHizo"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="mt-2 campo"
                 >
                   <option value="">Usuario…</option>
                   @for (u of usuarios(); track u.id) {
@@ -132,7 +132,7 @@ type VistaPanel = 'registrar' | 'historial';
                 </select>
                 <select
                   [(ngModel)]="actividadNoHizo"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="mt-2 campo"
                 >
                   <option value="">Obligatoria…</option>
                   @for (a of obligatorias(); track a.id) {
@@ -145,7 +145,7 @@ type VistaPanel = 'registrar' | 'historial';
                   [(ngModel)]="motivoNoHizo"
                   maxlength="200"
                   placeholder="Motivo (opcional)"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="mt-2 campo"
                 />
                 <button
                   type="button"
@@ -158,11 +158,11 @@ type VistaPanel = 'registrar' | 'historial';
               </div>
 
               <!-- Conducta -->
-              <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div class="tarjeta">
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white">Registrar conducta</h3>
                 <select
                   [(ngModel)]="usuarioConducta"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="mt-2 campo"
                 >
                   <option value="">Usuario…</option>
                   @for (u of usuarios(); track u.id) {
@@ -171,7 +171,7 @@ type VistaPanel = 'registrar' | 'historial';
                 </select>
                 <select
                   [(ngModel)]="conductaSel"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="mt-2 campo"
                 >
                   <option value="">Conducta…</option>
                   @for (c of conductas(); track c.id) {
@@ -192,7 +192,7 @@ type VistaPanel = 'registrar' | 'historial';
             </div>
 
             <!-- Corregir completadas de un usuario (fase-14) -->
-            <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div class="mt-3 tarjeta">
               <h3 class="text-sm font-bold text-slate-900 dark:text-white">Corregir completadas de un usuario</h3>
               <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Quitá opcionales que un usuario marcó de más. Resta los puntos y en su pantalla
@@ -201,7 +201,7 @@ type VistaPanel = 'registrar' | 'historial';
               <select
                 [(ngModel)]="usuarioCorregir"
                 (ngModelChange)="onUsuarioCorregirCambio()"
-                class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="mt-2 campo"
               >
                 <option value="">Usuario…</option>
                 @for (u of usuarios(); track u.id) {
@@ -216,7 +216,7 @@ type VistaPanel = 'registrar' | 'historial';
                   [(ngModel)]="motivoCorreccion"
                   maxlength="200"
                   placeholder="Motivo (opcional) — lo ve el integrante"
-                  class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="mt-2 campo"
                 />
 
                 @if (cargandoCorreccion()) {
@@ -306,7 +306,7 @@ type VistaPanel = 'registrar' | 'historial';
         }
 
         <!-- Controles de la sección -->
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="mt-4 tarjeta">
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">Controles</h3>
           <div class="mt-3 flex flex-wrap gap-2">
             @if (seccion()!.estado === 'ABIERTA') {
@@ -314,7 +314,7 @@ type VistaPanel = 'registrar' | 'historial';
                 <button
                   type="button"
                   (click)="confirmar.set('cierre-sesion')"
-                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  class="boton boton-neutro"
                 >
                   Cerrar sesión abierta
                 </button>
@@ -323,7 +323,7 @@ type VistaPanel = 'registrar' | 'historial';
                   type="button"
                   (click)="abrirSiguienteSesion()"
                   [disabled]="procesando()"
-                  class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 disabled:opacity-50"
+                  class="boton boton-neutro"
                 >
                   Abrir siguiente sesión
                 </button>
@@ -340,7 +340,7 @@ type VistaPanel = 'registrar' | 'historial';
               <button
                 type="button"
                 (click)="irAEvaluacion()"
-                class="rounded-lg bg-marca-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+                class="boton boton-primario"
               >
                 Ver panel de evaluación
               </button>

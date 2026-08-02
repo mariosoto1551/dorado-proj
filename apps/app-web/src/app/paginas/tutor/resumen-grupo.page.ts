@@ -11,7 +11,7 @@ import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 
 import type { PuntajeUsuarioDto, UsuarioDto } from '@dorado/shared-types';
-import { EstadoSeccionBadgeComponent, ZonaBadgeComponent } from '@dorado/shared-ui';
+import { EstadoSeccionBadgeComponent, ZonaBadgeComponent, EstadoVacioComponent } from '@dorado/shared-ui';
 
 import { IconoComponent } from '../../componentes/icono.component';
 import { IdentityApiService } from '../../core/api/identity-api.service';
@@ -29,7 +29,7 @@ interface FilaRanking extends PuntajeUsuarioDto {
 @Component({
   selector: 'app-resumen-grupo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, EstadoSeccionBadgeComponent, ZonaBadgeComponent, IconoComponent],
+  imports: [EstadoVacioComponent, RouterLink, EstadoSeccionBadgeComponent, ZonaBadgeComponent, IconoComponent],
   template: `
     <section class="mx-auto max-w-4xl px-4 py-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -80,44 +80,44 @@ interface FilaRanking extends PuntajeUsuarioDto {
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (!seccion()) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
+        <ui-estado-vacio class="mt-6">
           <p class="text-sm text-slate-500 dark:text-slate-400">
             No hay una Sección activa todavía. Configurá la sesión e iniciá la primera semana.
           </p>
           <div class="mt-4 flex flex-wrap justify-center gap-2">
             <a
               [routerLink]="['/grupos', grupoId(), 'configuracion-sesion']"
-              class="rounded-lg bg-marca-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+              class="boton boton-primario"
             >
               Configurar sesión
             </a>
             <a
               [routerLink]="['/grupos', grupoId(), 'secciones', 'actual']"
-              class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              class="boton boton-neutro"
             >
               Panel de la semana
             </a>
           </div>
-        </div>
+        </ui-estado-vacio>
       } @else {
         <!-- Sección activa -->
         <div class="mt-4 grid gap-3 sm:grid-cols-3">
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="tarjeta">
             <p class="text-xs font-medium text-slate-400 dark:text-slate-500">Sección</p>
             <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">#{{ seccion()!.numero }}</p>
           </div>
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="tarjeta">
             <p class="text-xs font-medium text-slate-400 dark:text-slate-500">Sesiones</p>
             <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ seccion()!.sesiones.length }}</p>
           </div>
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="tarjeta">
             <p class="text-xs font-medium text-slate-400 dark:text-slate-500">Participantes</p>
             <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ ranking().length }}</p>
           </div>
         </div>
 
         <!-- Ranking -->
-        <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="mt-5 overflow-hidden tarjeta p-0">
           <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
             <h2 class="text-sm font-bold text-slate-900 dark:text-white">
               Ranking {{ seccion()!.estado === 'ABIERTA' ? '(preview)' : '(definitivo)' }}

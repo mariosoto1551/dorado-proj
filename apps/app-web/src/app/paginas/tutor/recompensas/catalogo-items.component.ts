@@ -16,7 +16,7 @@ import {
   type RecompensaDto,
   type UmbralZonaDto,
 } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
@@ -55,7 +55,7 @@ const FORM_VACIO: FormItem = {
 @Component({
   selector: 'app-catalogo-items',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconoComponent, ConfirmDialogComponent],
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule, IconoComponent, ConfirmDialogComponent],
   template: `
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-500 dark:text-slate-400">
@@ -69,7 +69,7 @@ const FORM_VACIO: FormItem = {
         type="button"
         (click)="abrirNueva()"
         [disabled]="!esTienda() && umbrales().length === 0"
-        class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+        class="boton boton-primario"
       >
         <span class="h-4 w-4"><app-icono nombre="plus" /></span>
         Nuevo
@@ -92,9 +92,9 @@ const FORM_VACIO: FormItem = {
     @if (cargando()) {
       <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
     } @else if (items().length === 0) {
-      <div class="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+      <ui-estado-vacio class="mt-5">
         Todavía no hay nada en el catálogo.
-      </div>
+      </ui-estado-vacio>
     } @else {
       <ul class="mt-5 grid gap-3 sm:grid-cols-2">
         @for (r of items(); track r.id) {
@@ -158,119 +158,105 @@ const FORM_VACIO: FormItem = {
       </ul>
     }
 
-    @if (formAbierto()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="formAbierto.set(false)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ editando() ? 'Editar ítem' : 'Nuevo ítem' }}
-          </h2>
-
-          <div class="mt-4 space-y-3">
-            <fieldset>
-              <legend class="text-xs font-semibold text-slate-600 dark:text-slate-300">¿Qué es?</legend>
-              <div class="mt-1.5 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  (click)="form.tipo = TIPO.PREMIO"
-                  [class]="claseOpcion(form.tipo === TIPO.PREMIO)"
-                >
-                  Premio
-                </button>
-                <button
-                  type="button"
-                  (click)="form.tipo = TIPO.CASTIGO"
-                  [class]="claseOpcion(form.tipo === TIPO.CASTIGO)"
-                >
-                  Castigo
-                </button>
-              </div>
-            </fieldset>
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
-              <input
-                [(ngModel)]="form.nombre"
-                name="nombre"
-                required
-                maxlength="120"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Descripción (opcional)</span>
-              <textarea
-                [(ngModel)]="form.descripcion"
-                name="descripcion"
-                rows="2"
-                maxlength="500"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              ></textarea>
-            </label>
-
-            @if (!esTienda()) {
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Zona</span>
-                <select
-                  [(ngModel)]="form.umbralZonaId"
-                  name="umbralZonaId"
+    <ui-modal
+      [abierto]="formAbierto()"
+      [titulo]="editando() ? 'Editar ítem' : 'Nuevo ítem'"
+      (cerrar)="formAbierto.set(false)"
+    >
+      @if (formAbierto()) {
+        <form (submit)="guardar($event)">
+  
+            <div class="mt-4 space-y-3">
+              <fieldset>
+                <legend class="etiqueta-campo">¿Qué es?</legend>
+                <div class="mt-1.5 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    (click)="form.tipo = TIPO.PREMIO"
+                    [class]="claseOpcion(form.tipo === TIPO.PREMIO)"
+                  >
+                    Premio
+                  </button>
+                  <button
+                    type="button"
+                    (click)="form.tipo = TIPO.CASTIGO"
+                    [class]="claseOpcion(form.tipo === TIPO.CASTIGO)"
+                  >
+                    Castigo
+                  </button>
+                </div>
+              </fieldset>
+  
+              <ui-campo etiqueta="Nombre">
+                <input
+                  [(ngModel)]="form.nombre"
+                  name="nombre"
                   required
-                  [disabled]="editando() !== null"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                >
-                  <option value="" disabled>Elegí una zona…</option>
-                  @for (u of umbrales(); track u.id) {
-                    <option [value]="u.id">{{ u.nombreZona }}</option>
-                  }
-                </select>
-              </label>
-
-              <div class="flex gap-2">
-                <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                  <input
-                    [(ngModel)]="form.permiteSeleccion"
-                    name="permiteSeleccion"
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
-                  />
-                  <span class="text-sm text-slate-700 dark:text-slate-200">Selección</span>
-                </label>
-                <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                  <input
-                    [(ngModel)]="form.permiteAzar"
-                    name="permiteAzar"
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
-                  />
-                  <span class="text-sm text-slate-700 dark:text-slate-200">Azar</span>
-                </label>
-              </div>
-            }
-          </div>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="formAbierto.set(false)"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+                  maxlength="120"
+                  class="campo"
+                />
+              </ui-campo>
+  
+              <ui-campo etiqueta="Descripción (opcional)">
+                <textarea
+                  [(ngModel)]="form.descripcion"
+                  name="descripcion"
+                  rows="2"
+                  maxlength="500"
+                  class="campo"
+                ></textarea>
+              </ui-campo>
+  
+              @if (!esTienda()) {
+                <ui-campo etiqueta="Zona">
+                  <select
+                    [(ngModel)]="form.umbralZonaId"
+                    name="umbralZonaId"
+                    required
+                    [disabled]="editando() !== null"
+                    class="campo"
+                  >
+                    <option value="" disabled>Elegí una zona…</option>
+                    @for (u of umbrales(); track u.id) {
+                      <option [value]="u.id">{{ u.nombreZona }}</option>
+                    }
+                  </select>
+                </ui-campo>
+  
+                <div class="flex gap-2">
+                  <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <input
+                      [(ngModel)]="form.permiteSeleccion"
+                      name="permiteSeleccion"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
+                    />
+                    <span class="text-sm text-slate-700 dark:text-slate-200">Selección</span>
+                  </label>
+                  <label class="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <input
+                      [(ngModel)]="form.permiteAzar"
+                      name="permiteAzar"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
+                    />
+                    <span class="text-sm text-slate-700 dark:text-slate-200">Azar</span>
+                  </label>
+                </div>
+              }
+            </div>
+  
+          <div class="botonera">
+            <button type="button" (click)="formAbierto.set(false)" class="boton boton-neutro">
               Cancelar
             </button>
-            <button
-              type="submit"
-              [disabled]="guardando()"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-            >
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">
               {{ guardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aArchivar() !== null"

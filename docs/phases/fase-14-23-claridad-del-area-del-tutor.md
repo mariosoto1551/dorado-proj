@@ -2,7 +2,7 @@
 
 > Sub-spec detallada del ítem 23 de `fase-14-post-mvp.md`. Este archivo es la especificación decidida con José (2026-08-01); las desviaciones de implementación se registran en `docs/progreso/`, no acá. **No se edita una vez escrito** (protocolo de specs de `CLAUDE.md`).
 >
-> **Ítem por tandas.** Este archivo se escribe tanda por tanda: cada una se especifica cuando se llega a ella, partiendo de lo aprendido mirando la app en uso. Hoy contiene la **tanda 1** completa. Las tandas 2–5 tienen acá solo su alcance, igual que un ítem del índice de la fase.
+> **Ítem por tandas.** Este archivo se escribe tanda por tanda: cada una se especifica cuando se llega a ella, partiendo de lo aprendido mirando la app en uso. Hoy contiene las **tandas 1 y 2** completas. Las tandas 3–5 tienen acá solo su alcance, igual que un ítem del índice de la fase.
 
 ## Prerrequisitos
 
@@ -32,7 +32,7 @@ Este ítem es también un registro de un modo de falla del proceso mismo: constr
 | # | Tanda | Estado |
 |---|---|---|
 | T1 | Turnos visibles y guardado único | **Especificada acá** |
-| T2 | Extraer a `libs/shared-ui` los patrones hoy copiados a mano en cada página | Alcance solamente |
+| T2 | Extraer a `libs/shared-ui` los patrones hoy copiados a mano en cada página | **Especificada acá** |
 | T3 | Arquitectura de navegación del área Tutor | Alcance solamente |
 | T4 | Pantalla por pantalla, de la más recargada a la más simple | Alcance solamente |
 | T5 | Pulido final (transiciones, teclado, responsive, textos) | Alcance solamente |
@@ -99,3 +99,106 @@ Y una consecuencia de diseño que se sigue de los anteriores: **la opción de tu
 6. El bloque de turnos aparece al **crear** una obligatoria individual, y la secuencia armada ahí queda guardada al crearla.
 7. Una actividad sin turnos sigue sin pagar ninguna llamada extra: la carga de `turnos-de-hoy` es **una sola** por pantalla, no una por actividad.
 8. Los tests de `activity-service` siguen verdes sin modificarse: este cambio no toca el backend.
+
+---
+
+## Tanda 2 — Patrones a `shared-ui`
+
+### El diagnóstico
+
+`libs/shared-ui` tiene tres componentes (`ConfirmDialog`, `ZonaBadge`, `EstadoSeccionBadge`) y una hoja de tokens (`theme.css`, con `.btn-primario`/`.btn-secundario` para los CTA de marca que comparten `app-web` y `public-site`). Todo lo demás está escrito a mano, cadena de clases por cadena de clases, en cada página.
+
+Inventario del 2026-08-02 sobre `apps/app-web/src/app` (contando la cadena literal):
+
+| Patrón | Ocurrencias | Archivos | Variantes distintas |
+|---|---|---|---|
+| Tarjeta / panel | 44 | 29 | 10 |
+| Campo de formulario | 64 | 18 | 6 |
+| Etiqueta de campo (`<span>` sobre el input) | 63 | 18 | 1 |
+| Botón primario | 36 | — | 9 |
+| Botón neutro (borde) | 30 | — | 9 |
+| Estado vacío | 30 | 25 | 12 |
+| **Modal / hoja** | **19 fondos, 11 paneles** | 15 | 2 (`max-w-md` ×7, `max-w-sm` ×4) |
+| Botonera del modal | 14 | — | 2 |
+
+Dos hallazgos que cambian el encuadre respecto del inventario preliminar del 2026-08-01:
+
+1. **El modal no estaba contado y es la duplicación más cara.** Quince pantallas reescriben las mismas doce líneas —fondo `fixed inset-0`, botón de cierre invisible que cubre la pantalla, panel `rounded-t-2xl` en móvil y `rounded-2xl` en escritorio, `animate-slide-up`, título, botonera— y **once de ellas con las clases del panel idénticas carácter por carácter**. Es también el patrón con más superficie de accesibilidad (`role="dialog"`, `aria-modal`, foco, `Escape`), y hoy solo `ConfirmDialog` la tiene: las quince copias a mano no declaran ni `role` ni `aria-modal`.
+2. **Dieciséis de los sesenta y cuatro campos no tienen anillo de foco.** No es una variante de diseño: es la cadena completa menos `focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none`. En esos campos, navegando con Tab no se ve dónde está el cursor. Es un incumplimiento de WCAG 2.4.7 que ninguna pantalla eligió, producido por copiar la cadena equivocada.
+
+Y la lectura de fondo: **casi todas las variantes difieren solo en espaciado**. Las 10 formas de tarjeta son una sola tarjeta con `p-4`/`p-3`/`p-3.5`/sin padding; los 9 botones primarios son dos tamaños con el padding tipeado distinto cada vez; los 12 estados vacíos son uno solo con `mt-6`/`mt-5`/`mt-4`/`mt-3`. No hay decisiones de diseño detrás de la divergencia — hay tipeo.
+
+### Decisiones (cerradas con José el 2026-08-02)
+
+1. **Forma mixta, según lo que el patrón tenga adentro.** Lo que es **solo piel** (tarjeta, campo, botón, etiqueta, botonera) va como clase en `@layer components` de `theme.css`. Lo que tiene **estructura repetida** (modal, estado vacío, campo con su etiqueta) va como componente de `libs/shared-ui`. El criterio: un componente Angular que solo existe para pegar una cadena de clases obliga a inventar un `input` por cada variante de layout; una clase CSS que quiere tener título, contenido y botonera no puede.
+2. **Migración del área Tutor completa, las tres grandes incluidas.** Las 16 pantallas, entrando por las chicas y bajando después a `actividades.page.ts` (1399 líneas), `panel-operativo.page.ts` (751) y `configuracion-sesion.page.ts` (333). Dejar las grandes para la T4 haría convivir dos estilos justo en las pantallas donde más se nota.
+3. **La extracción corrige el foco en los dieciséis campos.** Es un cambio visible —aparece un anillo donde no había— y va en la dirección del ítem. No se conserva una variante «sin foco» para no perpetuar el defecto con una clase que lo bendiga.
+4. **El área Usuario queda afuera**, según la decisión de alcance 1 del ítem. Los componentes nuevos son de `shared-ui` y quedan disponibles para ella, pero sus seis pantallas no se migran en esta tanda: su identidad es deliberadamente más lúdica y merece su propia vuelta.
+
+### Las clases (`libs/shared-ui/src/theme.css`, `@layer components`)
+
+Los nombres van en español, como el resto del código del repo. `.btn-primario` y `.btn-secundario` **no se tocan**: son los CTA grandes de marca que comparte `public-site`, y son otra cosa que el botón de un panel de gestión.
+
+| Clase | Reemplaza | Nota |
+|---|---|---|
+| `.tarjeta` | 44 usos, 10 variantes | Incluye `p-4`, el padding dominante. En Tailwind v4 la capa `utilities` gana sobre `components`, así que las cuatro tarjetas sin padding escriben `class="tarjeta p-0"` y las de `p-3` lo pisan igual — la variante queda explícita en el markup en vez de escondida en otra cadena. |
+| `.campo` | 64 usos, 6 variantes | Incluye `w-full` (57 de 64) y **el anillo de foco siempre**. |
+| `.etiqueta-campo` | 63 usos | El `<span>` de arriba del input. |
+| `.boton` + `.boton-primario` / `.boton-neutro` / `.boton-peligro` | 66 usos entre primarios y neutros | Tamaño por defecto `text-sm px-4 py-2.5`; `.boton-sm` para el `text-xs px-3 py-1.5` de las acciones de fila. |
+| `.botonera` | 14 usos | `flex-col-reverse` en móvil (el primario abajo, al alcance del pulgar) y `flex-row justify-end` en escritorio. |
+
+### Los componentes (`libs/shared-ui`)
+
+**`<ui-modal>`** — fondo, panel, título y cierre. Reemplaza las 15 copias.
+
+```
+<ui-modal [abierto]="…" titulo="Nuevo rol" ancho="sm" (cerrar)="…">
+  <form (submit)="guardar($event)"> … </form>
+</ui-modal>
+```
+
+- `ancho`: `'sm' | 'md' | 'lg'` (los dos primeros son los que existen hoy; `lg` para las pantallas grandes que hoy desbordan).
+- El formulario lo pone la página **adentro** del modal, no lo provee el componente: es lo que permite que el submit siga siendo del formulario (contrato de la T1) sin que el modal tenga que reenviar eventos.
+- Suma lo que las copias a mano no tienen: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` apuntando al título, cierre con **Escape** y foco llevado al panel al abrir.
+
+**`<ui-estado-vacio>`** — reemplaza los 30 recuadros punteados.
+
+```
+<ui-estado-vacio icono="🏷" titulo="Todavía no hay roles en este grupo">
+  Sin roles, todas las actividades las ven todos los integrantes.
+</ui-estado-vacio>
+```
+
+El texto largo va proyectado, así cada pantalla sigue redactando lo suyo; lo que se unifica es la forma, no el mensaje.
+
+**`<ui-campo>`** — etiqueta + campo, los 63 pares.
+
+```
+<ui-campo etiqueta="Nombre" ayuda="Máximo 30 caracteres">
+  <input class="campo" [(ngModel)]="nombre" name="nombre" />
+</ui-campo>
+```
+
+Renderiza un `<label>` que envuelve al control proyectado (click en la etiqueta enfoca el campo, que hoy funciona por accidente en unas pantallas y no en otras) y deja lugar para `ayuda` y `error` debajo.
+
+### Alcance del cambio
+
+**Backend: ninguno.** Igual que la T1.
+
+| Archivo | Cambio |
+|---|---|
+| `libs/shared-ui/src/theme.css` | Clases nuevas en `@layer components`. |
+| `libs/shared-ui/src/lib/modal/`, `estado-vacio/`, `campo/` | Componentes nuevos + sus specs. |
+| `libs/shared-ui/src/index.ts` | Tres exports nuevos. |
+| `apps/app-web/src/app/paginas/tutor/**` (16 pantallas + 7 sub-componentes) | Migración a las clases y componentes. Sin cambios de comportamiento salvo los tres que la decisión 3 y el `<ui-modal>` traen a propósito (foco visible, `Escape` cierra, `role="dialog"`). |
+| `apps/app-web/src/app/componentes/` | Sin cambios: `EncabezadoPagina`, `Icono` y el host de toasts ya son componentes y no están duplicados. |
+
+### Criterios de aceptación
+
+1. La cadena `rounded-2xl border border-slate-200 bg-white` no aparece más en `apps/app-web/src/app/paginas/tutor`; ni `rounded-lg border border-slate-300 px-3 py-2`, ni `border-dashed border-slate-300`, ni `fixed inset-0 z-50 flex items-end`.
+2. Los 64 campos del área Tutor tienen anillo de foco visible al llegar con Tab.
+3. Los 15 modales del área Tutor cierran con **Escape** y declaran `role="dialog"` con `aria-modal="true"`.
+4. Cancelar un modal sigue descartando todo, y el submit sigue siendo del formulario: el contrato de la T1 no se toca.
+5. Ninguna pantalla del área Usuario cambia de aspecto (no se migran, y las clases nuevas no pisan las que ya usan).
+6. Los tests de los servicios backend siguen verdes sin modificarse: esta tanda no toca el backend.
+7. `nx lint` y `nx build` verdes en los proyectos afectados, y los tests de `app-web` verdes con los casos nuevos de los tres componentes.

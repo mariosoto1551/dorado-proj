@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 
 import { type InvitacionDto, EstadoInvitacion, TipoInvitado } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, EstadoVacioComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { IconoComponent } from '../../componentes/icono.component';
@@ -21,7 +21,7 @@ import { mensajeDeError } from '../../core/api/errores';
 @Component({
   selector: 'app-invitaciones',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EncabezadoPaginaComponent, IconoComponent, ConfirmDialogComponent],
+  imports: [EstadoVacioComponent, EncabezadoPaginaComponent, IconoComponent, ConfirmDialogComponent],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
       <app-encabezado-pagina titulo="Invitaciones" subtitulo="Generá un link y compartilo por donde quieras." />
@@ -31,7 +31,7 @@ import { mensajeDeError } from '../../core/api/errores';
           type="button"
           (click)="generar(TI.USUARIO)"
           [disabled]="generando()"
-          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+          class="boton boton-primario"
         >
           <span class="h-4 w-4"><app-icono nombre="plus" /></span>
           Invitar usuario
@@ -50,13 +50,13 @@ import { mensajeDeError } from '../../core/api/errores';
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (pendientes().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <ui-estado-vacio class="mt-6">
           No hay invitaciones pendientes.
-        </div>
+        </ui-estado-vacio>
       } @else {
         <ul class="mt-5 space-y-2">
           @for (i of pendientes(); track i.id) {
-            <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <li class="tarjeta">
               <div class="flex items-center justify-between gap-2">
                 <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   {{ i.tipoInvitado === 'TUTOR' ? 'Tutor' : 'Usuario' }}

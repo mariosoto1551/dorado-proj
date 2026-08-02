@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { ModoRecompensas, type ConfiguracionRecompensasGrupoDto } from '@dorado/shared-types';
+import { CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
@@ -21,9 +22,9 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
 @Component({
   selector: 'app-modo-recompensas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [ModalComponent, CampoComponent, FormsModule],
   template: `
-    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div class="tarjeta">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p class="text-sm font-bold text-slate-900 dark:text-white">Modo de recompensas</p>
@@ -62,29 +63,27 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
 
       @if (config().modo === 'TIENDA') {
         <div class="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-          <label class="block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre de la moneda</span>
+          <ui-campo etiqueta="Nombre de la moneda">
             <input
               [(ngModel)]="nombreMoneda"
               name="nombreMoneda"
               maxlength="20"
-              class="mt-1 w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              class="w-40 campo"
             />
-          </label>
-          <label class="block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Ícono</span>
+          </ui-campo>
+          <ui-campo etiqueta="Ícono">
             <input
               [(ngModel)]="iconoMoneda"
               name="iconoMoneda"
               maxlength="8"
-              class="mt-1 w-20 rounded-lg border border-slate-300 px-3 py-2 text-center text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              class="campo w-20 text-center"
             />
-          </label>
+          </ui-campo>
           <button
             type="button"
             (click)="guardarMoneda()"
             [disabled]="guardando()"
-            class="rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            class="boton boton-neutro"
           >
             Guardar
           </button>
@@ -95,11 +94,12 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
       }
     </div>
 
-    @if (confirmando(); as destino) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="confirmando.set(null)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <div class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl">
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">Cambiar a {{ destino }}</h2>
+    <ui-modal
+      [abierto]="confirmando() !== null"
+      [titulo]="'Cambiar a ' + (confirmando() ?? '')"
+      (cerrar)="confirmando.set(null)"
+    >
+      @if (confirmando(); as destino) {
           <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
             @if (destino === 'TIENDA') {
               Los premios pasan a comprarse con moneda. Configurá cuánto rinde cada zona en la
@@ -136,13 +136,12 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
           <button
             type="button"
             (click)="confirmando.set(null)"
-            class="mt-3 w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            class="mt-3 w-full boton boton-neutro"
           >
             Cancelar
           </button>
-        </div>
-      </div>
-    }
+      }
+    </ui-modal>
   `,
 })
 export class ModoRecompensasComponent {

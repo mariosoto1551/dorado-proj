@@ -30,7 +30,7 @@ const PRESET: Record<number, number> = { 1: -5, 2: 5, 3: 12, 4: 25 };
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule],
   template: `
-    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div class="tarjeta">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p class="text-sm font-bold text-slate-900 dark:text-white">Cuánto rinde cada zona</p>
@@ -41,7 +41,7 @@ const PRESET: Record<number, number> = { 1: -5, 2: 5, 3: 12, 4: 25 };
         <button
           type="button"
           (click)="cargarPreset()"
-          class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+          class="boton boton-neutro boton-sm"
         >
           Cargar sugeridos
         </button>
@@ -84,7 +84,7 @@ const PRESET: Record<number, number> = { 1: -5, 2: 5, 3: 12, 4: 25 };
             type="button"
             (click)="guardar()"
             [disabled]="guardando()"
-            class="rounded-lg bg-marca-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+            class="boton boton-primario"
           >
             {{ guardando() ? 'Guardando…' : 'Guardar rendimiento' }}
           </button>

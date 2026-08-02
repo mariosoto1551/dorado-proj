@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { EvaluarUmbralesEn, ModoSesion } from '@dorado/shared-types';
+import { CampoComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
@@ -55,7 +56,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
 @Component({
   selector: 'app-configuracion-sesion',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, EncabezadoPaginaComponent],
+  imports: [CampoComponent, FormsModule, EncabezadoPaginaComponent],
   template: `
     <section class="mx-auto max-w-2xl px-4 py-6">
       <app-encabezado-pagina titulo="Configuración de sesión" subtitulo="Cómo se abren y cierran las semanas." />
@@ -65,7 +66,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
       } @else {
         <form (submit)="guardar($event)" class="mt-5 space-y-5">
           <!-- Modo -->
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div class="tarjeta">
             <span class="text-sm font-bold text-slate-900 dark:text-white">Modo</span>
             <div class="mt-3 grid grid-cols-2 gap-2">
               <label
@@ -89,10 +90,10 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
 
           @if (modo === M.AUTOMATICO) {
             <!-- Apertura de sesión -->
-            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-fade-in">
+            <div class="tarjeta animate-fade-in">
               <span class="text-sm font-bold text-slate-900 dark:text-white">Apertura de sesión</span>
               <div class="mt-3">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Días</span>
+                <span class="etiqueta-campo">Días</span>
                 <div class="mt-1.5 flex flex-wrap gap-1.5">
                   @for (d of DIAS; track d.valor) {
                     <button
@@ -107,22 +108,21 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
                 </div>
                 <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">Los días en que se abre una sesión nueva.</p>
               </div>
-              <label class="mt-3 block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Hora</span>
+              <ui-campo etiqueta="Hora" class="mt-3">
                 <input
                   [(ngModel)]="horaSesion"
                   name="horaSesion"
                   type="time"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="campo"
                 />
-              </label>
+              </ui-campo>
             </div>
 
             <!-- Cierre de sección -->
-            <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 animate-fade-in">
+            <div class="tarjeta animate-fade-in">
               <span class="text-sm font-bold text-slate-900 dark:text-white">Cierre de sección</span>
               <div class="mt-3">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Días</span>
+                <span class="etiqueta-campo">Días</span>
                 <div class="mt-1.5 flex flex-wrap gap-1.5">
                   @for (d of DIAS; track d.valor) {
                     <button
@@ -137,49 +137,46 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
                 </div>
                 <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">El día en que el ciclo se cierra y arranca el siguiente.</p>
               </div>
-              <label class="mt-3 block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Hora</span>
+              <ui-campo etiqueta="Hora" class="mt-3">
                 <input
                   [(ngModel)]="horaCierre"
                   name="horaCierre"
                   type="time"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  class="campo"
                 />
-              </label>
+              </ui-campo>
             </div>
           }
 
           <!-- Comunes -->
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Sesiones por sección</span>
+          <div class="tarjeta">
+            <ui-campo etiqueta="Sesiones por sección">
               <input
                 [(ngModel)]="sesionesPorSeccion"
                 name="sesionesPorSeccion"
                 type="number"
                 min="1"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="campo"
               />
-              <span class="mt-1 block text-xs text-slate-400 dark:text-slate-500">
+              <span class="block text-xs text-slate-400 dark:text-slate-500">
                 Cuántas sesiones dura un ciclo antes de pasar a evaluación (el "domingo" de zonas y
                 recompensas). En automático suele coincidir con la cantidad de días de apertura.
               </span>
-            </label>
-            <label class="mt-3 block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Evaluar zonas</span>
+            </ui-campo>
+            <ui-campo etiqueta="Evaluar zonas" class="mt-3">
               <select
                 [(ngModel)]="evaluarUmbralesEn"
                 name="evaluarUmbralesEn"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="campo"
               >
                 <option [ngValue]="EU.CADA_SESION">En cada sesión</option>
                 <option [ngValue]="EU.SOLO_AL_CIERRE_SECCION">Solo al cerrar la sección</option>
               </select>
-              <span class="mt-1 block text-xs text-slate-400 dark:text-slate-500">
+              <span class="block text-xs text-slate-400 dark:text-slate-500">
                 «En cada sesión» da feedback continuo; «solo al cerrar» muestra el resultado recién
                 al final del ciclo.
               </span>
-            </label>
+            </ui-campo>
           </div>
 
           <!-- Resumen en lenguaje natural (se actualiza en vivo) -->
@@ -191,7 +188,7 @@ function parsearCron(cron: string | null): { hora: string; dias: number[] } {
           <button
             type="submit"
             [disabled]="guardando()"
-            class="w-full rounded-lg bg-marca-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+            class="w-full boton boton-primario py-3"
           >
             {{ guardando() ? 'Guardando…' : 'Guardar configuración' }}
           </button>

@@ -9,7 +9,12 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { type ConductaDto, TipoConducta } from '@dorado/shared-types';
-import { ConfirmDialogComponent } from '@dorado/shared-ui';
+import {
+  CampoComponent,
+  ConfirmDialogComponent,
+  EstadoVacioComponent,
+  ModalComponent,
+} from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { IconoComponent } from '../../componentes/icono.component';
@@ -36,14 +41,22 @@ const FORM_VACIO: FormConducta = {
 @Component({
   selector: 'app-conductas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, EncabezadoPaginaComponent, IconoComponent, ConfirmDialogComponent],
+  imports: [
+    FormsModule,
+    EncabezadoPaginaComponent,
+    IconoComponent,
+    ConfirmDialogComponent,
+    EstadoVacioComponent,
+    ModalComponent,
+    CampoComponent,
+  ],
   template: `
     <section class="mx-auto max-w-4xl px-4 py-6">
       <app-encabezado-pagina titulo="Conductas" subtitulo="Suman o restan puntos según el comportamiento.">
         <button
           type="button"
           (click)="abrirNueva()"
-          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+          class="boton boton-primario"
         >
           <span class="h-4 w-4"><app-icono nombre="plus" /></span>
           Nueva
@@ -53,13 +66,13 @@ const FORM_VACIO: FormConducta = {
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (conductas().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <ui-estado-vacio class="mt-6">
           Todavía no hay conductas.
-        </div>
+        </ui-estado-vacio>
       } @else {
         <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           @for (c of conductas(); track c.id) {
-            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <li class="flex items-center gap-3 tarjeta">
               <span
                 class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
                 [class]="c.tipo === 'BUENA' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400'"
@@ -105,97 +118,75 @@ const FORM_VACIO: FormConducta = {
       }
     </section>
 
-    @if (formAbierto()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button
-          type="button"
-          aria-label="Cerrar"
-          (click)="cerrarForm()"
-          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
-        ></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ editando() ? 'Editar conducta' : 'Nueva conducta' }}
-          </h2>
-
-          <div class="mt-4 space-y-3">
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
-              <input
-                [(ngModel)]="form.nombre"
-                name="nombre"
-                required
-                maxlength="120"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-              />
-            </label>
-
-            <div class="grid grid-cols-2 gap-3">
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Tipo</span>
-                <select
-                  [(ngModel)]="form.tipo"
-                  name="tipo"
-                  (ngModelChange)="onTipoCambio()"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                >
-                  <option [ngValue]="TC.BUENA">Buena (+)</option>
-                  <option [ngValue]="TC.MALA">Mala (−)</option>
-                </select>
-              </label>
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Puntos</span>
+    <ui-modal
+      [abierto]="formAbierto()"
+      [titulo]="editando() ? 'Editar conducta' : 'Nueva conducta'"
+      (cerrar)="cerrarForm()"
+    >
+      @if (formAbierto()) {
+        <form (submit)="guardar($event)">
+            <div class="mt-4 space-y-3">
+              <ui-campo etiqueta="Nombre">
                 <input
-                  [(ngModel)]="form.valorPuntos"
-                  name="valorPuntos"
-                  type="number"
-                  min="1"
+                  [(ngModel)]="form.nombre"
+                  name="nombre"
                   required
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                  maxlength="120"
+                  class="campo"
                 />
+              </ui-campo>
+  
+              <div class="grid grid-cols-2 gap-3">
+                <ui-campo etiqueta="Tipo">
+                  <select
+                    [(ngModel)]="form.tipo"
+                    name="tipo"
+                    (ngModelChange)="onTipoCambio()"
+                    class="campo"
+                  >
+                    <option [ngValue]="TC.BUENA">Buena (+)</option>
+                    <option [ngValue]="TC.MALA">Mala (−)</option>
+                  </select>
+                </ui-campo>
+                <ui-campo etiqueta="Puntos">
+                  <input
+                    [(ngModel)]="form.valorPuntos"
+                    name="valorPuntos"
+                    type="number"
+                    min="1"
+                    required
+                    class="campo"
+                  />
+                </ui-campo>
+              </div>
+  
+              <label
+                class="flex items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+                [class.opacity-40]="form.tipo === TC.BUENA"
+              >
+                <input
+                  [(ngModel)]="form.permiteAutoreporte"
+                  name="permiteAutoreporte"
+                  type="checkbox"
+                  [disabled]="form.tipo === TC.BUENA"
+                  class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
+                />
+                <span class="text-sm text-slate-700 dark:text-slate-200">
+                  El usuario puede autoreportarla
+                  <span class="block text-xs text-slate-400 dark:text-slate-500">Solo aplica a conductas malas.</span>
+                </span>
               </label>
             </div>
-
-            <label
-              class="flex items-center gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
-              [class.opacity-40]="form.tipo === TC.BUENA"
-            >
-              <input
-                [(ngModel)]="form.permiteAutoreporte"
-                name="permiteAutoreporte"
-                type="checkbox"
-                [disabled]="form.tipo === TC.BUENA"
-                class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
-              />
-              <span class="text-sm text-slate-700 dark:text-slate-200">
-                El usuario puede autoreportarla
-                <span class="block text-xs text-slate-400 dark:text-slate-500">Solo aplica a conductas malas.</span>
-              </span>
-            </label>
-          </div>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="cerrarForm()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              [disabled]="guardando()"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-            >
+  
+          <div class="botonera">
+            <button type="button" (click)="cerrarForm()" class="boton boton-neutro">Cancelar</button>
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">
               {{ guardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aArchivar() !== null"

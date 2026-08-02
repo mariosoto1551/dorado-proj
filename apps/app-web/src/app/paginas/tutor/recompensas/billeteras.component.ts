@@ -15,6 +15,7 @@ import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { IdentityApiService } from '../../../core/api/identity-api.service';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
+import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 /**
  * Saldo de cada integrante + ajuste manual (fase-14-22). El ajuste exige
@@ -24,7 +25,7 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
 @Component({
   selector: 'app-billeteras',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule],
   template: `
     <p class="text-sm text-slate-500 dark:text-slate-400">
       Cuánto tiene cada integrante y ajustes a mano.
@@ -33,13 +34,13 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
     @if (cargando()) {
       <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
     } @else if (billeteras().length === 0) {
-      <div class="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+      <ui-estado-vacio class="mt-5">
         Todavía no hay integrantes en el grupo.
-      </div>
+      </ui-estado-vacio>
     } @else {
       <ul class="mt-5 space-y-2">
         @for (b of billeteras(); track b.usuarioId) {
-          <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <li class="flex items-center gap-3 tarjeta">
             <span class="flex-1 truncate font-semibold text-slate-900 dark:text-white">
               {{ nombreDe(b.usuarioId) }}
             </span>
@@ -49,7 +50,7 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
             <button
               type="button"
               (click)="abrirAjuste(b)"
-              class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              class="boton boton-neutro boton-sm"
             >
               Ajustar
             </button>
@@ -58,65 +59,54 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
       </ul>
     }
 
-    @if (ajustando(); as billetera) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="ajustando.set(null)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form
-          (submit)="guardarAjuste($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            Ajustar a {{ nombreDe(billetera.usuarioId) }}
-          </h2>
+    <ui-modal
+      [abierto]="ajustando() !== null"
+      [titulo]="'Ajustar a ' + nombreDe(ajustando()?.usuarioId ?? '')"
+      (cerrar)="ajustando.set(null)"
+    >
+      @if (ajustando(); as billetera) {
+        <form (submit)="guardarAjuste($event)">
           <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Tiene {{ billetera.saldo }} {{ billetera.nombreMoneda }}. Un ajuste negativo no puede
             dejarlo por debajo de 0.
           </p>
 
           <div class="mt-4 space-y-3">
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Monto (negativo para descontar)
-              </span>
+            <ui-campo etiqueta="Monto (negativo para descontar)">
               <input
                 type="number"
                 [(ngModel)]="monto"
                 name="monto"
-                class="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="w-32 campo"
               />
-            </label>
-            <label class="block">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Motivo</span>
+            </ui-campo>
+            <ui-campo etiqueta="Motivo">
               <input
                 [(ngModel)]="motivo"
                 name="motivo"
                 required
                 maxlength="200"
                 placeholder="Ej: ayudó con la mudanza"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+                class="campo"
               />
-            </label>
+            </ui-campo>
           </div>
 
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="ajustando.set(null)"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+          <div class="botonera">
+            <button type="button" (click)="ajustando.set(null)" class="boton boton-neutro">
               Cancelar
             </button>
             <button
               type="submit"
               [disabled]="guardando() || motivo.trim().length === 0 || monto === 0"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+              class="boton boton-primario"
             >
               {{ guardando() ? 'Guardando…' : 'Ajustar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
   `,
 })
 export class BilleterasComponent {

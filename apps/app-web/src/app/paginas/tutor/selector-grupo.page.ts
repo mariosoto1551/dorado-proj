@@ -20,7 +20,7 @@ import { IdentityApiService } from '../../core/api/identity-api.service';
         </div>
         <a
           routerLink="/onboarding"
-          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+          class="boton boton-primario"
         >
           <span class="h-4 w-4"><app-icono nombre="plus" /></span>
           Nuevo grupo
@@ -31,7 +31,7 @@ import { IdentityApiService } from '../../core/api/identity-api.service';
         @for (g of grupos(); track g.id) {
           <a
             [routerLink]="['/grupos', g.id]"
-            class="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-marca-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-marca-700"
+            class="group flex items-center gap-3 tarjeta tarjeta-accionable"
           >
             <span
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-marca-50 text-marca-600 dark:bg-marca-900/40 dark:text-marca-300"

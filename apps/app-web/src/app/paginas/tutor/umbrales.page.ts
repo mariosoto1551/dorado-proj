@@ -10,7 +10,7 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import type { UmbralZonaDto } from '@dorado/shared-types';
-import { ConfirmDialogComponent, ZonaBadgeComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, ZonaBadgeComponent, EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { IconoComponent } from '../../componentes/icono.component';
@@ -41,7 +41,7 @@ const FORM_VACIO: FormUmbral = {
 @Component({
   selector: 'app-umbrales',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, 
     FormsModule,
     EncabezadoPaginaComponent,
     IconoComponent,
@@ -54,7 +54,7 @@ const FORM_VACIO: FormUmbral = {
         <button
           type="button"
           (click)="abrirNueva()"
-          class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700"
+          class="boton boton-primario"
         >
           <span class="h-4 w-4"><app-icono nombre="plus" /></span>
           Nueva
@@ -62,7 +62,7 @@ const FORM_VACIO: FormUmbral = {
       </app-encabezado-pagina>
 
       <!-- Base de puntos iniciales por semana (fase-14) -->
-      <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div class="mt-5 tarjeta">
         <label for="puntosIniciales" class="block text-sm font-semibold text-slate-700 dark:text-slate-200">
           Puntos iniciales
         </label>
@@ -93,13 +93,13 @@ const FORM_VACIO: FormUmbral = {
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (umbrales().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <ui-estado-vacio class="mt-6">
           Todavía no hay zonas definidas.
-        </div>
+        </ui-estado-vacio>
       } @else {
         <ul class="mt-5 space-y-2">
           @for (u of umbralesOrdenados(); track u.id) {
-            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <li class="flex items-center gap-3 tarjeta">
               <span class="h-8 w-8 shrink-0 rounded-lg" [style.background-color]="u.colorHex"></span>
               <div class="min-w-0 flex-1">
                 <ui-zona-badge [zona]="u" tamano="sm" />
@@ -131,115 +131,92 @@ const FORM_VACIO: FormUmbral = {
       }
     </section>
 
-    @if (formAbierto()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button
-          type="button"
-          aria-label="Cerrar"
-          (click)="cerrarForm()"
-          class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"
-        ></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ editando() ? 'Editar zona' : 'Nueva zona' }}
-          </h2>
-
-          <div class="mt-4 space-y-3">
-            <div class="flex items-center gap-3">
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Color</span>
+    <ui-modal
+      [abierto]="formAbierto()"
+      [titulo]="editando() ? 'Editar zona' : 'Nueva zona'"
+      (cerrar)="cerrarForm()"
+    >
+      @if (formAbierto()) {
+        <form (submit)="guardar($event)">
+  
+            <div class="mt-4 space-y-3">
+              <div class="flex items-center gap-3">
+                <ui-campo etiqueta="Color">
+                  <input
+                    [(ngModel)]="form.colorHex"
+                    name="colorHex"
+                    type="color"
+                    class="h-10 w-14 cursor-pointer rounded-lg border border-slate-300 dark:border-slate-700"
+                  />
+                </ui-campo>
+                <ui-campo etiqueta="Nombre de la zona" class="flex-1">
+                  <input
+                    [(ngModel)]="form.nombreZona"
+                    name="nombreZona"
+                    required
+                    maxlength="50"
+                    placeholder="Verde, Dorado…"
+                    class="campo"
+                  />
+                </ui-campo>
+              </div>
+  
+              <div class="grid grid-cols-3 gap-3">
+                <ui-campo etiqueta="Orden">
+                  <input
+                    [(ngModel)]="form.orden"
+                    name="orden"
+                    type="number"
+                    min="1"
+                    class="campo"
+                  />
+                </ui-campo>
+                <ui-campo etiqueta="Desde">
+                  <input
+                    [(ngModel)]="form.puntosMin"
+                    name="puntosMin"
+                    type="number"
+                    class="campo"
+                  />
+                </ui-campo>
+                <ui-campo etiqueta="Hasta">
+                  <input
+                    [(ngModel)]="form.puntosMax"
+                    name="puntosMax"
+                    type="number"
+                    [disabled]="form.sinTope"
+                    class="campo"
+                  />
+                </ui-campo>
+              </div>
+  
+              <label class="flex items-center gap-2">
                 <input
-                  [(ngModel)]="form.colorHex"
-                  name="colorHex"
-                  type="color"
-                  class="mt-1 h-10 w-14 cursor-pointer rounded-lg border border-slate-300 dark:border-slate-700"
+                  [(ngModel)]="form.sinTope"
+                  name="sinTope"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
                 />
+                <span class="text-sm text-slate-700 dark:text-slate-200">Sin tope (zona más alta)</span>
               </label>
-              <label class="block flex-1">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre de la zona</span>
-                <input
-                  [(ngModel)]="form.nombreZona"
-                  name="nombreZona"
-                  required
-                  maxlength="50"
-                  placeholder="Verde, Dorado…"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                />
-              </label>
-            </div>
-
-            <div class="grid grid-cols-3 gap-3">
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Orden</span>
-                <input
-                  [(ngModel)]="form.orden"
-                  name="orden"
-                  type="number"
-                  min="1"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                />
-              </label>
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Desde</span>
-                <input
-                  [(ngModel)]="form.puntosMin"
-                  name="puntosMin"
-                  type="number"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                />
-              </label>
-              <label class="block">
-                <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Hasta</span>
-                <input
-                  [(ngModel)]="form.puntosMax"
-                  name="puntosMax"
-                  type="number"
-                  [disabled]="form.sinTope"
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-40 focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-                />
-              </label>
-            </div>
-
-            <label class="flex items-center gap-2">
-              <input
-                [(ngModel)]="form.sinTope"
-                name="sinTope"
-                type="checkbox"
-                class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
-              />
-              <span class="text-sm text-slate-700 dark:text-slate-200">Sin tope (zona más alta)</span>
-            </label>
-
-            <div class="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-              <span class="text-xs text-slate-400 dark:text-slate-500">Vista previa:</span>
-              <div class="mt-1.5">
-                <ui-zona-badge [zona]="{ nombreZona: form.nombreZona || 'Zona', colorHex: form.colorHex }" />
+  
+              <div class="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                <span class="text-xs text-slate-400 dark:text-slate-500">Vista previa:</span>
+                <div class="mt-1.5">
+                  <ui-zona-badge [zona]="{ nombreZona: form.nombreZona || 'Zona', colorHex: form.colorHex }" />
+                </div>
               </div>
             </div>
-          </div>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="cerrarForm()"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              [disabled]="guardando()"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
-            >
+  
+          <div class="botonera">
+            <button type="button" (click)="cerrarForm()" class="boton boton-neutro">Cancelar</button>
+            <button type="submit" [disabled]="guardando()" class="boton boton-primario">
               {{ guardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
 
     <ui-confirm-dialog
       [abierto]="aEliminar() !== null"

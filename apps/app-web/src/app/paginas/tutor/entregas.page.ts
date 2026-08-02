@@ -17,6 +17,7 @@ import { ToastService } from '../../componentes/toast.service';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { RewardsApiService } from '../../core/api/rewards-api.service';
+import { CampoComponent, EstadoVacioComponent, ModalComponent } from '@dorado/shared-ui';
 
 /**
  * Pendientes de entrega (fase-14-22). Compras y castigos en UNA sola lista:
@@ -29,7 +30,14 @@ import { RewardsApiService } from '../../core/api/rewards-api.service';
 @Component({
   selector: 'app-entregas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, EncabezadoPaginaComponent, IconoComponent],
+  imports: [
+    FormsModule,
+    EncabezadoPaginaComponent,
+    IconoComponent,
+    EstadoVacioComponent,
+    ModalComponent,
+    CampoComponent,
+  ],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
       <app-encabezado-pagina
@@ -40,9 +48,9 @@ import { RewardsApiService } from '../../core/api/rewards-api.service';
       @if (cargando()) {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else if (pendientes().length === 0) {
-        <div class="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+        <ui-estado-vacio class="mt-6">
           No hay nada pendiente de entregar. 🎉
-        </div>
+        </ui-estado-vacio>
       } @else {
         <ul class="mt-5 space-y-2.5">
           @for (p of pendientes(); track p.id) {
@@ -88,7 +96,7 @@ import { RewardsApiService } from '../../core/api/rewards-api.service';
                 <button
                   type="button"
                   (click)="entregar(p)"
-                  class="rounded-lg bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-marca-700"
+                  class="boton boton-primario boton-sm"
                 >
                   Entregado
                 </button>
@@ -99,16 +107,13 @@ import { RewardsApiService } from '../../core/api/rewards-api.service';
       }
     </section>
 
-    @if (anulando(); as pendiente) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="anulando.set(null)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form
-          (submit)="confirmarAnular($event)"
-          class="relative w-full max-w-md rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ pendiente.origen === 'CASTIGO' ? 'Anular castigo' : 'Devolver compra' }}
-          </h2>
+    <ui-modal
+      [abierto]="anulando() !== null"
+      [titulo]="anulando()?.origen === 'CASTIGO' ? 'Anular castigo' : 'Devolver compra'"
+      (cerrar)="anulando.set(null)"
+    >
+      @if (anulando(); as pendiente) {
+        <form (submit)="confirmarAnular($event)">
           <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
             @if (pendiente.origen === 'CASTIGO') {
               El castigo no se aplica. <b>Las monedas no cambian</b>: la deuda ya se saldó cuando
@@ -118,38 +123,35 @@ import { RewardsApiService } from '../../core/api/rewards-api.service';
             }
           </p>
 
-          <label class="mt-4 block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Motivo {{ pendiente.origen === 'CASTIGO' ? '' : '(opcional)' }}
-            </span>
+          <ui-campo
+            etiqueta="Motivo"
+            [opcional]="pendiente.origen !== 'CASTIGO'"
+            class="mt-4"
+          >
             <input
               [(ngModel)]="motivo"
               name="motivo"
               maxlength="200"
               [required]="pendiente.origen === 'CASTIGO'"
-              class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+              class="campo"
             />
-          </label>
+          </ui-campo>
 
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="anulando.set(null)"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+          <div class="botonera">
+            <button type="button" (click)="anulando.set(null)" class="boton boton-neutro">
               Cancelar
             </button>
             <button
               type="submit"
               [disabled]="pendiente.origen === 'CASTIGO' && motivo.trim().length === 0"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+              class="boton boton-primario"
             >
               Confirmar
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
   `,
 })
 export class EntregasPage {

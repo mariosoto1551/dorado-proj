@@ -31,7 +31,7 @@ import { mensajeDeError } from '../../core/api/errores';
       } @else {
         <ul class="mt-5 space-y-2">
           @for (t of tutores(); track t.id) {
-            <li class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <li class="flex items-center gap-3 tarjeta">
               <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-marca-100 text-marca-700 dark:bg-marca-900/40 dark:text-marca-300">
                 <span class="h-5 w-5"><app-icono nombre="shield" /></span>
               </span>

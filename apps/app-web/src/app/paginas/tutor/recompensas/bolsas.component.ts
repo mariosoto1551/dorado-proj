@@ -15,6 +15,7 @@ import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
+import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 /**
  * Bolsas de premios (fase-14-22 decisiones 19 y 20). Son SIEMPRE de premios:
@@ -25,7 +26,7 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
 @Component({
   selector: 'app-bolsas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconoComponent],
+  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule, IconoComponent],
   template: `
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-500 dark:text-slate-400">
@@ -35,7 +36,7 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
         type="button"
         (click)="abrirNueva()"
         [disabled]="premios().length === 0"
-        class="flex items-center gap-1.5 rounded-lg bg-marca-600 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+        class="boton boton-primario"
       >
         <span class="h-4 w-4"><app-icono nombre="plus" /></span>
         Nueva bolsa
@@ -51,13 +52,13 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
     @if (cargando()) {
       <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
     } @else if (bolsas().length === 0) {
-      <div class="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+      <ui-estado-vacio class="mt-5">
         Todavía no hay bolsas.
-      </div>
+      </ui-estado-vacio>
     } @else {
       <ul class="mt-5 grid gap-3 sm:grid-cols-2">
         @for (b of bolsas(); track b.id) {
-          <li class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <li class="tarjeta">
             <div class="flex items-start justify-between gap-2">
               <p class="font-semibold text-slate-900 dark:text-white">{{ b.nombre }}</p>
               <span class="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -90,77 +91,69 @@ import { RewardsApiService } from '../../../core/api/rewards-api.service';
       </ul>
     }
 
-    @if (formAbierto()) {
-      <div class="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <button type="button" aria-label="Cerrar" (click)="formAbierto.set(false)" class="absolute inset-0 cursor-default bg-slate-900/50 animate-fade-in"></button>
-        <form
-          (submit)="guardar($event)"
-          class="relative flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl bg-white p-5 shadow-xl animate-slide-up dark:bg-slate-900 sm:rounded-2xl"
-        >
-          <h2 class="text-lg font-bold text-slate-900 dark:text-white">
-            {{ editando() ? 'Editar bolsa' : 'Nueva bolsa' }}
-          </h2>
-
-          <label class="mt-4 block">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">Nombre</span>
-            <input
-              [(ngModel)]="nombre"
-              name="nombre"
-              required
-              maxlength="120"
-              placeholder="Ej: Sorpresas chicas"
-              class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-marca-500 focus:ring-2 focus:ring-marca-200 focus:outline-none dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-            />
-          </label>
-
-          <div class="mt-4 flex items-center justify-between">
-            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Premios ({{ elegidos().length }})
-            </span>
-            <button
-              type="button"
-              (click)="agregarTodos()"
-              class="text-xs font-semibold text-marca-600 hover:underline dark:text-marca-300"
-            >
-              Agregar todos
-            </button>
-          </div>
-
-          <ul class="mt-2 flex-1 space-y-1.5 overflow-y-auto">
-            @for (p of premios(); track p.id) {
-              <li>
-                <label class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 p-2.5 transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
-                  <input
-                    type="checkbox"
-                    [checked]="elegidos().includes(p.id)"
-                    (change)="alternar(p.id)"
-                    class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
-                  />
-                  <span class="text-sm text-slate-700 dark:text-slate-200">{{ p.nombre }}</span>
-                </label>
-              </li>
-            }
-          </ul>
-
-          <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              (click)="formAbierto.set(false)"
-              class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
+    <ui-modal
+      [abierto]="formAbierto()"
+      [titulo]="editando() ? 'Editar bolsa' : 'Nueva bolsa'"
+      (cerrar)="formAbierto.set(false)"
+    >
+      @if (formAbierto()) {
+        <form (submit)="guardar($event)" class="flex flex-col">
+  
+            <ui-campo etiqueta="Nombre" class="mt-4">
+              <input
+                [(ngModel)]="nombre"
+                name="nombre"
+                required
+                maxlength="120"
+                placeholder="Ej: Sorpresas chicas"
+                class="campo"
+              />
+            </ui-campo>
+  
+            <div class="mt-4 flex items-center justify-between">
+              <span class="etiqueta-campo">
+                Premios ({{ elegidos().length }})
+              </span>
+              <button
+                type="button"
+                (click)="agregarTodos()"
+                class="text-xs font-semibold text-marca-600 hover:underline dark:text-marca-300"
+              >
+                Agregar todos
+              </button>
+            </div>
+  
+            <ul class="mt-2 flex-1 space-y-1.5 overflow-y-auto">
+              @for (p of premios(); track p.id) {
+                <li>
+                  <label class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 p-2.5 transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
+                    <input
+                      type="checkbox"
+                      [checked]="elegidos().includes(p.id)"
+                      (change)="alternar(p.id)"
+                      class="h-4 w-4 rounded border-slate-300 text-marca-600 focus:ring-marca-500 dark:border-slate-600"
+                    />
+                    <span class="text-sm text-slate-700 dark:text-slate-200">{{ p.nombre }}</span>
+                  </label>
+                </li>
+              }
+            </ul>
+  
+          <div class="botonera">
+            <button type="button" (click)="formAbierto.set(false)" class="boton boton-neutro">
               Cancelar
             </button>
             <button
               type="submit"
               [disabled]="guardando() || elegidos().length === 0"
-              class="rounded-lg bg-marca-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+              class="boton boton-primario"
             >
               {{ guardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
-      </div>
-    }
+      }
+    </ui-modal>
   `,
 })
 export class BolsasComponent {

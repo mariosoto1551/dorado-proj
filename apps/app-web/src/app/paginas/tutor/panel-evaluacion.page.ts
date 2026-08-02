@@ -42,7 +42,7 @@ interface FilaRanking extends PuntajeUsuarioDto {
         <p class="mt-8 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
       } @else {
         <!-- Ranking final -->
-        <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="mt-4 overflow-hidden tarjeta p-0">
           <h2 class="border-b border-slate-100 px-4 py-3 dark:border-slate-800 text-sm font-bold text-slate-900 dark:text-white">Ranking final</h2>
           @if (ranking().length === 0) {
             <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Sin participantes.</p>
@@ -77,7 +77,7 @@ interface FilaRanking extends PuntajeUsuarioDto {
         </div>
 
         <!-- Canjes -->
-        <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div class="mt-5 overflow-hidden tarjeta p-0">
           <h2 class="border-b border-slate-100 px-4 py-3 dark:border-slate-800 text-sm font-bold text-slate-900 dark:text-white">Recompensas a entregar</h2>
           @if (canjes().length === 0) {
             <p class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Nadie eligió recompensa todavía.</p>
@@ -100,7 +100,7 @@ interface FilaRanking extends PuntajeUsuarioDto {
                       type="button"
                       (click)="entregar(c)"
                       [disabled]="procesando()"
-                      class="rounded-lg bg-marca-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-marca-700 disabled:opacity-50"
+                      class="boton boton-primario boton-sm"
                     >
                       Marcar entregada
                     </button>
