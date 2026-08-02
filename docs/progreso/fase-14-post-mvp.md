@@ -805,4 +805,16 @@ Se sumó `emailContacto`/`password` a `Organizacion` en `support/escenario.ts` �
 2. **`turnos-de-hoy` es N+1 en llamadas a session-service**: itera las actividades rotativas y cada `asignacionVigente` resuelve la Sección por REST. Preexistente del #21 y acotado (solo actividades con rotación activa; cero consultas si el grupo no usa turnos), pero está a un `Map` de resolverse. **No se tocó porque la T1 declara alcance cero-backend**; queda para cuando haya otro motivo para entrar ahí.
 3. **Turno huérfano al cambiar el tipo de actividad**: si una obligatoria con rotación pasa a OPCIONAL o a EQUIPO, el bloque desaparece y la fila de `TurnoActividad` queda activa sin efecto. Es preexistente —la T1 no cambió el comportamiento— y no rompe nada porque el cierre solo mira obligatorias. Anotado por si conviene apagarla explícitamente.
 4. **Cierra tres pendientes del #21**: el 1 (paseo visual, ahora cubierto por navegador) y el 4 (el armador solo al editar) quedan resueltos; el 2 (desplegar la migración) sigue abierto y no depende de esto.
-5. **Siguiente: la T2** (patrones a `libs/shared-ui`), que hoy tiene solo tres componentes mientras el resto está copiado a mano en cada página.
+5. **Siguiente: la T2** (patrones a `libs/shared-ui`), que hoy tiene solo tres componentes (`ConfirmDialog`, `ZonaBadge`, `EstadoSeccionBadge`) mientras el resto está copiado a mano en cada página.
+
+   **Inventario relevado el 2026-08-01, para no volver a buscarlo** (`apps/app-web/src/app`, contando la cadena de clases literal):
+
+   | Patrón | Clase que se repite | Ocurrencias | Archivos |
+   |---|---|---|---|
+   | Tarjeta / panel | `rounded-2xl border border-slate-200 bg-white` | 44 | 29 |
+   | Campo de formulario | `rounded-lg border border-slate-300 px-3 py-2 text-sm` | 64 | 18 |
+   | Estado vacío | `border-dashed border-slate-300` | 30 | 25 |
+
+   Los tres cubren prácticamente toda la superficie del área Tutor, y **el orden de extracción debería ser ese**: la tarjeta es la que más archivos toca (29) y la que fija el ritmo visual; el campo es el que más se repite por archivo (15 veces solo en `actividades.page.ts`) y es el que tiene que quedar alineado con el contrato de guardado que salió de la T1; el estado vacío es el más barato y el que más se nota, porque hoy cada pantalla redacta el suyo.
+
+   Cuidado al entrar: `actividades.page.ts` (1182 líneas), `panel-operativo.page.ts` y `configuracion-sesion.page.ts` concentran los tres patrones a la vez — conviene extraer contra una pantalla chica primero (`roles-grupo.page.ts` o `tutores.page.ts`) y recién después bajarlo a las grandes.
