@@ -4,6 +4,7 @@ import { Logger } from 'nestjs-pino';
 import { correlationMiddleware } from '@dorado/shared-logging';
 
 import { AppModule } from './app/app.module';
+import { crearVerificadorDeOrigen } from './proxy/cors-origin';
 import { crearJwtValidationMiddleware } from './proxy/jwt-validation.middleware';
 import { crearProxyMiddlewares } from './proxy/proxy.middleware';
 import { crearRateLimitMiddleware } from './proxy/rate-limit.middleware';
@@ -23,30 +24,14 @@ async function bootstrap(): Promise<void> {
   app.flushLogs();
 
   // 1. CORS — primero de todo: el preflight OPTIONS del navegador no debe
-  //    atravesar el resto de la cadena. Lista explícita de orígenes, nunca
-  //    '*': con credentials (cookie dorado_refresh) el wildcard no funciona.
-  //    Con CORS_ALLOW_LAN=true (modo casa) se REFLEJAN también los orígenes de
-  //    red privada (192.168.x / 10.x / 172.16-31.x / localhost) para que la
-  //    familia entre desde sus celus/laptops sin listar cada IP. Reflejar el
-  //    origen puntual (no '*') mantiene funcionando la cookie de credentials.
+  //    atravesar el resto de la cadena. La política vive en cors-origin.ts
+  //    (lista explícita + red local bajo CORS_ALLOW_LAN); acá solo se arma.
   const listaOrigenes = [process.env.APP_WEB_URL, process.env.PUBLIC_SITE_URL].filter(
     (o): o is string => Boolean(o)
   );
-  const permitirLan = process.env.CORS_ALLOW_LAN === 'true';
-  const patronLan =
-    /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
 
   app.enableCors({
-    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
-      // Sin Origin (curl, same-origin, healthchecks internos) → permitido.
-      if (!origin || listaOrigenes.includes(origin) || (permitirLan && patronLan.test(origin))) {
-        cb(null, true);
-
-        return;
-      }
-
-      cb(null, false);
-    },
+    origin: crearVerificadorDeOrigen(listaOrigenes, process.env.CORS_ALLOW_LAN === 'true'),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],

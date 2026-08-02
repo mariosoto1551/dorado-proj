@@ -102,28 +102,111 @@ gratis, sin nube — un solo comando levanta TODO en tu PC:
 pnpm dev:casa                    # = node scripts/home-up.mjs
 ```
 
-Qué hace: levanta la infra (Postgres + RabbitMQ), aplica migraciones, arranca los
-9 servicios backend con `CORS_ALLOW_LAN=true` y sirve los frontends en `0.0.0.0`
-(accesibles desde la red). Al final imprime la dirección para pasarle a tu familia,
-detectando la IP de tu WiFi automáticamente (descarta adaptadores virtuales de
-WSL/Docker/VirtualBox). **Dejá esa ventana abierta** mientras la usen; `Ctrl+C`
-baja todo.
+Qué hace: libera puertos de corridas anteriores, levanta la infra (Postgres +
+RabbitMQ), aplica migraciones, **compila** los 9 servicios y los arranca con
+`CORS_ALLOW_LAN=true`, y sirve los frontends en `0.0.0.0` (accesibles desde la
+red). **Dejá esa ventana abierta** mientras la usen; `Ctrl+C` baja todo.
+
+> El backend corre **compilado** (`node dist/apps/<servicio>/main.js`), no con
+> `nx serve`: no hay hot-reload, que para uso familiar no hace falta y evita el
+> fallo de arranque descrito más abajo. Para desarrollar con watch seguí usando
+> `pnpm dev:backend`.
+
+Al final imprime **un QR y el nombre de red de la PC**:
 
 ```
-  Tu familia entra desde el navegador de su celu/laptop a:
-     http://<IP-de-tu-PC>:4200        (la app)
+  Que escaneen este QR con la cámara del celu:
 
-  Vos, para registrar la organización la primera vez:
-     http://<IP-de-tu-PC>:4321/registro (el sitio de registro)
+     █▀▀▀▀▀█ ▄▀ ▄▄ █▀▀▀▀▀█
+     █ ███ █ ▀█▄▀▄ █ ███ █          ← apunta a http://<IP>:4200
+     █▄▄▄▄▄█ █ ▀ █ █▄▄▄▄▄█
+
+  O que entren tipeando el nombre de esta PC:
+     http://<nombre-de-tu-PC>.local:4200
 ```
 
-No hace falta reconstruir ni configurar la IP: el frontend deriva la URL del
-Gateway del host desde el que se abre (si entran a `http://192.168.1.50:4200`, la
-app le pega a `http://192.168.1.50:3000/api`). El registro de la organización solo
-funciona desde `:4321` (origen que el Gateway acepta por CORS).
+El QR se regenera en cada arranque con la IP detectada, así que **siempre apunta
+bien aunque el router haya cambiado la IP**. El nombre `.local` (mDNS/Bonjour, ya
+viene en Windows 11, macOS, iOS y las distros modernas) es el atajo estable: no
+cambia nunca. Lo que conviene es que cada uno lo abra una vez y use **"Agregar a
+pantalla de inicio"** — les queda como un ícono en el celu y no vuelven a tipear
+nada.
+
+> **Android**: el soporte de `.local` es irregular según versión y navegador. Si
+> en algún celu no abre por el nombre, que use el QR o la IP directa — por eso el
+> QR lleva la IP y no el nombre.
+
+Ninguna de las dos formas necesita reconstruir ni configurar nada: el frontend
+deriva la URL del Gateway del host desde el que se abre (si entran a
+`http://dorado.local:4200`, la app le pega a `http://dorado.local:3000/api`), y el
+Gateway acepta por CORS tanto las IPs privadas como los nombres locales cuando
+`CORS_ALLOW_LAN=true` (ver `apps/gateway/src/proxy/cors-origin.ts`). El registro
+de la organización solo funciona desde `:4321`.
+
+Para que el nombre funcione hicieron falta **dos** permisos distintos, no uno: el
+CORS del Gateway (arriba) y el `allowedHosts` de Vite, que está abajo del dev
+server de Angular y del de Astro y responde **403 "Blocked request"** a cualquier
+`Host` que no reconozca (protección contra DNS rebinding). Las IPs literales las
+acepta solo; los nombres hay que declararlos. `dev:casa` le pasa el nombre mDNS
+detectado a los dos dev servers — a Angular por `--allowed-hosts`, a Astro por la
+env `CASA_ALLOWED_HOSTS` que lee `astro.config.mjs`. Si además entrás por otro
+nombre (por ejemplo un `dorado.casa` que resuelva el DNS de tu router), sumalo:
+
+```bash
+CASA_HOSTS=dorado.casa pnpm dev:casa
+```
+
+**Un nombre más lindo**: el nombre `.local` sale del nombre del equipo en Windows
+(*Configuración → Sistema → Información → Cambiar el nombre de este equipo*). Si
+lo renombrás a `dorado`, la dirección pasa a ser `http://dorado.local:4200`.
+Requiere reiniciar.
+
+**Que la IP no cambie nunca** (opcional, pero es lo que arregla el problema de
+raíz): en el panel de tu router, buscá *DHCP reservation* / *IP estática por
+MAC* / *Asignación manual* y reservá la IP actual de esta PC para su MAC. Si tu
+router además permite entradas de DNS local, mapeá algo como `dorado.casa` a esa
+IP y funciona en **todos** los dispositivos, sin depender de mDNS.
 
 **Requisitos**: Docker corriendo + `pnpm install` hecho, y todos los equipos en el
 **mismo WiFi** que esta PC.
+
+#### Si algún servicio no arranca
+
+`dev:casa` verifica el healthcheck de **los 9 servicios** antes de decir que está
+listo, y si falta alguno aborta mostrando cuál:
+
+```
+     ✓ gateway                :3000
+     ✗ identity-service       :3001
+     ✓ billing-service        :3002
+```
+
+Hubo **dos** causas detrás del viejo síntoma de "algunos servicios no arrancaron":
+
+1. **Nx abortaba el batch.** Los 9 `serve` son tareas `continuous`, y lanzarlas
+   juntas con `nx run-many` hacía que Nx creyera ver un ciclo entre ellas
+   (`Recursive task invocation detected`) y cortara el batch a mitad de camino —
+   dejando algunos servicios arriba, otros no, y huérfanos sueltos. Por eso ahora
+   el arranque no pasa por `nx serve`: Nx solo hace el `build` (tarea normal,
+   cacheada) y cada servicio se lanza con `node dist/apps/<servicio>/main.js`.
+2. **Procesos huérfanos de la corrida anterior** ocupando el puerto: si el padre
+   muere primero, los hijos quedan huérfanos y el `taskkill /T` del árbol ya no
+   los alcanza. En el arranque siguiente el servicio nuevo no puede bindear y
+   muere.
+
+`dev:casa` ahora libera esos puertos solo (mata únicamente procesos `node` en los
+puertos del proyecto; si el puerto lo tiene otro programa, avisa y aborta en vez de
+romper algo ajeno). Para inspeccionar o limpiar a mano:
+
+```bash
+pnpm casa:estado               # quién tiene cada puerto y si responde el health
+pnpm casa:limpiar              # mata los huérfanos y sale, sin levantar nada
+```
+
+> **Ojo con el gateway zombie**: si el huérfano es el del `:3000`, responde el
+> healthcheck igual — antes eso alcanzaba para que el script anunciara "LISTO" con
+> los otros 8 caídos, y además seguías usando el **código viejo** del proceso
+> zombie, así que recompilar no cambiaba nada. Por eso la limpieza va primero.
 
 > **Windows — Firewall**: la primera vez, Windows pregunta si permitís que Node
 > acceda a la red. Hay que elegir **"Permitir acceso"** en **redes privadas** para

@@ -9,11 +9,21 @@ import sitemap from '@astrojs/sitemap';
 // SITE_URL en build; el default es el dominio de marketing de producción.
 const site = process.env.SITE_URL ?? 'https://proyectodorado.app';
 
+// Hosts extra que el dev server acepta además de localhost y las IPs. Los setea
+// `scripts/home-up.mjs` ("modo casa") con el nombre mDNS de la PC: sin esto Vite
+// responde 403 "Blocked request" a `http://<nombre>.local:4321`. Solo afecta a
+// `astro dev` — el build estático no tiene servidor.
+const allowedHosts = (process.env.CASA_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
+
 export default defineConfig({
   site,
   server: { port: 4321 },
   integrations: [sitemap()],
   vite: {
     plugins: [tailwindcss()],
+    server: { allowedHosts },
   },
 });
