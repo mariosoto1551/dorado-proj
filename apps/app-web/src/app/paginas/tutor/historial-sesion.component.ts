@@ -11,7 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import type { Observable } from 'rxjs';
 
-import { EstadoVacioComponent, ModalComponent } from '@dorado/shared-ui';
+import { ConfirmDialogComponent, EstadoVacioComponent, ModalComponent } from '@dorado/shared-ui';
 import {
   type ConductaDto,
   EstadoSesion,
@@ -47,14 +47,14 @@ const MS_AUTO_REFRESCO = 30_000;
 @Component({
   selector: 'app-historial-sesion',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalComponent, EstadoVacioComponent, FormsModule],
+  imports: [ModalComponent, ConfirmDialogComponent, EstadoVacioComponent, FormsModule],
   template: `
     <!-- Filtros -->
     <div class="flex flex-wrap items-center gap-2">
       <select
         [(ngModel)]="usuarioFiltro"
         (ngModelChange)="recargarDesdeCero()"
-        class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
+        class="campo w-auto py-1.5 text-xs"
         aria-label="Filtrar por participante"
       >
         <option value="">Todos</option>
@@ -91,7 +91,7 @@ const MS_AUTO_REFRESCO = 30_000;
         type="button"
         (click)="recargarDesdeCero()"
         [disabled]="cargando()"
-        class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        class="boton boton-neutro boton-sm"
         aria-label="Refrescar"
         title="Refrescar"
       >
@@ -166,11 +166,13 @@ const MS_AUTO_REFRESCO = 30_000;
 
               <div class="mt-1.5 flex flex-wrap items-center gap-2">
                 @if (!soloLectura() && puedeAnular(evento)) {
+                  <!-- Sin confirmación a propósito: «Deshacer» aparece al lado
+                       apenas se anula (decisión 1 de la T4·2ª). -->
                   <button
                     type="button"
                     (click)="anular(evento)"
                     [disabled]="procesando()"
-                    class="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
+                    class="boton boton-peligro boton-sm"
                   >
                     Anular
                   </button>
@@ -217,44 +219,20 @@ const MS_AUTO_REFRESCO = 30_000;
       }
     }
 
-    <!-- Conducta rápida -->
-    @if (!soloLectura() && !sinSesion()) {
-      <div class="mt-4 tarjeta p-3 shadow-none">
-        <h3 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
-          Registrar conducta rápida
-        </h3>
-        <div class="mt-2 flex flex-wrap gap-2">
-          <select
-            [(ngModel)]="usuarioConducta"
-            class="min-w-32 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-          >
-            <option value="">Participante…</option>
-            @for (u of usuarios(); track u.id) {
-              <option [value]="u.id">{{ u.nombre }}</option>
-            }
-          </select>
-          <select
-            [(ngModel)]="conductaSel"
-            class="min-w-32 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950/40 dark:text-white"
-          >
-            <option value="">Conducta…</option>
-            @for (c of conductas(); track c.id) {
-              <option [value]="c.id">
-                {{ c.nombre }} ({{ c.tipo === 'BUENA' ? '+' : '−' }}{{ c.valorPuntos }})
-              </option>
-            }
-          </select>
-          <button
-            type="button"
-            (click)="registrarConducta()"
-            [disabled]="procesando() || !usuarioConducta || !conductaSel"
-            class="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40 dark:bg-slate-700 dark:hover:bg-slate-600"
-          >
-            Registrar
-          </button>
-        </div>
-      </div>
-    }
+    <ui-confirm-dialog
+      [abierto]="notaABorrar() !== null"
+      titulo="Borrar la nota"
+      mensaje="La nota se borra para siempre: no hay papelera. Los otros tutores dejan de verla."
+      textoConfirmar="Borrar"
+      (confirmar)="confirmarBorrarNota()"
+      (cancelar)="notaABorrar.set(null)"
+    />
+
+    <!-- fase-14-23 T4·2ª: acá había un SEGUNDO «Registrar conducta rápida»,
+         idéntico en función al de la pestaña «Registrar» —que la primera vuelta
+         rehízo— pero con otro aspecto y un tono de botón que no existía en
+         ninguna otra parte del área. Esta pestaña es para mirar y corregir lo
+         que ya pasó; registrar está a un clic, en la otra. -->
 
     <!-- Hoja de notas internas -->
     <ui-modal
@@ -277,7 +255,7 @@ const MS_AUTO_REFRESCO = 30_000;
                     @if (nota.esPropia) {
                       <button
                         type="button"
-                        (click)="borrarNota(nota.id)"
+                        (click)="pedirBorrarNota(nota.id)"
                         [disabled]="procesando()"
                         class="font-semibold text-red-500 transition hover:underline disabled:opacity-40"
                       >
@@ -358,16 +336,15 @@ export class HistorialSesionComponent {
 
   protected readonly notaAbiertaId = signal<string | null>(null);
 
+  /** Nota sobre la que pregunta el diálogo de borrado (fase-14-23 T4·2ª). */
+  protected readonly notaABorrar = signal<string | null>(null);
+
   /** Cuántas páginas acumuló el tutor: con más de una se corta el auto-refresco. */
   protected readonly paginas = signal(1);
 
   protected usuarioFiltro = '';
 
   protected ocultarAnuladas = false;
-
-  protected usuarioConducta = '';
-
-  protected conductaSel = '';
 
   protected textoNota = '';
 
@@ -500,17 +477,6 @@ export class HistorialSesionComponent {
     this.ejecutar(peticion, `Se deshizo la marca de «${evento.itemNombre}».`);
   }
 
-  protected registrarConducta(): void {
-    this.ejecutar(
-      this.activity.registrarConducta(this.conductaSel, this.usuarioConducta),
-      'Conducta registrada.',
-      () => {
-        this.usuarioConducta = '';
-        this.conductaSel = '';
-      }
-    );
-  }
-
   protected abrirNotas(evento: EventoHistorialDto): void {
     this.notaAbiertaId.set(evento.id);
     this.textoNota = '';
@@ -549,7 +515,25 @@ export class HistorialSesionComponent {
     });
   }
 
-  protected borrarNota(notaId: string): void {
+  /**
+   * fase-14-23 T4·2ª: la nota se borra sin vuelta atrás —no hay papelera— así
+   * que pasa por el diálogo. Anular una marca, en cambio, sigue siendo de un
+   * clic: tiene «Deshacer» al lado (decisión 1 de la vuelta).
+   */
+  protected pedirBorrarNota(notaId: string): void {
+    this.notaABorrar.set(notaId);
+  }
+
+  protected confirmarBorrarNota(): void {
+    const notaId = this.notaABorrar();
+    this.notaABorrar.set(null);
+
+    if (notaId) {
+      this.borrarNota(notaId);
+    }
+  }
+
+  private borrarNota(notaId: string): void {
     this.procesando.set(true);
     this.activity.borrarNota(notaId).subscribe({
       next: () => {

@@ -1026,3 +1026,69 @@ Al plegar «Quién la hace», el armador de turnos quedó **a un clic** en vez d
 2. **El presupuesto de requests de la E2E**: el reintento del login destapona el arranque de cada suite, pero **no baja el consumo**. Antes de sumar una quinta suite de navegador conviene decidir el fondo: un escenario compartido entre suites, o un límite distinto en entorno de test. Subirlo en producción no es opción — es una defensa real.
 3. **La T5 (pulido final)** sigue con alcance solamente: transiciones, foco y teclado, responsive y revisión de textos.
 4. **El panel operativo con equipos** no se miró en esta vuelta: la lista por persona muestra lo individual, y una actividad de equipo la marca el jefe. Verificar que el Tutor no quede sin camino para eso.
+
+---
+
+## Ítem 23 · Tanda 4 (segunda vuelta): Historial, Equipos y Recompensas
+
+- **Estado**: EN_PROGRESO (el ítem es por tandas; **la T4 está completa: las dos vueltas**). 82/82 tests de app-web, 24/24 de shared-ui, **36/36 de gateway (3 nuevos)**, 283/283 de activity-service **sin tocar su código**, lint y build verdes, y la **suite E2E completa 48/48 en dos corridas seguidas** (6 nuevos).
+- **Fecha**: 2026-08-02 / **Spec**: `docs/phases/fase-14-23-claridad-del-area-del-tutor.md` (sección «Tanda 4 (segunda vuelta)», escrita en esta sesión) / **Commit**: — (branch `fase-14-tienda-de-monedas`)
+- **Origen**: las tres pantallas que la decisión 2 de la primera vuelta dejó para después, «con lo aprendido acá».
+
+### La herramienta hizo falta otra vez, y por el mismo motivo
+
+En el paseo de la T3, **Equipos y Recompensas salían vacías**: un botón «Nuevo equipo» y un recuadro punteado. Una lista vacía no dice nada sobre si la pantalla está recargada. Se extendió `capturas-tutor.e2e.ts` para que cree **un equipo con su tarea completada por el jefe** y **dos recompensas de zona** — el mismo movimiento que la primera vuelta hizo al abrir la Sección para juzgar las operativas, aplicado a las dos que faltaban. Recién ahí apareció la tarjeta de equipo con sus cuatro botones en fila.
+
+### El hallazgo: el ítem se contradecía a sí mismo
+
+**Seis acciones destructivas se ejecutaban con un clic**, en la sesión siguiente a la que había establecido lo contrario para el panel operativo. Y en Equipos, el motivo de anular era un **campo permanente y único para toda la pantalla**: se escribía para un equipo y seguía ahí al abrir el de otro — **exactamente el defecto que la primera vuelta acababa de corregir**, en la pantalla de al lado.
+
+Es el tercer caso del ítem del mismo modo de falla, y el más incómodo porque el autor de las dos partes es el mismo: **una decisión tomada para una pantalla no se propaga sola a las demás**. La T1 y la primera vuelta de la T4 lo encontraron como «capacidad construida que ninguna pantalla ejerce»; acá es «criterio establecido que ninguna otra pantalla adopta».
+
+### Decisiones de José en esta sesión
+
+1. **Se confirma lo que no tiene vuelta atrás, no todo lo que es rojo.** Sobre «confirmar todas» (agregaba un clic a la operación más frecuente del día, que además ya es reversible) y sobre no tocarlas.
+2. **El equipo se edita en un solo lugar**, «Quiénes están», con hacer jefe y quitar en la fila de cada persona. Sobre dejar los dos modales y sobre darle pantalla propia al equipo.
+3. **La conducta rápida se va del historial**, que estaba duplicada en las dos pestañas de la misma pantalla.
+
+### Dos correcciones al diagnóstico, encontradas al implementarlo
+
+Las dos importan porque cambiaron lo que se hizo, y las dos vienen de que el inventario inicial fue por `grep`:
+
+1. **Anular una entrega YA confirmaba.** El conteo la había marcado porque el `(click)` llama a un método llamado `anular`, cuando lo que hace es abrir un modal con su motivo obligatorio para los castigos. Eran **seis** acciones sin confirmación, no siete. Se corrigió la spec antes de tocar nada.
+2. **Archivar un producto o una bolsa NO es reversible.** En la conversación se las había supuesto reversibles y quedaban fuera; al ir a aplicarlas apareció `recompensas.service.ts:146` —*«Soft delete (spec): ARCHIVADA. No hay reactivación por endpoint»*— y por la regla que José eligió, **entran**. Se le dijo y se siguió con la regla, no con el reparto que se había supuesto.
+
+### Decisiones de implementación que importan
+
+1. **«Hacer jefe» no pide confirmación**, aunque sea un cambio de mando: volver atrás es el mismo clic en la otra fila. Es la regla de la decisión 1 aplicada en el caso que no es obvio.
+2. **Anular una marca del historial tampoco**, y es el caso que le da sentido a la regla: es la acción que el tutor hace todos los días y el «Deshacer» aparece al lado apenas se ejecuta. Confirmarla habría sido tratar el color como criterio.
+3. **Las pestañas de Recompensas pasaron al control segmentado del panel operativo**, no al revés: el del panel ya declaraba `role="tablist"` y `aria-selected`, y las de Recompensas **no declaraban nada**. Dos formas para el mismo trabajo, y solo una accesible — el hallazgo de los modales de la T2 en un patrón que aquel inventario no había contado.
+4. **El motivo del `pideMotivo`**: se reusó el input que la primera vuelta le agregó a `ConfirmDialog`, sin tocarlo. Era la prueba de que estaba bien planteado.
+
+### El presupuesto de requests de la E2E, saldado
+
+Era la deuda 2 de la vuelta anterior y con la quinta suite de navegador **pasó de molestia a bloqueo**: la corrida completa fallaba 3 o 4 tests **que pasaban todos al correr sus suites por separado**. Las cinco suites comparten el presupuesto de 100 req/min por IP, y el 429 le pega al refresh silencioso: la pestaña vuelve al login y el síntoma que se ve es «el elemento no existe».
+
+Se resolvió con un **seam de configuración en el middleware**, no bajando la defensa:
+
+- `RATE_LIMIT_GLOBAL` y `RATE_LIMIT_AUTH` **solo si están definidas**; sin ellas rigen los 100/10 de la spec de Fase 3, que es lo que corre en producción. Las define `scripts/e2e-up.mjs`, que es el script que existe para levantar el stack de E2E, y están documentadas en `.env.example` como test-only.
+- **Un valor basura cae al de la spec**, no a «sin límite»: un typo en un deploy no puede convertirse en una defensa apagada. Hay un test que lo fija, junto con otro que fija que **sin variable el default no cambió** — que es lo que en realidad importa proteger.
+- Efecto medido: la suite completa pasó de **~8 minutos con 4 fallos** a **55 segundos con 0**. La mayor parte de esos 8 minutos eran reintentos y esperas de ventana.
+
+### Tests nuevos (3 backend + 6 E2E)
+
+- `gateway/.../rate-limit.middleware.spec.ts` (3): sin variables rige el límite de la spec; con la variable la ventana admite ese número; y un valor no numérico **no afloja** nada.
+- `apps/e2e/src/confirmaciones-tutor.e2e.ts` (6, nuevo): anular una tarea de equipo preguntando y con el motivo escrito **en el diálogo** (verificado contra la API, no contra la pantalla); cancelar sin efecto; el modal fusionado haciendo jefe y quitando **sin cerrarse**; archivar una bolsa avisando que no se puede deshacer, con las pestañas declarando `tablist`; borrar una nota preguntando; y **anular una marca del historial sin preguntar**, que es el criterio 2 y la mitad interesante de la regla.
+
+### Peleas con el entorno
+
+- **Un backtick dentro de un comentario HTML** en un template de Angular cortó el template literal y produjo `Incorrect number of arguments to @Component decorator`. Está anotado desde la T3 y volvió a pasar: el síntoma no se parece a la causa.
+- **`getByRole('dialog')` se volvió ambiguo** cuando el modal y la confirmación conviven —los dos declaran `role="dialog"`, que es justo lo que la T2 vino a lograr—. Se resuelve nombrando el modal; vale anotarlo porque va a repetirse en cada pantalla que confirme desde adentro de un modal.
+- El dev server dejó un `vite-error-overlay` de un estado intermedio del watch que **intercepta los clics** de Playwright: el test falla con «element intercepts pointer events» y el código está bien.
+
+### Qué falta / verificar la próxima sesión
+
+1. **La T5 (pulido final)** es lo que queda del ítem: transiciones, foco y navegación por teclado, responsive y revisión de textos. Sigue con alcance solamente.
+2. **`catalogo-items` y `billeteras` no se tocaron**: el primero ya confirmaba y el segundo no tiene acciones destructivas. Quedan como estaban a propósito, no por olvido.
+3. **Cuidado al bajar procesos en Windows**: en esta sesión un `taskkill /T` sobre los PID de los puertos 3000-3008 **se llevó puesta la infra de Docker y el `public-site`** — el árbol de procesos alcanzaba más de lo previsto. Para reiniciar el stack conviene `pnpm dev:backend` (que hace su propio teardown) y verificar `docker ps` después. Nada se perdió (los contenedores se relevantan y las bases son volúmenes), pero costó veinte minutos.
+4. **El área Usuario sigue afuera** del ítem entero (decisión de alcance 1). Sus seis pantallas no vieron ninguna de las cinco tandas.

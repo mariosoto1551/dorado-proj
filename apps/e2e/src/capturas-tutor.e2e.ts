@@ -58,9 +58,46 @@ test.describe('Paseo visual del área Tutor', () => {
     const ana = await invitarYCanjearUsuario(base, org);
     await invitarYCanjearUsuario(base, org);
 
+    // Un equipo con su tarea y una recompensa por zona: Equipos y Recompensas
+    // salían VACÍAS en el paseo de la T3, y una lista vacía no dice nada sobre
+    // si la pantalla está recargada (mismo aprendizaje que llevó a abrir la
+    // Sección acá abajo, aplicado a las dos que faltaban — T4 segunda vuelta).
+    const tareaEquipo = await org.api.postOk<{ id: string }>(
+      `/activity/grupos/${org.grupoId}/actividades`,
+      {
+        nombre: 'Limpiar el patio',
+        tipoPuntaje: 'OPCIONAL',
+        alcance: 'EQUIPO',
+        valorPuntos: 8,
+        bonoJefePuntos: 3,
+        tipoLimiteTiempo: 'SIN_LIMITE',
+      }
+    );
+    const equipo = await org.api.postOk<{ id: string }>(
+      `/identity/grupos/${org.grupoId}/equipos`,
+      { nombre: 'Equipo Fénix', jefeUsuarioId: ana.usuarioId, miembrosIds: [] }
+    );
+
+    const umbrales = await org.api.getOk<{ id: string; nombreZona: string }[]>(
+      `/scoring/grupos/${org.grupoId}/umbrales`
+    );
+
+    for (const umbral of umbrales.slice(0, 2)) {
+      await org.api.postOk(`/rewards/grupos/${org.grupoId}/recompensas`, {
+        umbralZonaId: umbral.id,
+        nombre: `Premio de zona ${umbral.nombreZona}`,
+        descripcion: 'Se elige al cerrar la semana.',
+        permiteSeleccion: true,
+        permiteAzar: false,
+      });
+    }
+
     // Con Sección abierta y algo registrado: las pantallas operativas vacías no
     // sirven para juzgar si están sobrecargadas (T4).
     const { seccionId } = await iniciarSeccion(org);
+    // La tarea de equipo la completa el JEFE — es la única vía, y sin ella la
+    // pantalla de Equipos no muestra el bloque de tareas de hoy.
+    await ana.api.postOk(`/activity/equipos/${equipo.id}/tareas/${tareaEquipo.id}/completar`, {});
     await org.api.postOk(`/activity/actividades/${catalogo.actividadOpcionalId}/completar`, {
       usuarioId: ana.usuarioId,
     });

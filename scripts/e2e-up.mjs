@@ -136,13 +136,26 @@ function migrar() {
   }
 }
 
-/** Levanta el stack con nx run-many; devuelve el ChildProcess. */
+/**
+ * Levanta el stack con nx run-many; devuelve el ChildProcess.
+ *
+ * El rate limit del Gateway se afloja **solo acá** (fase-14-23 T4·2ª): la suite
+ * tiene cinco escenarios de navegador que corren seguidos contra la misma IP y
+ * comparten el presupuesto de 100 req/min, así que suites que están bien
+ * empiezan a fallar por lo que gastaron las anteriores. El default del
+ * middleware sigue siendo el de la spec — producción no define estas variables.
+ */
 function levantarStack() {
   log('serve', `nx run-many -t serve (${SERVICIOS_SERVE.length} procesos)…`);
   const hijo = spawn(
     'pnpm',
     ['nx', 'run-many', '-t', 'serve', '--projects', SERVICIOS_SERVE.join(','), '--output-style', 'stream'],
-    { stdio: 'inherit', shell: esWindows, detached: !esWindows }
+    {
+      stdio: 'inherit',
+      shell: esWindows,
+      detached: !esWindows,
+      env: { ...process.env, RATE_LIMIT_GLOBAL: '1000', RATE_LIMIT_AUTH: '100' },
+    }
   );
 
   return hijo;

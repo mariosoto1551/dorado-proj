@@ -15,7 +15,12 @@ import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
-import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
+import {
+  ConfirmDialogComponent,
+  EstadoVacioComponent,
+  CampoComponent,
+  ModalComponent,
+} from '@dorado/shared-ui';
 
 /**
  * Bolsas de premios (fase-14-22 decisiones 19 y 20). Son SIEMPRE de premios:
@@ -26,7 +31,14 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
 @Component({
   selector: 'app-bolsas',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule, IconoComponent],
+  imports: [
+    ModalComponent,
+    ConfirmDialogComponent,
+    CampoComponent,
+    EstadoVacioComponent,
+    FormsModule,
+    IconoComponent,
+  ],
   template: `
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-500 dark:text-slate-400">
@@ -79,7 +91,7 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
               </button>
               <button
                 type="button"
-                (click)="archivar(b)"
+                (click)="aArchivar.set(b)"
                 class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                 aria-label="Archivar"
               >
@@ -154,6 +166,19 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
         </form>
       }
     </ui-modal>
+
+    <ui-confirm-dialog
+      [abierto]="aArchivar() !== null"
+      titulo="Archivar la bolsa"
+      [mensaje]="
+        'Se archiva «' +
+        (aArchivar()?.nombre ?? '') +
+        '» y deja de estar disponible para los productos que la usan. No se puede desarchivar.'
+      "
+      textoConfirmar="Archivar"
+      (confirmar)="confirmarArchivar()"
+      (cancelar)="aArchivar.set(null)"
+    />
   `,
 })
 export class BolsasComponent {
@@ -175,6 +200,9 @@ export class BolsasComponent {
   protected readonly formAbierto = signal(false);
 
   protected readonly editando = signal<BolsaPremiosDto | null>(null);
+
+  /** Bolsa sobre la que pregunta el diálogo de archivado (fase-14-23 T4·2ª). */
+  protected readonly aArchivar = signal<BolsaPremiosDto | null>(null);
 
   protected readonly elegidos = signal<string[]>([]);
 
@@ -243,7 +271,20 @@ export class BolsasComponent {
     });
   }
 
-  protected archivar(bolsa: BolsaPremiosDto): void {
+  /**
+   * fase-14-23 T4·2ª: archivar es un soft delete **sin reactivación por
+   * endpoint** —lo dice el servicio del backend— y la pantalla no lo decía en
+   * ningún lado, con el tacho a un clic. Por la regla de la vuelta («se
+   * confirma lo que no tiene vuelta atrás»), pasa por el diálogo.
+   */
+  protected confirmarArchivar(): void {
+    const bolsa = this.aArchivar();
+    this.aArchivar.set(null);
+
+    if (!bolsa) {
+      return;
+    }
+
     this.api.archivarBolsa(bolsa.id).subscribe({
       next: () => {
         this.toasts.exito('Bolsa archivada.');

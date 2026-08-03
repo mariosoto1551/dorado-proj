@@ -352,7 +352,7 @@ type VistaPanel = 'registrar' | 'historial';
               <button
                 type="button"
                 (click)="confirmar.set('cerrar-seccion')"
-                class="rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
+                class="boton boton-peligro"
               >
                 Cerrar sección
               </button>

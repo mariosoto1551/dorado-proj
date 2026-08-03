@@ -11,7 +11,6 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 
 import {
-  RolEquipoMiembro,
   type EquipoDto,
   type RegistroTareaEquipoDto,
   type TareaEquipoDeHoyDto,
@@ -90,13 +89,24 @@ import { mensajeDeError } from '../../core/api/errores';
                   }
                 </div>
 
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button type="button" (click)="abrirJefe(e)" class="boton boton-neutro boton-sm">Sustituir jefe</button>
-                  <button type="button" (click)="abrirMiembros(e)" class="boton boton-neutro boton-sm">Integrantes</button>
+                <!-- fase-14-23 T4·2ª: dos botones donde antes había cuatro. «Sustituir
+                     jefe» e «Integrantes» eran dos modales para la misma pregunta —quién
+                     está en el equipo y quién manda—, y Archivar iba en la misma fila con
+                     el mismo peso siendo el único sin vuelta atrás. -->
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  <button type="button" (click)="abrirMiembros(e)" class="boton boton-neutro boton-sm">
+                    Quiénes están
+                  </button>
                   <button type="button" (click)="alternarTareas(e)" class="boton boton-neutro boton-sm">
                     {{ equipoAbierto() === e.id ? 'Ocultar tareas' : 'Tareas de hoy' }}
                   </button>
-                  <button type="button" (click)="aArchivar.set(e)" class="boton boton-peligro boton-sm">Archivar</button>
+                  <button
+                    type="button"
+                    (click)="pedirArchivar(e)"
+                    class="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-slate-400 transition hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
+                  >
+                    Archivar
+                  </button>
                 </div>
 
                 <!-- Tareas de hoy: anular una completada o deshacer la anulación (fase-14-13) -->
@@ -109,13 +119,6 @@ import { mensajeDeError } from '../../core/api/errores';
                         Anular le saca los puntos a todo el equipo, bono del jefe incluido, y le quema
                         el intento del día. Solo vos podés devolverlo.
                       </p>
-                      <input
-                        type="text"
-                        [(ngModel)]="motivoAnular"
-                        maxlength="200"
-                        placeholder="Motivo (opcional) — lo ve el equipo"
-                        class="mt-2 campo"
-                      />
 
                       @if (completadasDeHoy().length === 0) {
                         <p class="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -155,9 +158,9 @@ import { mensajeDeError } from '../../core/api/errores';
                               } @else {
                                 <button
                                   type="button"
-                                  (click)="anular(e, fila.registro)"
+                                  (click)="pedirAnular(e, fila.registro)"
                                   [disabled]="procesando()"
-                                  class="flex-none rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
+                                  class="boton boton-peligro boton-sm flex-none"
                                 >
                                   Anular
                                 </button>
@@ -212,71 +215,87 @@ import { mensajeDeError } from '../../core/api/errores';
       }
     </ui-modal>
 
-    <!-- Modal sustituir jefe -->
-    <ui-modal
-      [abierto]="editandoJefe() !== null"
-      titulo="Sustituir jefe"
-      ancho="sm"
-      (cerrar)="editandoJefe.set(null)"
-    >
-      @if (editandoJefe(); as e) {
-        <form (submit)="guardarJefe($event)">
-          <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ e.nombre }} · el jefe anterior pasa a integrante.</p>
-          <select [(ngModel)]="nuevoJefeId" name="nuevoJefe" class="mt-4 campo">
-            @for (m of e.miembros; track m.usuarioId) {
-              <option [value]="m.usuarioId" [disabled]="m.rol === 'JEFE'">{{ m.nombre }}{{ m.rol === 'JEFE' ? ' (jefe actual)' : '' }}</option>
-            }
-          </select>
-          <div class="botonera">
-            <button type="button" (click)="editandoJefe.set(null)" class="boton boton-neutro">Cancelar</button>
-            <button type="submit" [disabled]="guardando()" class="boton boton-primario">Guardar</button>
-          </div>
-        </form>
-      }
-    </ui-modal>
-
-    <!-- Modal integrantes -->
+    <!-- fase-14-23 T4·2ª: UN modal donde había dos. «Sustituir jefe» era un
+         select con un submit propio para algo que acá es un botón en la fila de
+         la persona; separarlo obligaba a abrir dos veces para armar el equipo. -->
     <ui-modal
       [abierto]="editandoMiembros() !== null"
-      [titulo]="'Integrantes · ' + (editandoMiembros()?.nombre ?? '')"
+      [titulo]="'Quiénes están · ' + (editandoMiembros()?.nombre ?? '')"
+      subtitulo="El jefe es quien completa las tareas del equipo. Al cambiarlo, el anterior pasa a integrante."
       ancho="sm"
       (cerrar)="editandoMiembros.set(null)"
     >
       @if (editandoMiembros(); as e) {
-          <ul class="mt-3 space-y-1.5">
-            @for (m of e.miembros; track m.usuarioId) {
-              <li class="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
-                <span class="flex-1 text-slate-800 dark:text-slate-100">{{ m.nombre }}</span>
-                @if (m.rol === 'JEFE') {
-                  <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">★ Jefe</span>
-                } @else {
-                  <button type="button" (click)="quitarMiembro(e, m.usuarioId)" [disabled]="guardando()" class="rounded-lg px-2 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10">Quitar</button>
-                }
-              </li>
-            }
-          </ul>
-          @if (disponibles().length > 0) {
-            <div class="mt-4 flex gap-2">
-              <select [(ngModel)]="agregarId" name="agregar" class="flex-1 campo">
-                <option value="">Agregar integrante…</option>
-                @for (u of disponibles(); track u.id) {
-                  <option [value]="u.id">{{ u.nombre }}</option>
-                }
-              </select>
-              <button type="button" (click)="agregarMiembro(e)" [disabled]="guardando() || agregarId === ''" class="boton boton-primario">Agregar</button>
-            </div>
+        <ul class="mt-3 space-y-1.5">
+          @for (m of e.miembros; track m.usuarioId) {
+            <li class="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
+              <span class="min-w-0 flex-1 truncate text-slate-800 dark:text-slate-100">{{ m.nombre }}</span>
+              @if (m.rol === 'JEFE') {
+                <span class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                  ★ Jefe
+                </span>
+              } @else {
+                <button
+                  type="button"
+                  (click)="hacerJefe(e, m.usuarioId)"
+                  [disabled]="guardando()"
+                  class="boton boton-neutro boton-sm shrink-0"
+                >
+                  Hacer jefe
+                </button>
+                <button
+                  type="button"
+                  (click)="pedirQuitarMiembro(e, m)"
+                  [disabled]="guardando()"
+                  class="boton boton-peligro boton-sm shrink-0"
+                >
+                  Quitar
+                </button>
+              }
+            </li>
           }
-          <button type="button" (click)="editandoMiembros.set(null)" class="mt-4 w-full boton boton-neutro">Listo</button>
+        </ul>
+
+        @if (disponibles().length > 0) {
+          <div class="mt-4 flex gap-2">
+            <select [(ngModel)]="agregarId" name="agregar" class="flex-1 campo">
+              <option value="">Agregar integrante…</option>
+              @for (u of disponibles(); track u.id) {
+                <option [value]="u.id">{{ u.nombre }}</option>
+              }
+            </select>
+            <button
+              type="button"
+              (click)="agregarMiembro(e)"
+              [disabled]="guardando() || agregarId === ''"
+              class="boton boton-primario"
+            >
+              Agregar
+            </button>
+          </div>
+        }
+
+        <div class="botonera">
+          <button type="button" (click)="editandoMiembros.set(null)" class="boton boton-neutro">
+            Listo
+          </button>
+        </div>
       }
     </ui-modal>
 
+    <!-- fase-14-23 T4·2ª: las tres acciones sin vuelta atrás de esta pantalla
+         pasan por acá. El motivo de anular se pide en el diálogo y no en un
+         campo permanente, que además era uno solo para todos los equipos: se
+         escribía para uno y seguía ahí al abrir el de otro. -->
     <ui-confirm-dialog
-      [abierto]="aArchivar() !== null"
-      titulo="Archivar equipo"
-      [mensaje]="'¿Archivar «' + (aArchivar()?.nombre ?? '') + '»? Dejará de aparecer para sus integrantes.'"
-      textoConfirmar="Archivar"
-      (confirmar)="confirmarArchivar()"
-      (cancelar)="aArchivar.set(null)"
+      [abierto]="confirmar() !== null"
+      [titulo]="tituloConfirm()"
+      [mensaje]="mensajeConfirm()"
+      [textoConfirmar]="textoConfirm()"
+      [pideMotivo]="confirmar() === 'anular-tarea'"
+      placeholderMotivo="Motivo (opcional) — lo ve el equipo"
+      (confirmar)="ejecutarConfirmado($event)"
+      (cancelar)="cerrarConfirmacion()"
     />
   `,
 })
@@ -307,11 +326,7 @@ export class EquiposPage {
   // Modales
   protected readonly creando = signal(false);
 
-  protected readonly editandoJefe = signal<EquipoDto | null>(null);
-
   protected readonly editandoMiembros = signal<EquipoDto | null>(null);
-
-  protected readonly aArchivar = signal<EquipoDto | null>(null);
 
   // Formularios (ngModel)
   protected nombre = '';
@@ -319,8 +334,6 @@ export class EquiposPage {
   protected jefeId = '';
 
   protected readonly miembrosSel = signal<Set<string>>(new Set());
-
-  protected nuevoJefeId = '';
 
   protected agregarId = '';
 
@@ -336,9 +349,64 @@ export class EquiposPage {
 
   protected readonly procesando = signal(false);
 
-  protected motivoAnular = '';
-
   private readonly tareasDeHoy = signal<TareaEquipoDeHoyDto[]>([]);
+
+  // --- Confirmación de lo que no tiene vuelta atrás (fase-14-23 T4·2ª) ---
+
+  /**
+   * Las tres acciones sin regreso de esta pantalla. `archivar` ya confirmaba;
+   * las otras dos se ejecutaban con un clic, y la de anular además le saca los
+   * puntos a todo el equipo y le quema el intento del día.
+   */
+  protected readonly confirmar = signal<'archivar' | 'anular-tarea' | 'quitar-miembro' | null>(
+    null
+  );
+
+  /** El equipo y la fila sobre los que está preguntando el diálogo. */
+  private readonly equipoEnJuego = signal<EquipoDto | null>(null);
+
+  private readonly registroEnJuego = signal<RegistroTareaEquipoDto | null>(null);
+
+  private readonly miembroEnJuego = signal<{ usuarioId: string; nombre: string } | null>(null);
+
+  protected readonly tituloConfirm = computed(() => {
+    switch (this.confirmar()) {
+      case 'archivar':
+        return 'Archivar equipo';
+      case 'anular-tarea':
+        return 'Anular la tarea del equipo';
+      case 'quitar-miembro':
+        return `Quitar a ${this.miembroEnJuego()?.nombre ?? ''} del equipo`;
+      default:
+        return '';
+    }
+  });
+
+  protected readonly mensajeConfirm = computed(() => {
+    switch (this.confirmar()) {
+      case 'archivar':
+        return `«${this.equipoEnJuego()?.nombre ?? ''}» dejará de aparecer para sus integrantes.`;
+      case 'anular-tarea':
+        return 'Le saca los puntos a todo el equipo, bono del jefe incluido, y le quema el intento del día. Solo vos podés devolvérselo.';
+      case 'quitar-miembro':
+        return 'Deja de ver las tareas del equipo. Los puntos que ya sumó no se tocan.';
+      default:
+        return '';
+    }
+  });
+
+  protected readonly textoConfirm = computed(() => {
+    switch (this.confirmar()) {
+      case 'archivar':
+        return 'Archivar';
+      case 'anular-tarea':
+        return 'Anular';
+      case 'quitar-miembro':
+        return 'Quitar';
+      default:
+        return 'Confirmar';
+    }
+  });
 
   /**
    * Las completadas del equipo en la sesión abierta, aplanadas: el Tutor opera
@@ -372,15 +440,58 @@ export class EquiposPage {
     }
 
     this.equipoAbierto.set(e.id);
-    this.motivoAnular = '';
     this.tareasDeHoy.set([]);
     this.cargarTareasDeHoy(e.id);
   }
 
-  protected anular(e: EquipoDto, registro: RegistroTareaEquipoDto): void {
+  protected pedirArchivar(e: EquipoDto): void {
+    this.equipoEnJuego.set(e);
+    this.confirmar.set('archivar');
+  }
+
+  protected pedirAnular(e: EquipoDto, registro: RegistroTareaEquipoDto): void {
+    this.equipoEnJuego.set(e);
+    this.registroEnJuego.set(registro);
+    this.confirmar.set('anular-tarea');
+  }
+
+  protected pedirQuitarMiembro(e: EquipoDto, miembro: { usuarioId: string; nombre: string }): void {
+    this.equipoEnJuego.set(e);
+    this.miembroEnJuego.set(miembro);
+    this.confirmar.set('quitar-miembro');
+  }
+
+  protected cerrarConfirmacion(): void {
+    this.confirmar.set(null);
+    this.equipoEnJuego.set(null);
+    this.registroEnJuego.set(null);
+    this.miembroEnJuego.set(null);
+  }
+
+  protected ejecutarConfirmado(motivo: string): void {
+    const accion = this.confirmar();
+    const equipo = this.equipoEnJuego();
+    const registro = this.registroEnJuego();
+    const miembro = this.miembroEnJuego();
+    this.cerrarConfirmacion();
+
+    if (!equipo) {
+      return;
+    }
+
+    if (accion === 'archivar') {
+      this.archivarEquipo(equipo);
+    } else if (accion === 'anular-tarea' && registro) {
+      this.anular(equipo, registro, motivo);
+    } else if (accion === 'quitar-miembro' && miembro) {
+      this.quitarMiembro(equipo, miembro.usuarioId);
+    }
+  }
+
+  private anular(e: EquipoDto, registro: RegistroTareaEquipoDto, motivo: string): void {
     this.procesando.set(true);
     this.activity
-      .anularTareaEquipo(registro.registroTareaEquipoId, this.motivoAnular || undefined)
+      .anularTareaEquipo(registro.registroTareaEquipoId, motivo || undefined)
       .subscribe({
         next: () => {
           this.toasts.exito('Tarea anulada: el equipo perdió esos puntos.');
@@ -482,26 +593,22 @@ export class EquiposPage {
       });
   }
 
-  protected abrirJefe(e: EquipoDto): void {
-    this.nuevoJefeId = e.miembros.find((m) => m.rol !== RolEquipoMiembro.JEFE)?.usuarioId ?? '';
-    this.editandoJefe.set(e);
-  }
-
-  protected guardarJefe(evento: Event): void {
-    evento.preventDefault();
-    const e = this.editandoJefe();
-
-    if (!e || this.nuevoJefeId === '') {
-      return;
-    }
-
+  /**
+   * Hacer jefe a un integrante — fase-14-23 T4·2ª. Antes era un modal aparte
+   * con su propio `select` y su propio submit; acá es el botón de la fila de la
+   * persona, que es donde la pregunta «¿y si mejor manda este?» se hace.
+   *
+   * No pide confirmación: el jefe anterior queda de integrante y volver atrás
+   * es el mismo clic en la otra fila (regla de la decisión 1).
+   */
+  protected hacerJefe(e: EquipoDto, usuarioId: string): void {
     this.guardando.set(true);
-    this.identity.sustituirJefeEquipo(e.id, { nuevoJefeUsuarioId: this.nuevoJefeId }).subscribe({
-      next: () => {
+    this.identity.sustituirJefeEquipo(e.id, { nuevoJefeUsuarioId: usuarioId }).subscribe({
+      next: (actualizado) => {
         this.toasts.exito('Jefe actualizado.');
         this.guardando.set(false);
-        this.editandoJefe.set(null);
-        this.cargar(this.grupoId());
+        this.editandoMiembros.set(actualizado);
+        this.cargar(this.grupoId(), false);
       },
       error: (err) => {
         this.toasts.error(mensajeDeError(err));
@@ -536,7 +643,7 @@ export class EquiposPage {
     });
   }
 
-  protected quitarMiembro(e: EquipoDto, usuarioId: string): void {
+  private quitarMiembro(e: EquipoDto, usuarioId: string): void {
     this.guardando.set(true);
     this.identity.quitarMiembroEquipo(e.id, usuarioId).subscribe({
       next: (actualizado) => {
@@ -552,23 +659,13 @@ export class EquiposPage {
     });
   }
 
-  protected confirmarArchivar(): void {
-    const e = this.aArchivar();
-
-    if (!e) {
-      return;
-    }
-
+  private archivarEquipo(e: EquipoDto): void {
     this.identity.editarEquipo(e.id, { estado: 'INACTIVO' }).subscribe({
       next: () => {
         this.toasts.exito('Equipo archivado.');
-        this.aArchivar.set(null);
         this.cargar(this.grupoId());
       },
-      error: (err) => {
-        this.toasts.error(mensajeDeError(err));
-        this.aArchivar.set(null);
-      },
+      error: (err) => this.toasts.error(mensajeDeError(err)),
     });
   }
 

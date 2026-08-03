@@ -70,22 +70,32 @@ type Pestana = 'CATALOGO' | 'RENDIMIENTO' | 'BOLSAS' | 'TIENDA' | 'BILLETERAS';
           <span class="shrink-0 font-semibold">Ajustes →</span>
         </a>
 
+        <!-- fase-14-23 T4·2ª: el mismo control segmentado del panel operativo.
+             Antes eran pestañas subrayadas: el mismo trabajo con otra forma y
+             **sin ningún atributo ARIA**, mientras las del panel sí declaraban
+             tablist y aria-selected. Es el hallazgo de los modales de la T2 en
+             un patrón que aquel inventario no había contado. -->
         @if (pestanas().length > 1) {
-          <nav class="mt-5 flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800">
+          <div
+            class="mt-5 flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1 dark:bg-slate-800"
+            role="tablist"
+          >
             @for (p of pestanas(); track p.clave) {
               <button
                 type="button"
+                role="tab"
+                [attr.aria-selected]="pestana() === p.clave"
                 (click)="pestana.set(p.clave)"
                 [class]="
                   pestana() === p.clave
-                    ? 'shrink-0 border-b-2 border-marca-600 px-3.5 py-2.5 text-sm font-semibold text-marca-700 transition dark:border-marca-400 dark:text-marca-300'
-                    : 'shrink-0 border-b-2 border-transparent px-3.5 py-2.5 text-sm font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                    ? 'flex-1 shrink-0 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'flex-1 shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                 "
               >
                 {{ p.etiqueta }}
               </button>
             }
-          </nav>
+          </div>
         }
 
         <div class="mt-5 animate-fade-in">

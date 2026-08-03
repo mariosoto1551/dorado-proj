@@ -89,7 +89,7 @@ import { CampoComponent, EstadoVacioComponent, ModalComponent } from '@dorado/sh
                 <button
                   type="button"
                   (click)="anular(p)"
-                  class="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  class="boton boton-neutro boton-sm"
                 >
                   {{ p.origen === 'CASTIGO' ? 'Anular' : 'Devolver' }}
                 </button>

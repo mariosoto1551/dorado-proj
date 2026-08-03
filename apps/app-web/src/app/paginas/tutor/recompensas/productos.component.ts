@@ -24,7 +24,12 @@ import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
-import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
+import {
+  ConfirmDialogComponent,
+  EstadoVacioComponent,
+  CampoComponent,
+  ModalComponent,
+} from '@dorado/shared-ui';
 
 interface FormProducto {
   nombre: string;
@@ -55,7 +60,14 @@ const FORM_VACIO: FormProducto = {
 @Component({
   selector: 'app-productos-tienda',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule, IconoComponent],
+  imports: [
+    ModalComponent,
+    ConfirmDialogComponent,
+    CampoComponent,
+    EstadoVacioComponent,
+    FormsModule,
+    IconoComponent,
+  ],
   template: `
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-500 dark:text-slate-400">Lo que los integrantes pueden comprar.</p>
@@ -102,7 +114,7 @@ const FORM_VACIO: FormProducto = {
               </button>
               <button
                 type="button"
-                (click)="archivar(p)"
+                (click)="aArchivar.set(p)"
                 class="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                 aria-label="Archivar"
               >
@@ -229,6 +241,19 @@ const FORM_VACIO: FormProducto = {
         </form>
       }
     </ui-modal>
+
+    <ui-confirm-dialog
+      [abierto]="aArchivar() !== null"
+      titulo="Archivar el producto"
+      [mensaje]="
+        'Se archiva «' +
+        (aArchivar()?.nombre ?? '') +
+        '» y deja de estar a la venta en la tienda. No se puede desarchivar. Lo ya comprado no se toca.'
+      "
+      textoConfirmar="Archivar"
+      (confirmar)="confirmarArchivar()"
+      (cancelar)="aArchivar.set(null)"
+    />
   `,
 })
 export class ProductosComponent {
@@ -255,6 +280,9 @@ export class ProductosComponent {
   protected readonly formAbierto = signal(false);
 
   protected readonly editando = signal<ProductoTiendaDto | null>(null);
+
+  /** Producto sobre el que pregunta el diálogo de archivado (fase-14-23 T4·2ª). */
+  protected readonly aArchivar = signal<ProductoTiendaDto | null>(null);
 
   private readonly rendimientos = signal<RendimientoZonaDto[]>([]);
 
@@ -365,7 +393,19 @@ export class ProductosComponent {
     });
   }
 
-  protected archivar(producto: ProductoTiendaDto): void {
+  /**
+   * fase-14-23 T4·2ª: archivar es un soft delete **sin reactivación por
+   * endpoint**, y el tacho estaba a un clic sin decirlo. Ver la nota gemela en
+   * `bolsas.component.ts`.
+   */
+  protected confirmarArchivar(): void {
+    const producto = this.aArchivar();
+    this.aArchivar.set(null);
+
+    if (!producto) {
+      return;
+    }
+
     this.api.archivarProducto(producto.id).subscribe({
       next: () => {
         this.toasts.exito('Producto archivado.');

@@ -22,8 +22,38 @@ type MiddlewareHttp = (
  * organización (mitigación de fuerza bruta).
  */
 const VENTANA_MS = 60_000;
+
+/**
+ * Los límites de la spec. Son el **default** y no cambian: producción los usa
+ * tal cual, sin definir ninguna variable.
+ */
 export const LIMITE_GLOBAL = 100;
 export const LIMITE_AUTH_ESTRICTO = 10;
+
+/**
+ * Override por entorno, **solo para la suite E2E** (fase-14-23 T4·2ª).
+ *
+ * La suite tiene cinco escenarios de navegador que corren seguidos contra la
+ * misma IP, y el presupuesto por IP es compartido: suites que están bien
+ * empiezan a recibir 429 por lo que gastaron las anteriores, y el síntoma que
+ * se ve es «el elemento no existe» —el 429 le pega al refresh silencioso y la
+ * pestaña vuelve al login—, no «me limitaron».
+ *
+ * Se resuelve con un seam de configuración y no bajando la defensa: **sin la
+ * variable, el límite es el de la spec**. `docker-compose` de desarrollo y la
+ * corrida de E2E la definen; el deploy no.
+ */
+function limiteDe(variable: string, porDefecto: number): number {
+  const crudo = process.env[variable];
+
+  if (crudo === undefined) {
+    return porDefecto;
+  }
+
+  const valor = Number.parseInt(crudo, 10);
+
+  return Number.isFinite(valor) && valor > 0 ? valor : porDefecto;
+}
 
 const RUTAS_AUTH_ESTRICTAS: readonly RegExp[] = [
   /^\/api\/auth\/login\/?$/,
@@ -54,8 +84,10 @@ function crearLimiter(limite: number): MiddlewareHttp {
 }
 
 export function crearRateLimitMiddleware(): MiddlewareHttp {
-  const limiterGlobal = crearLimiter(LIMITE_GLOBAL);
-  const limiterEstricto = crearLimiter(LIMITE_AUTH_ESTRICTO);
+  const limiterGlobal = crearLimiter(limiteDe('RATE_LIMIT_GLOBAL', LIMITE_GLOBAL));
+  const limiterEstricto = crearLimiter(
+    limiteDe('RATE_LIMIT_AUTH', LIMITE_AUTH_ESTRICTO)
+  );
 
   return (req, res, next) => {
     const path = (req.url ?? '').split('?')[0];

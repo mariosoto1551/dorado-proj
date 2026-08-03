@@ -34,7 +34,7 @@ Este ítem es también un registro de un modo de falla del proceso mismo: constr
 | T1 | Turnos visibles y guardado único | **Especificada acá** |
 | T2 | Extraer a `libs/shared-ui` los patrones hoy copiados a mano en cada página | **Especificada acá** |
 | T3 | Arquitectura de navegación del área Tutor | **Especificada acá** |
-| T4 | Pantalla por pantalla, de la más recargada a la más simple | **Especificada acá** (primera vuelta: las dos más pesadas) |
+| T4 | Pantalla por pantalla, de la más recargada a la más simple | **Especificada acá** (primera vuelta: las dos más pesadas; segunda: Historial, Equipos y Recompensas) |
 | T5 | Pulido final (transiciones, teclado, responsive, textos) | Alcance solamente |
 
 ### T2 — Patrones a `shared-ui` (alcance)
@@ -393,3 +393,53 @@ Los campos que hoy son condicionales por tipo (bono al jefe, puntos por cumplir,
 7. El modal de actividades muestra **tres campos** al abrirse para una actividad nueva, y las tres secciones plegadas muestran su estado sin abrirlas.
 8. Una sección se abre sola cuando la actividad que se está editando ya tiene algo puesto en ella.
 9. `mi-estado-hoy` sigue devolviendo exactamente lo mismo para el integrante: los tests de `activity-service` que lo cubren pasan **sin modificarse**.
+
+---
+
+## Tanda 4 (segunda vuelta) — Historial, Equipos y Recompensas
+
+Las tres que la decisión 2 de la primera vuelta dejó para después, ahora con lo aprendido ahí.
+
+### El diagnóstico
+
+Relevado el 2026-08-02, extendiendo la herramienta de capturas para que **Equipos y Recompensas lleguen con datos**: en el paseo de la T3 las dos salían vacías, y una lista vacía no dice nada sobre si la pantalla está recargada. Es el mismo aprendizaje que la primera vuelta aplicó a las operativas, llevado a las dos que faltaban.
+
+1. **Seis acciones destructivas se ejecutan con un clic, sin confirmación** — anular una marca del historial, borrar una nota interna, anular una tarea de equipo, quitar a alguien de un equipo, archivar un producto y archivar una bolsa. La primera vuelta de la T4 acababa de establecer lo contrario para el panel operativo, así que la incoherencia es del mismo ítem consigo mismo. Y **archivar no tiene vuelta atrás**: `recompensas.service.ts` lo dice en un comentario —*«Soft delete (spec): ARCHIVADA. No hay reactivación por endpoint»*— pero la pantalla no lo dice en ningún lado.
+   > El relevamiento preliminar contaba **siete** e incluía anular una entrega. Al ir a tocarla apareció que **ya confirmaba**, con su propio modal y su motivo obligatorio para los castigos: el conteo automático la había marcado porque el `(click)` llama a un método que se llama `anular`, cuando lo que hace es abrir el diálogo. Queda anotado porque es la clase de error que un inventario por `grep` produce y una lectura no.
+2. **El motivo de anular en Equipos es un campo permanente** dentro del bloque de tareas, y uno solo para toda la pantalla: se escribe para un equipo y sigue ahí al abrir el de otro. Es **exactamente el defecto que la primera vuelta corrigió** en el panel operativo, en la pantalla de al lado.
+3. **«Registrar conducta rápida» está dos veces en la misma pantalla**: en la pestaña «Registrar» —rehecha en la primera vuelta, con `ui-campo` y `.boton`— y otra vez al pie del historial en «Qué pasó hoy», con cadenas Tailwind a mano y un botón `bg-slate-800` que **no es ninguno de los tres tonos** de `.boton`: un cuarto tono inventado en un solo lugar del área.
+4. **La tarjeta de equipo tiene cuatro botones en una fila**, y «Sustituir jefe» e «Integrantes» son **dos modales que responden la misma pregunta**: quién está en el equipo y quién manda. «Archivar» va en la misma fila, del mismo tamaño, siendo el único destructivo — el hallazgo 3 del panel operativo de la primera vuelta, sin corregir, en otra pantalla.
+5. **Hay dos patrones de pestañas para el mismo trabajo**: el panel operativo usa un control segmentado con `role="tablist"` y `aria-selected`; Recompensas usa pestañas subrayadas **sin ningún atributo ARIA**. Es el hallazgo de los modales de la T2 —quince copias y solo una accesible— repetido en un patrón que aquel inventario no contó.
+6. **Quedaron restos de la T2**: 18 botones escritos con la cadena Tailwind a mano en 9 archivos, más los filtros del historial (un `select` sin `.campo`, chips a mano, un checkbox y un `↻`, cinco controles en una fila).
+
+### Decisiones (cerradas con José el 2026-08-02)
+
+1. **Se confirma lo que no tiene vuelta atrás, no todo lo que es rojo.** La regla se escribe así a propósito: el criterio no es la peligrosidad aparente sino si existe camino de regreso. Aplicada, suma confirmación a **cinco** acciones —anular tarea de equipo, quitar del equipo, borrar nota, archivar producto, archivar bolsa— y deja **una sin ella**: anular una marca del historial, que tiene «Deshacer» al lado y es la operación que el tutor hace todos los días.
+   > Se decidió sobre «confirmar todas» (agregaba un clic a la acción más frecuente, que además ya es reversible) y sobre «no tocar las confirmaciones». Al aplicar la regla apareció que archivar producto y bolsa **sí** son irreversibles —no hay endpoint de reactivación—, así que entran, aunque en la conversación se las había supuesto reversibles. Y que anular una entrega ya confirmaba.
+2. **El equipo se edita en un solo lugar: «Quiénes están».** Un modal con la lista, cada integrante con «hacer jefe» y «quitar», y el agregar al pie. Quedan tres botones en la tarjeta y **Archivar se separa del grupo**, como se hizo con los controles de Sección en la primera vuelta. Se eligió sobre dejar los dos modales (seguían siendo dos caminos para lo mismo) y sobre darle pantalla propia al equipo (agregaba una pantalla al área para un objeto que cabe en un modal).
+3. **La conducta rápida se va del historial.** El historial es para mirar y corregir lo que ya pasó; registrar es la otra pestaña, a un clic. Es el mismo criterio con el que la T3 sacó «Primeros pasos» de dos de sus tres lugares: la función no se pierde, deja de estar dos veces.
+4. **Ninguna regla de negocio cambia** (decisión de alcance 4 del ítem). Confirmar antes de anular no cambia qué hace anular.
+
+### Alcance del cambio
+
+**Backend: ninguno.** Las seis confirmaciones, la fusión de los dos modales y la mudanza de la conducta rápida son todas de interfaz; los endpoints que se llaman son los mismos y se llaman igual.
+
+| Archivo | Cambio |
+|---|---|
+| `paginas/tutor/historial-sesion.component.ts` | Se va la conducta rápida. Confirmación al borrar una nota. Filtros y botones a las clases de la T2. |
+| `paginas/tutor/equipos.page.ts` | «Sustituir jefe» + «Integrantes» → **«Quiénes están»**. Archivar separado. El motivo de anular pasa a la confirmación. |
+| `paginas/tutor/entregas.page.ts` | Solo el botón a las clases de la T2: la confirmación ya la tenía. |
+| `paginas/tutor/recompensas/productos.component.ts`, `bolsas.component.ts` | Confirmación al archivar, diciendo que no tiene vuelta atrás. |
+| `paginas/tutor/recompensas.page.ts` | Las pestañas, al patrón accesible del panel operativo. |
+| `apps/e2e/src/capturas-tutor.e2e.ts` | Carga un equipo con su tarea y dos recompensas (ya hecho para el diagnóstico). |
+
+### Criterios de aceptación
+
+1. Anular una tarea de equipo, quitar a alguien de un equipo, borrar una nota, archivar un producto y archivar una bolsa **piden confirmación**, y las dos de archivar dicen que no se puede deshacer.
+2. Anular una marca del historial **sigue siendo de un clic**, porque tiene «Deshacer» al lado.
+3. El motivo de anular una tarea de equipo se escribe **en la confirmación**, y no queda escrito al pasar a otro equipo.
+4. La tarjeta de equipo tiene **tres** botones y Archivar separado; «Quiénes están» permite hacer jefe, quitar y agregar **sin cerrar el modal**.
+5. «Registrar conducta rápida» aparece **una sola vez** en «Semana actual».
+6. Las pestañas de Recompensas declaran `role="tablist"` y `aria-selected`, igual que las del panel operativo.
+7. No queda ningún botón con la cadena Tailwind a mano en el área Tutor: `rounded-lg border border-red-300 px` y `rounded-lg bg-slate-800 px` no aparecen más.
+8. Los tests de los servicios backend siguen verdes sin modificarse: esta vuelta no toca el backend.
