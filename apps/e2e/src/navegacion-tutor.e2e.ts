@@ -9,6 +9,7 @@ import {
   invitarYCanjearUsuario,
   type Organizacion,
 } from './support/escenario';
+import { APP_URL, entrarComoTutor } from './support/navegador';
 
 /**
  * Fase 14 · Ítem 23, tanda 3 — Navegación del área Tutor
@@ -21,16 +22,6 @@ import {
  *
  * Gated por `E2E_UI=1`: necesita `app-web` servido en :4200.
  */
-const APP_URL = process.env['E2E_APP_URL'] ?? 'http://localhost:4200';
-
-async function entrarComoTutor(page: Page, org: Organizacion): Promise<void> {
-  await page.goto(`${APP_URL}/login`);
-  await page.fill('#identificador', org.emailContacto);
-  await page.fill('#password', org.password);
-  await page.click('button[type="submit"]');
-  await expect(page).not.toHaveURL(/\/login/);
-}
-
 test.describe('fase-14-23 T3 — navegación del área Tutor', () => {
   test.skip(process.env['E2E_UI'] !== '1', 'Necesita app-web servido (E2E_UI=1)');
 

@@ -2,7 +2,7 @@
 
 > Sub-spec detallada del ítem 23 de `fase-14-post-mvp.md`. Este archivo es la especificación decidida con José (2026-08-01); las desviaciones de implementación se registran en `docs/progreso/`, no acá. **No se edita una vez escrito** (protocolo de specs de `CLAUDE.md`).
 >
-> **Ítem por tandas.** Este archivo se escribe tanda por tanda: cada una se especifica cuando se llega a ella, partiendo de lo aprendido mirando la app en uso. Hoy contiene las **tandas 1, 2 y 3** completas. Las tandas 4 y 5 tienen acá solo su alcance, igual que un ítem del índice de la fase.
+> **Ítem por tandas.** Este archivo se escribe tanda por tanda: cada una se especifica cuando se llega a ella, partiendo de lo aprendido mirando la app en uso. Hoy contiene las **tandas 1, 2, 3 y 4** completas. La tanda 5 tiene acá solo su alcance, igual que un ítem del índice de la fase.
 
 ## Prerrequisitos
 
@@ -34,7 +34,7 @@ Este ítem es también un registro de un modo de falla del proceso mismo: constr
 | T1 | Turnos visibles y guardado único | **Especificada acá** |
 | T2 | Extraer a `libs/shared-ui` los patrones hoy copiados a mano en cada página | **Especificada acá** |
 | T3 | Arquitectura de navegación del área Tutor | **Especificada acá** |
-| T4 | Pantalla por pantalla, de la más recargada a la más simple | Alcance solamente |
+| T4 | Pantalla por pantalla, de la más recargada a la más simple | **Especificada acá** (primera vuelta: las dos más pesadas) |
 | T5 | Pulido final (transiciones, teclado, responsive, textos) | Alcance solamente |
 
 ### T2 — Patrones a `shared-ui` (alcance)
@@ -290,3 +290,106 @@ De arriba abajo:
 7. El Resumen muestra la semana con su acción principal, cómo van los participantes y las últimas tres marcas de hoy; «te esperan» aparece solo si hay pendientes.
 8. Con un grupo sin nada configurado, el Resumen no muestra una tarjeta vacía: muestra qué falta y cómo empezar.
 9. Los tests de los servicios backend siguen verdes sin modificarse: esta tanda no toca el backend.
+
+---
+
+## Tanda 4 — Las dos pantallas más cargadas
+
+Primera vuelta de la T4: **Panel operativo** (751 líneas) y **Actividades** (1195). Historial, Equipos y Recompensas quedan para una vuelta siguiente, con lo aprendido acá (decisión 2).
+
+### El diagnóstico
+
+Relevado el 2026-08-02 con la herramienta de capturas de la T3, esta vez con **Sección abierta y registros hechos** — las pantallas operativas vacías no sirven para juzgar si están sobrecargadas.
+
+#### Panel operativo — la pantalla del día a día
+
+1. **El Tutor no puede marcar «completó» desde ninguna pantalla.** Es la acción más frecuente del día y no está. Y no es que falte la capacidad: `POST /activity/actividades/:id/completar` declara `@Roles(USUARIO, TUTOR, ORG_ADMIN)`, acepta `usuarioId` en el body, y el cliente del frontend tiene la firma exacta para eso — `completarActividad(actividadId, usuarioId?)`. **Lo llama una sola pantalla, la del integrante, y sin `usuarioId`.** Es el mismo modo de falla que la T1 encontró con `turnos-de-hoy`: la función está entera y falta el cable.
+2. **Tres formularios apilados con la misma forma**: «Registrar no hizo», «Registrar conducta» y «Corregir completadas de un usuario», los tres *elegí usuario → elegí ítem → Registrar*. Cada marca son tres interacciones y un scroll, y el usuario hay que volver a elegirlo en cada formulario aunque se esté hablando de la misma persona.
+3. **«Cerrar sesión abierta» y «Forzar evaluación» tienen el mismo peso visual**, bajo un título («Controles») que no dice qué hacen ni que son irreversibles.
+4. **«1 sesiones»** — concordancia.
+
+#### Actividades — el modal
+
+**13 campos y 4 bloques condicionales** en un formulario único (alcance, puntos, bono al jefe, tipo, confirmación, puntos por cumplir, límite de tiempo, hora límite, duración, repeticiones, días, turnos, roles, siempre-visible). Crear la actividad más común —«Leer 20 minutos, opcional, +10»— obliga a pasar por todo. Los cuatro bloques condicionales aparecen y desaparecen según el tipo, así que el formulario además **cambia de alto mientras se lo completa**.
+
+### Decisiones (cerradas con José el 2026-08-02)
+
+1. **El Tutor puede marcar «completó».** Se confirmó que el hallazgo 1 es un hueco y no una decisión de producto: en la casa pasa todo el tiempo que el chico hace algo y avisa, o no tiene el teléfono a mano, y hoy la única salida es pedirle que lo marque él. El backend ya lo permite **y lo audita** —queda registrado quién lo marcó—, así que es cablear lo que ya existe.
+2. **La primera vuelta de la T4 son las dos más pesadas**, no las cinco: son las que concentran el problema y las que más se usan, y hacer las cinco de una sentada deja menos oportunidad de corregir el rumbo.
+3. **El modal muestra lo esencial y pliega el resto.** Nombre, tipo y puntos siempre a la vista —con eso alcanza para la enorme mayoría—; lo demás en secciones plegadas que **muestran su estado cuando tienen algo puesto**, para que plegar no sea esconder. Se eligió sobre el asistente de dos pasos (agregaba un clic a cada edición puntual) y sobre agrupar dejando todo visible (el formulario seguía midiendo lo mismo).
+
+### El panel operativo
+
+La pestaña «Registrar» pasa de tres formularios a **un flujo por persona**, que es como se piensa el día a día («hablemos de Ana»):
+
+```
+Registrar                                      Qué pasó hoy
+
+  [ Ana ]  [ Luis ]                     ← quién, una sola vez
+
+  Ana                                   35 pts   ● Verde
+  ─────────────────────────────────────────────────────
+  Tender la cama          obligatoria     ✓ hizo   ✗ no hizo
+  Leer 20 minutos         opcional  ×1    ✓ hizo   quitar
+  Lavar los platos        🔁 hoy le toca  ✓ hizo   ✗ no hizo
+  ─────────────────────────────────────────────────────
+  Conducta rápida   [ elegí una… ▾ ]              Registrar
+```
+
+- **El usuario se elige una sola vez** y vale para todo lo de abajo.
+- **Cada actividad se marca con un clic**: `✓ hizo` (lo que no existía) y `✗ no hizo`.
+- **«Corregir completadas» desaparece como formulario separado**: lo ya completado se ve en la misma lista con su contador y se quita desde ahí. Es la misma información, no dos.
+- **La lista respeta lo que el integrante ve de verdad**: días programados (#11), plan del día (#17), rol (#19) y turno (#21). Ver «Alcance del cambio».
+- **El motivo del «no hizo»** (#12) se pide en el diálogo de confirmación, no en un campo permanente del formulario.
+- **Los controles de la Sección** («Cerrar la sesión de hoy», «Pasar a evaluación») bajan al pie, con el nombre de lo que hacen y no «Controles», y `Pasar a evaluación` pide confirmación por ser irreversible.
+
+### El modal de actividades
+
+```
+Nueva actividad
+
+  Nombre     [ Leer 20 minutos                        ]
+  Tipo       [ Opcional  ▾ ]        Puntos  [ 10 ]
+
+  ▶ Cuándo se puede hacer                 todos los días
+  ▶ Quién la hace                                 todos
+  ▶ Límite de tiempo                          sin límite
+
+                                     Cancelar   Guardar
+```
+
+Tres secciones plegables, cada una con **un resumen de su estado a la derecha** — plegado no es escondido: de un vistazo se ve que «Quién la hace» dice *todos* o *🔁 por turnos · 2 roles*.
+
+| Sección | Qué agrupa | Se abre sola si… |
+|---|---|---|
+| **Cuándo se puede hacer** | días de la semana (#11), repeticiones por sesión | la actividad ya tiene días o repeticiones ≠ 1 |
+| **Quién la hace** | alcance individual/equipo, bono al jefe (#9), roles permitidos (#19), turnos (#21) | ya tiene alcance EQUIPO, roles o turnos |
+| **Límite de tiempo** | tipo de límite, hora límite, duración del cronómetro, «siempre a la vista» (#17) | ya tiene un límite distinto de «sin límite» |
+
+Los campos que hoy son condicionales por tipo (bono al jefe, puntos por cumplir, hora límite, duración) **siguen siéndolo dentro de su sección** — lo que cambia es que su aparición ya no mueve el alto de todo el formulario.
+
+### Alcance del cambio
+
+**Backend: un endpoint.** Es la primera tanda del ítem que lo necesita, y conviene dejar escrito por qué. Para que el Tutor marque desde la lista real del integrante hace falta *esa* lista, y hoy solo existe para el propio integrante: `GET /activity/grupos/:grupoId/mi-estado-hoy` es `@Roles(USUARIO)`. Componerla en el frontend obligaría a **reimplementar en Angular las reglas de visibilidad de cinco ítems** (#10, #11, #17, #19, #21) — duplicar lógica de negocio en la interfaz es exactamente lo que este proyecto no hace. La alternativa correcta es exponer la misma lógica para el Tutor.
+
+| Archivo | Cambio |
+|---|---|
+| `apps/activity-service/.../registro.service.ts` | `miEstadoHoy` se generaliza a `estadoHoyDe(tenant, grupoId, usuarioId)`; el método viejo pasa a llamarla con `tenant.principalId`. **Sin cambio de comportamiento para el integrante.** |
+| `apps/activity-service/.../registro.controller.ts` | `GET grupos/:grupoId/usuarios/:usuarioId/estado-hoy`, `@Roles(TUTOR, ORG_ADMIN)`. Sin schema, sin migración, sin evento. |
+| `core/api/activity-api.service.ts` | Cliente del endpoint nuevo. |
+| `paginas/tutor/panel-operativo.page.ts` | La pestaña «Registrar», reescrita como flujo por persona. |
+| `paginas/tutor/actividades.page.ts` | El modal, en tres secciones plegables. |
+
+**Ninguna regla de negocio cambia** (decisión de alcance 4 del ítem): quién puede marcar qué, cuánto suma y qué se ve son exactamente los de antes. Lo único que se agrega es un camino de lectura para el Tutor sobre reglas que ya existían.
+
+### Criterios de aceptación
+
+1. En «Semana actual» el Tutor elige un participante **una vez** y marca `hizo` / `no hizo` de cualquiera de sus actividades con **un clic**.
+2. La lista que ve el Tutor es **la misma** que ve el integrante: respeta días programados, plan del día, rol y turno. Una actividad que el integrante no ve, el Tutor tampoco la ve en esa lista.
+3. Marcar «completó» desde el panel queda en el historial **con el Tutor como quien lo registró**.
+4. Lo ya completado se ve en la misma lista con su contador y se puede quitar desde ahí; no existe más el formulario «Corregir completadas de un usuario».
+5. El «no hizo» sigue pidiendo motivo, ahora en la confirmación, y sigue quemando el intento (regla del #12, sin cambios).
+6. Los controles de Sección dicen qué hacen y «Pasar a evaluación» pide confirmación.
+7. El modal de actividades muestra **tres campos** al abrirse para una actividad nueva, y las tres secciones plegadas muestran su estado sin abrirlas.
+8. Una sección se abre sola cuando la actividad que se está editando ya tiene algo puesto en ella.
+9. `mi-estado-hoy` sigue devolviendo exactamente lo mismo para el integrante: los tests de `activity-service` que lo cubren pasan **sin modificarse**.

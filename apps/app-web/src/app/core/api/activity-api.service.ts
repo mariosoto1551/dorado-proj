@@ -79,6 +79,18 @@ export class ActivityApiService {
     return this.http.get<MiEstadoHoyDto>(`${this.base}/grupos/${grupoId}/mi-estado-hoy`);
   }
 
+  /**
+   * La misma lista, de un integrante, para el Tutor (fase-14-23 T4). Es el
+   * mismo servicio del lado del backend: lo que ve acá el Tutor es exactamente
+   * lo que ve el integrante en su pantalla, con sus días, plan del día, rol y
+   * turno aplicados.
+   */
+  estadoHoyDeUsuario(grupoId: string, usuarioId: string): Observable<MiEstadoHoyDto> {
+    return this.http.get<MiEstadoHoyDto>(
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/estado-hoy`
+    );
+  }
+
   // ---- Conductas ----
   listarConductas(grupoId: string, estado?: 'ACTIVA' | 'ARCHIVADA'): Observable<ConductaDto[]> {
     let params = new HttpParams();

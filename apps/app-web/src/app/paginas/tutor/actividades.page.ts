@@ -62,6 +62,19 @@ const OPCIONES_MODO: ReadonlyArray<{
   },
 ];
 
+/**
+ * Las tres secciones plegables del modal (fase-14-23 T4). El orden es el de la
+ * pregunta que se hace quien crea una actividad: qué pasa cuando la hace, cuándo
+ * puede hacerla y quién.
+ */
+type SeccionModal = 'cumple' | 'cuando' | 'quien';
+
+const SECCIONES: ReadonlyArray<{ clave: SeccionModal; etiqueta: string }> = [
+  { clave: 'cumple', etiqueta: 'Cómo se cumple' },
+  { clave: 'cuando', etiqueta: 'Cuándo se puede hacer' },
+  { clave: 'quien', etiqueta: 'Quién la hace' },
+];
+
 interface FormActividad {
   nombre: string;
   descripcion: string;
@@ -420,6 +433,10 @@ const FORM_VACIO: FormActividad = {
       @if (formAbierto()) {
         <form (submit)="guardar($event)">
   
+            <!-- ===== Lo esencial: tres campos (fase-14-23 T4) =====
+                 Antes el formulario abría con 13 campos y 4 bloques que
+                 aparecían y desaparecían según el tipo, moviendo el alto de
+                 todo mientras se lo completaba. -->
             <div class="mt-4 space-y-3">
               <ui-campo etiqueta="Nombre">
                 <input
@@ -430,33 +447,9 @@ const FORM_VACIO: FormActividad = {
                   class="campo"
                 />
               </ui-campo>
-  
-              <ui-campo etiqueta="Descripción (opcional)">
-                <textarea
-                  [(ngModel)]="form.descripcion"
-                  name="descripcion"
-                  rows="2"
-                  maxlength="1000"
-                  class="campo"
-                ></textarea>
-              </ui-campo>
-  
-              <ui-campo etiqueta="Alcance">
-                <select
-                  [(ngModel)]="form.alcance"
-                  name="alcance"
-                  class="campo"
-                >
-                  <option [ngValue]="AA.INDIVIDUAL">Individual</option>
-                  <option [ngValue]="AA.EQUIPO">Equipo</option>
-                </select>
-              </ui-campo>
-  
+
               @if (form.alcance === AA.EQUIPO) {
-                <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 animate-fade-in dark:bg-teal-500/10 dark:text-teal-200">
-                  👥 La completa el <strong>jefe</strong> del equipo una vez y los puntos se reparten a cada integrante. Las tareas de equipo son opcionales (suman).
-                </div>
-                <div class="grid grid-cols-2 gap-3 animate-fade-in">
+                <div class="grid grid-cols-2 gap-3">
                   <ui-campo etiqueta="Puntos por integrante">
                     <input
                       [(ngModel)]="form.valorPuntos"
@@ -477,8 +470,18 @@ const FORM_VACIO: FormActividad = {
                     />
                   </ui-campo>
                 </div>
+                <p class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 dark:bg-teal-500/10 dark:text-teal-200">
+                  👥 La completa el <strong>jefe</strong> una vez y los puntos se reparten a cada
+                  integrante. Las tareas de equipo son opcionales (suman).
+                </p>
               } @else {
                 <div class="grid grid-cols-2 gap-3">
+                  <ui-campo etiqueta="Tipo">
+                    <select [(ngModel)]="form.tipoPuntaje" name="tipoPuntaje" class="campo">
+                      <option [ngValue]="TP.OPCIONAL">Opcional</option>
+                      <option [ngValue]="TP.OBLIGATORIA">Obligatoria</option>
+                    </select>
+                  </ui-campo>
                   <ui-campo etiqueta="Puntos">
                     <input
                       [(ngModel)]="form.valorPuntos"
@@ -489,207 +492,253 @@ const FORM_VACIO: FormActividad = {
                       class="campo"
                     />
                   </ui-campo>
-                  <ui-campo etiqueta="Tipo">
-                    <select
-                      [(ngModel)]="form.tipoPuntaje"
-                      name="tipoPuntaje"
-                      class="campo"
-                    >
-                      <option [ngValue]="TP.OPCIONAL">Opcional</option>
-                      <option [ngValue]="TP.OBLIGATORIA">Obligatoria</option>
-                    </select>
-                  </ui-campo>
                 </div>
-              }
-  
-              @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OBLIGATORIA) {
-                <label
-                  class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
-                >
-                  <input
-                    [(ngModel)]="form.requiereConfirmacion"
-                    name="requiereConfirmacion"
-                    type="checkbox"
-                    class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
-                  />
-                  <span class="text-xs text-slate-600 dark:text-slate-300">
-                    <span class="font-semibold text-slate-700 dark:text-slate-100">¿Requiere que el usuario confirme?</span>
-                    <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
-                      Si se activa, el usuario debe marcar «Ya lo hice» durante la sesión. Si no lo
-                      confirma, al cerrar la sesión se le descuentan los puntos automáticamente.
-                    </span>
-                  </span>
-                </label>
-  
-                <!-- fase-14-20: el premio solo existe si hay algo que confirmar. -->
-                @if (form.requiereConfirmacion) {
-                  <ui-campo etiqueta="Puntos por cumplirla" class="animate-fade-in">
-                    <input
-                      [(ngModel)]="form.puntosPorCumplir"
-                      name="puntosPorCumplir"
-                      type="number"
-                      min="0"
-                      class="campo"
-                    />
-                    <span class="block text-xs text-slate-500 dark:text-slate-400">
-                      Lo que gana si la hace. Dejalo en 0 si cumplir es solo evitar el descuento.
-                      @if (form.puntosPorCumplir > 0) {
-                        <strong class="text-slate-600 dark:text-slate-300">
-                          Queda +{{ form.puntosPorCumplir }} si la hace, −{{ form.valorPuntos }} si no.
-                        </strong>
-                      }
-                    </span>
-                  </ui-campo>
-                }
-              }
-  
-              <ui-campo etiqueta="Límite de tiempo">
-                <select
-                  [(ngModel)]="form.tipoLimiteTiempo"
-                  name="tipoLimiteTiempo"
-                  class="campo"
-                >
-                  <option [ngValue]="TLT.SIN_LIMITE">Sin límite</option>
-                  <option [ngValue]="TLT.DEADLINE">Hora límite (deadline)</option>
-                  <option [ngValue]="TLT.CRONOMETRO">Cronómetro</option>
-                </select>
-              </ui-campo>
-  
-              @if (form.tipoLimiteTiempo === TLT.DEADLINE) {
-                <ui-campo etiqueta="Hora límite (HH:mm)" class="animate-fade-in">
-                  <input
-                    [(ngModel)]="form.deadlineHora"
-                    name="deadlineHora"
-                    type="time"
-                    class="campo"
-                  />
-                </ui-campo>
-              }
-  
-              @if (form.tipoLimiteTiempo === TLT.CRONOMETRO) {
-                <ui-campo etiqueta="Duración (minutos)" class="animate-fade-in">
-                  <input
-                    [(ngModel)]="form.duracionCronometroMinutos"
-                    name="duracionCronometroMinutos"
-                    type="number"
-                    min="1"
-                    class="campo"
-                  />
-                </ui-campo>
-              }
-  
-              <ui-campo etiqueta="Repeticiones máx. por sesión">
-                <input
-                  [(ngModel)]="form.repeticionesMaximasSesion"
-                  name="repeticionesMaximasSesion"
-                  type="number"
-                  min="1"
-                  class="campo"
-                />
-              </ui-campo>
-  
-              <!-- fase-14-11: días en que se puede hacer -->
-              <div>
-                <span class="etiqueta-campo">
-                  ¿Qué días se puede hacer?
-                </span>
-                <div class="mt-1.5 flex flex-wrap gap-1.5">
-                  @for (d of DIAS; track d.valor) {
-                    <button
-                      type="button"
-                      (click)="alternarDia(d.valor)"
-                      class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-                      [class]="
-                        form.diasSemana.includes(d.valor)
-                          ? 'border-marca-500 bg-marca-600 text-white'
-                          : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
-                      "
-                    >
-                      {{ d.etiqueta }}
-                    </button>
-                  }
-                </div>
-                <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                  {{ resumenDias() }}
-                  @if (form.diasSemana.length === 0) {
-                    <span class="text-slate-400 dark:text-slate-500">— sin marcar ninguno, se puede todos los días.</span>
-                  }
-                </p>
-              </div>
-  
-              <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual.
-                   fase-14-23: ya no exige estar editando — el armador es
-                   controlado y su estado se persiste en el submit, así que la
-                   secuencia se puede armar mientras se crea la actividad. -->
-              @if (turnosAplican()) {
-                <app-turnos-actividad
-                  [usuarios]="usuariosDelGrupo()"
-                  [roles]="roles()"
-                  [turno]="turnoDeLaActividad()"
-                  (cambio)="estadoTurno.set($event)"
-                />
-              }
-  
-              <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
-              @if (roles().length > 0 && form.alcance === AA.INDIVIDUAL) {
-                <div class="animate-fade-in">
-                  <span class="etiqueta-campo">
-                    Restringir a roles
-                  </span>
-                  <div class="mt-1.5 flex flex-wrap gap-1.5">
-                    @for (rol of roles(); track rol.id) {
-                      <button
-                        type="button"
-                        (click)="alternarRol(rol.id)"
-                        [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
-                        class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-                        [class]="form.rolesPermitidos.includes(rol.id)
-                          ? 'border-transparent text-white'
-                          : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
-                        [style.background-color]="
-                          form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
-                        "
-                      >
-                        {{ rol.nombre }}
-                      </button>
-                    }
-                  </div>
-                  <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                    @if (form.rolesPermitidos.length === 0) {
-                      Sin marcar ninguno, la ven todos los integrantes.
-                    } @else {
-                      Solo la ven quienes tengan alguno de esos roles — al resto no
-                      le aparece, y tampoco se les descuenta si es obligatoria.
-                    }
-                  </p>
-                </div>
-              }
-  
-              <!-- fase-14-17: solo tiene efecto con el plan del día del grupo activo -->
-              @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
-                <label
-                  class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in dark:border-slate-700 dark:bg-slate-800/50"
-                >
-                  <input
-                    [(ngModel)]="form.siempreVisible"
-                    name="siempreVisible"
-                    type="checkbox"
-                    class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
-                  />
-                  <span class="text-xs text-slate-600 dark:text-slate-300">
-                    <span class="font-semibold text-slate-700 dark:text-slate-100">📌 Siempre a la vista</span>
-                    <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
-                      @if (planDelDiaActivo()) {
-                        Aparece en la lista del integrante sin que tenga que elegirla.
-                      } @else {
-                        Solo aplica si activás el «Plan del día» del grupo (arriba).
-                      }
-                    </span>
-                  </span>
-                </label>
               }
             </div>
-  
+
+            <!-- ===== Lo demás, plegado. Cada sección muestra su estado: plegar
+                 no es esconder. ===== -->
+            <div class="mt-4 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-800 dark:border-slate-800">
+              @for (s of SECCIONES; track s.clave) {
+                <div>
+                  <button
+                    type="button"
+                    (click)="alternarSeccion(s.clave)"
+                    [attr.aria-expanded]="seccionAbierta() === s.clave"
+                    class="flex w-full items-center justify-between gap-3 py-3 text-left"
+                  >
+                    <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {{ s.etiqueta }}
+                    </span>
+                    <span class="flex shrink-0 items-center gap-2">
+                      <span class="text-xs text-slate-500 dark:text-slate-400">
+                        {{ resumenSeccion(s.clave) }}
+                      </span>
+                      <span
+                        class="h-4 w-4 text-slate-400 transition-transform"
+                        [class.rotate-90]="seccionAbierta() === s.clave"
+                      >
+                        <app-icono nombre="chevron" />
+                      </span>
+                    </span>
+                  </button>
+
+                  @if (seccionAbierta() === s.clave) {
+                    <div class="space-y-3 pb-4 animate-fade-in">
+                      @switch (s.clave) {
+                        @case ('cumple') {
+                          <ui-campo etiqueta="Descripción" [opcional]="true">
+                            <textarea
+                              [(ngModel)]="form.descripcion"
+                              name="descripcion"
+                              rows="2"
+                              maxlength="1000"
+                              class="campo"
+                            ></textarea>
+                          </ui-campo>
+
+                          @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OBLIGATORIA) {
+                            <label class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                              <input
+                                [(ngModel)]="form.requiereConfirmacion"
+                                name="requiereConfirmacion"
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+                              />
+                              <span class="text-xs text-slate-600 dark:text-slate-300">
+                                <span class="font-semibold text-slate-700 dark:text-slate-100">
+                                  ¿Requiere que el integrante confirme?
+                                </span>
+                                <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
+                                  Si se activa, debe marcar «Ya lo hice» durante la sesión. Si no lo
+                                  confirma, al cerrar se le descuentan los puntos automáticamente.
+                                </span>
+                              </span>
+                            </label>
+
+                            <!-- fase-14-20: el premio solo existe si hay algo que confirmar. -->
+                            @if (form.requiereConfirmacion) {
+                              <ui-campo etiqueta="Puntos por cumplirla" class="animate-fade-in">
+                                <input
+                                  [(ngModel)]="form.puntosPorCumplir"
+                                  name="puntosPorCumplir"
+                                  type="number"
+                                  min="0"
+                                  class="campo"
+                                />
+                                <span class="block text-xs text-slate-500 dark:text-slate-400">
+                                  Lo que gana si la hace. Dejalo en 0 si cumplir es solo evitar el
+                                  descuento.
+                                  @if (form.puntosPorCumplir > 0) {
+                                    <strong class="text-slate-600 dark:text-slate-300">
+                                      Queda +{{ form.puntosPorCumplir }} si la hace,
+                                      −{{ form.valorPuntos }} si no.
+                                    </strong>
+                                  }
+                                </span>
+                              </ui-campo>
+                            }
+                          }
+                        }
+
+                        @case ('cuando') {
+                          <!-- fase-14-11: días en que se puede hacer -->
+                          <div>
+                            <span class="etiqueta-campo">¿Qué días se puede hacer?</span>
+                            <div class="mt-1.5 flex flex-wrap gap-1.5">
+                              @for (d of DIAS; track d.valor) {
+                                <button
+                                  type="button"
+                                  (click)="alternarDia(d.valor)"
+                                  class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+                                  [class]="
+                                    form.diasSemana.includes(d.valor)
+                                      ? 'border-marca-500 bg-marca-600 text-white'
+                                      : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+                                  "
+                                >
+                                  {{ d.etiqueta }}
+                                </button>
+                              }
+                            </div>
+                            <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                              {{ resumenDias() }}
+                              @if (form.diasSemana.length === 0) {
+                                <span class="text-slate-400 dark:text-slate-500">
+                                  — sin marcar ninguno, se puede todos los días.
+                                </span>
+                              }
+                            </p>
+                          </div>
+
+                          <ui-campo etiqueta="Repeticiones máx. por sesión">
+                            <input
+                              [(ngModel)]="form.repeticionesMaximasSesion"
+                              name="repeticionesMaximasSesion"
+                              type="number"
+                              min="1"
+                              class="campo"
+                            />
+                          </ui-campo>
+
+                          <ui-campo etiqueta="Límite de tiempo">
+                            <select
+                              [(ngModel)]="form.tipoLimiteTiempo"
+                              name="tipoLimiteTiempo"
+                              class="campo"
+                            >
+                              <option [ngValue]="TLT.SIN_LIMITE">Sin límite</option>
+                              <option [ngValue]="TLT.DEADLINE">Hora límite (deadline)</option>
+                              <option [ngValue]="TLT.CRONOMETRO">Cronómetro</option>
+                            </select>
+                          </ui-campo>
+
+                          @if (form.tipoLimiteTiempo === TLT.DEADLINE) {
+                            <ui-campo etiqueta="Hora límite (HH:mm)" class="animate-fade-in">
+                              <input
+                                [(ngModel)]="form.deadlineHora"
+                                name="deadlineHora"
+                                type="time"
+                                class="campo"
+                              />
+                            </ui-campo>
+                          }
+
+                          @if (form.tipoLimiteTiempo === TLT.CRONOMETRO) {
+                            <ui-campo etiqueta="Duración (minutos)" class="animate-fade-in">
+                              <input
+                                [(ngModel)]="form.duracionCronometroMinutos"
+                                name="duracionCronometroMinutos"
+                                type="number"
+                                min="1"
+                                class="campo"
+                              />
+                            </ui-campo>
+                          }
+                        }
+
+                        @case ('quien') {
+                          <ui-campo etiqueta="Alcance">
+                            <select [(ngModel)]="form.alcance" name="alcance" class="campo">
+                              <option [ngValue]="AA.INDIVIDUAL">Individual</option>
+                              <option [ngValue]="AA.EQUIPO">Equipo</option>
+                            </select>
+                          </ui-campo>
+
+                          <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual. -->
+                          @if (turnosAplican()) {
+                            <app-turnos-actividad
+                              [usuarios]="usuariosDelGrupo()"
+                              [roles]="roles()"
+                              [turno]="turnoDeLaActividad()"
+                              (cambio)="estadoTurno.set($event)"
+                            />
+                          }
+
+                          <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
+                          @if (roles().length > 0 && form.alcance === AA.INDIVIDUAL) {
+                            <div>
+                              <span class="etiqueta-campo">Restringir a roles</span>
+                              <div class="mt-1.5 flex flex-wrap gap-1.5">
+                                @for (rol of roles(); track rol.id) {
+                                  <button
+                                    type="button"
+                                    (click)="alternarRol(rol.id)"
+                                    [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
+                                    class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+                                    [class]="form.rolesPermitidos.includes(rol.id)
+                                      ? 'border-transparent text-white'
+                                      : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
+                                    [style.background-color]="
+                                      form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
+                                    "
+                                  >
+                                    {{ rol.nombre }}
+                                  </button>
+                                }
+                              </div>
+                              <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                                @if (form.rolesPermitidos.length === 0) {
+                                  Sin marcar ninguno, la ven todos los integrantes.
+                                } @else {
+                                  Solo la ven quienes tengan alguno de esos roles — al resto no le
+                                  aparece, y tampoco se les descuenta si es obligatoria.
+                                }
+                              </p>
+                            </div>
+                          }
+
+                          <!-- fase-14-17: solo tiene efecto con el plan del día activo -->
+                          @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
+                            <label class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                              <input
+                                [(ngModel)]="form.siempreVisible"
+                                name="siempreVisible"
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-marca-600 focus:ring-marca-200 dark:border-slate-600"
+                              />
+                              <span class="text-xs text-slate-600 dark:text-slate-300">
+                                <span class="font-semibold text-slate-700 dark:text-slate-100">
+                                  📌 Siempre a la vista
+                                </span>
+                                <span class="mt-0.5 block text-slate-500 dark:text-slate-400">
+                                  @if (planDelDiaActivo()) {
+                                    Aparece en la lista del integrante sin que tenga que elegirla.
+                                  } @else {
+                                    Solo aplica si activás el «Plan del día» en Configuración.
+                                  }
+                                </span>
+                              </span>
+                            </label>
+                          }
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+
           <div class="botonera">
             <button type="button" (click)="cerrarForm()" class="boton boton-neutro">Cancelar</button>
             <button type="submit" [disabled]="guardando()" class="boton boton-primario">
@@ -724,6 +773,11 @@ export class ActividadesPage {
   protected readonly OPCIONES_MODO = OPCIONES_MODO;
 
   protected readonly DIAS = DIAS_SEMANA;
+
+  protected readonly SECCIONES = SECCIONES;
+
+  /** null = las tres plegadas. Una sola abierta por vez: el modal no crece. */
+  protected readonly seccionAbierta = signal<SeccionModal | null>(null);
 
   private readonly api = inject(ActivityApiService);
 
@@ -896,6 +950,7 @@ export class ActividadesPage {
     // crear — antes había que guardar y volver a abrir para que apareciera.
     this.turnoDeLaActividad.set(null);
     this.estadoTurno.set(null);
+    this.seccionAbierta.set(null);
     this.formAbierto.set(true);
   }
 
@@ -931,6 +986,7 @@ export class ActividadesPage {
       siempreVisible: a.siempreVisible,
       rolesPermitidos: [...a.rolesPermitidos],
     };
+    this.abrirSeccionConDatos(a);
     this.formAbierto.set(true);
   }
 
@@ -977,6 +1033,110 @@ export class ActividadesPage {
 
   protected resumenDias(): string {
     return describirDias(this.form.diasSemana);
+  }
+
+  protected alternarSeccion(clave: SeccionModal): void {
+    this.seccionAbierta.set(this.seccionAbierta() === clave ? null : clave);
+  }
+
+  /**
+   * Lo que dice cada sección plegada — fase-14-23 T4.
+   *
+   * Es lo que hace que plegar no sea esconder: sin este resumen, guardar una
+   * actividad con turnos o con roles no se distinguiría de una sin nada, que es
+   * exactamente la molestia que el ítem 23 vino a resolver.
+   */
+  protected resumenSeccion(clave: SeccionModal): string {
+    if (clave === 'cumple') {
+      if (this.form.alcance === AlcanceActividad.EQUIPO) {
+        return 'la marca el jefe';
+      }
+
+      if (this.form.tipoPuntaje !== TipoPuntaje.OBLIGATORIA) {
+        return 'suma al marcarla';
+      }
+
+      if (!this.form.requiereConfirmacion) {
+        return 'se asume hecha';
+      }
+
+      return this.form.puntosPorCumplir > 0
+        ? `confirma · +${this.form.puntosPorCumplir}`
+        : 'confirma';
+    }
+
+    if (clave === 'cuando') {
+      const partes: string[] = [describirDias(this.form.diasSemana)];
+
+      if (this.form.repeticionesMaximasSesion > 1) {
+        partes.push(`hasta ${this.form.repeticionesMaximasSesion}×`);
+      }
+
+      if (this.form.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE) {
+        partes.push(`hasta las ${this.form.deadlineHora}`);
+      } else if (this.form.tipoLimiteTiempo === TipoLimiteTiempo.CRONOMETRO) {
+        partes.push(`${this.form.duracionCronometroMinutos} min`);
+      }
+
+      return partes.join(' · ');
+    }
+
+    return this.resumenDeQuien();
+  }
+
+  private resumenDeQuien(): string {
+    if (this.form.alcance === AlcanceActividad.EQUIPO) {
+      return 'un equipo';
+    }
+
+    const partes: string[] = [];
+
+    if (this.estadoTurno()?.activo) {
+      partes.push('🔁 por turnos');
+    }
+
+    const roles = this.form.rolesPermitidos.length;
+
+    if (roles > 0) {
+      partes.push(`${roles} rol${roles === 1 ? '' : 'es'}`);
+    }
+
+    if (this.form.siempreVisible) {
+      partes.push('📌 siempre a la vista');
+    }
+
+    return partes.length === 0 ? 'todos' : partes.join(' · ');
+  }
+
+  /**
+   * Al editar, abre la sección que ya tiene algo puesto (criterio 8): plegada
+   * por defecto está bien para crear, pero esconder lo que la actividad YA
+   * tiene sería el mismo defecto de la T1 con otra cara.
+   */
+  private abrirSeccionConDatos(a: ActividadDto): void {
+    if (
+      a.alcance === AlcanceActividad.EQUIPO ||
+      a.rolesPermitidos.length > 0 ||
+      a.siempreVisible ||
+      // Los turnos NO están en `ActividadDto` —viven en su propio recurso— y
+      // `obtenerTurno` llega después de esta línea. Se usa el mapa que la lista
+      // ya tiene cargado (`turnos-de-hoy`, una llamada por pantalla), que trae
+      // una fila por actividad con rotación activa haya o no asignación de hoy.
+      this.turnosDeHoy().has(a.id)
+    ) {
+      this.seccionAbierta.set('quien');
+
+      return;
+    }
+
+    if (a.diasSemana.length > 0 || a.repeticionesMaximasSesion > 1 ||
+        a.tipoLimiteTiempo !== TipoLimiteTiempo.SIN_LIMITE) {
+      this.seccionAbierta.set('cuando');
+
+      return;
+    }
+
+    this.seccionAbierta.set(null);
   }
 
   protected describir(dias: number[]): string {

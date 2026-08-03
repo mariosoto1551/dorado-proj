@@ -40,7 +40,7 @@ import {
             <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">{{ mensaje() }}</p>
           }
 
-          @if (requiereMotivo()) {
+          @if (muestraMotivo()) {
             <textarea
               [value]="motivo()"
               (input)="motivo.set($any($event.target).value)"
@@ -86,7 +86,16 @@ export class ConfirmDialogComponent {
 
   readonly tono = input<'peligro' | 'primario'>('peligro');
 
+  /** Muestra el textarea Y exige texto para poder confirmar. */
   readonly requiereMotivo = input<boolean>(false);
+
+  /**
+   * Muestra el textarea SIN exigirlo (fase-14-23 T4). El motivo del tutor del
+   * #12 es opcional por diseño —el integrante lo lee si está— así que pedirlo
+   * como obligatorio habría cambiado una regla de negocio para acomodar al
+   * diálogo, en vez de al revés.
+   */
+  readonly pideMotivo = input<boolean>(false);
 
   readonly placeholderMotivo = input<string>('Motivo…');
 
@@ -95,6 +104,8 @@ export class ConfirmDialogComponent {
   readonly cancelar = output<void>();
 
   protected readonly motivo = signal('');
+
+  protected readonly muestraMotivo = computed(() => this.requiereMotivo() || this.pideMotivo());
 
   protected readonly claseConfirmar = computed(() =>
     this.tono() === 'peligro'

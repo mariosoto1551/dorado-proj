@@ -947,3 +947,82 @@ Y una que la herramienta **descartó**: el contador de la guía parecía inconsi
 2. **Las nueve llamadas del home** (punto de arriba). No es un problema hoy —el piloto es un grupo chico— pero es lo primero que va a doler si crece.
 3. **`guia-flotante.component.ts` se eliminó**: si en algún momento se quiere volver a un recordatorio flotante, conviene que **no duplique** algo que ya está en pantalla.
 4. **Siguiente: la T4** (pantalla por pantalla, de la más recargada a la más simple). El orden que fija la spec arranca por Actividades, que **acaba de bajar de 1399 a ~1290 líneas** al mudarse los dos bloques de configuración — parte del trabajo de la T4 ya está hecho.
+
+---
+
+## Ítem 23 · Tanda 4: Las dos pantallas más cargadas
+
+- **Estado**: EN_PROGRESO (el ítem es por tandas; **la primera vuelta de la T4 está completa y verificada**). 82/82 tests de app-web (12 nuevos), **283/283 de activity-service (4 nuevos)**, 24/24 de shared-ui (6 nuevos), lint y build verdes, y la **suite E2E completa 42/42 en dos corridas seguidas** (5 de ellos nuevos).
+- **Fecha**: 2026-08-02 / **Spec**: `docs/phases/fase-14-23-claridad-del-area-del-tutor.md` (sección «Tanda 4», escrita en esta sesión) / **Commit**: — (branch `fase-14-tienda-de-monedas`)
+- **Origen**: el síntoma 3 de los que José reportó el 2026-08-01 —«pantallas sobrecargadas»—, relevado esta vez **con Sección abierta y registros hechos**: las pantallas operativas vacías no sirven para juzgar si están recargadas, y las capturas de la T3 se habían sacado sin Sección.
+
+### El hallazgo: la acción más frecuente del día no existía en ninguna pantalla
+
+**El Tutor no podía marcar «completó».** No era una decisión de producto: `POST /activity/actividades/:id/completar` declara `@Roles(USUARIO, TUTOR, ORG_ADMIN)` desde el #8, acepta `usuarioId` en el body **y lo audita** —queda registrado quién lo marcó—, y el cliente del frontend ya tenía la firma exacta (`completarActividad(actividadId, usuarioId?)`). Lo llamaba una sola pantalla, la del integrante, y sin `usuarioId`.
+
+Es **el mismo modo de falla que la T1 encontró con `turnos-de-hoy`**: la función está entera y falta el cable. Dos veces en cuatro tandas, y las dos veces sobre capacidades construidas «para más adelante» en un ítem que no las consumía. Vale como patrón a mirar: una capacidad que ningún camino de la interfaz ejerce no está terminada, aunque tenga tests.
+
+José confirmó que era un hueco: en la casa pasa todo el tiempo que el chico hace algo y avisa, o no tiene el teléfono a mano, y hasta ahora la única salida era pedirle que lo marcara él.
+
+### El único backend del ítem, y por qué
+
+Es la primera tanda de las cuatro que toca el backend, y conviene dejar escrito el razonamiento. Para que el Tutor marque **sobre la lista real del integrante** hace falta *esa* lista, y solo existía para el propio integrante (`GET grupos/:grupoId/mi-estado-hoy`, `@Roles(USUARIO)`). Componerla en Angular obligaba a **reimplementar las reglas de visibilidad de cinco ítems** (#10, #11, #17, #19, #21) en la interfaz — duplicar lógica de negocio en el frontend es exactamente lo que este proyecto no hace.
+
+- `miEstadoHoy` se generalizó a **`estadoHoyDe(tenant, grupoId, usuarioId)`**, y el método viejo pasó a llamarla con `tenant.principalId`. Una sola línea de diferencia y **cero cambio de comportamiento para el integrante** — hay un test que lo afirma comparando las dos salidas con `toEqual`.
+- `GET grupos/:grupoId/usuarios/:usuarioId/estado-hoy`, `@Roles(TUTOR, ORG_ADMIN)`. **Sin schema, sin migración, sin evento.**
+- El aislamiento no se afloja: `tenant` sigue decidiendo organización y grupo, y `usuarioId` es solo el sujeto de la consulta.
+
+### Decisiones de implementación que importan
+
+1. **La pestaña «Registrar» pasó de tres formularios a un flujo por persona.** Antes eran «Registrar no hizo», «Registrar conducta» y «Corregir completadas», los tres con la misma forma (*elegí usuario → elegí ítem → Registrar*) y **había que volver a elegir a la misma persona en cada uno**. Ahora se elige una vez y todo lo de abajo es de ella.
+2. **«Corregir completadas» desapareció como formulario**: lo ya completado se ve en la misma fila con su contador (`1 de 2`) y se quita desde ahí. Es la misma información, no dos.
+3. **Las reglas de la fila viven en `core/registro-tutor.ts`, no en el componente** —mismo criterio que `core/turnos.ts` (T1) y `core/home-grupo.ts` (T3)—, y **no deciden nada**: traducen el estado que ya mandó el servidor a lo que la fila ofrece. `motivoDeBloqueo` ordena los motivos por lo que le importa al Tutor: primero lo que él mismo hizo (la marca roja), después lo que decidió el calendario.
+4. **El motivo del «no hizo» (#12) se pide en la confirmación.** Antes era un campo permanente del formulario y el texto **quedaba escrito de una marca a la siguiente**, fácil de mandar pegado a la equivocada. Obligó a sumarle a `ConfirmDialog` un `pideMotivo` distinto de `requiereMotivo`: el motivo del #12 es **opcional por diseño**, así que exigirlo habría cambiado una regla de negocio para acomodar al diálogo, en vez de al revés.
+5. **Los controles de Sección dicen qué hacen.** «Controles» pasó a «Ritmo de la semana», «Forzar evaluación» a «Pasar a evaluación» con su advertencia al lado, y pide confirmación por ser irreversible. También se corrigió el «1 sesiones».
+
+### Desviación de la spec: las tres secciones del modal no son las tres de la tabla
+
+La spec (sección «El modal de actividades») fija **Cuándo se puede hacer / Quién la hace / Límite de tiempo**. Lo implementado es **Cómo se cumple / Cuándo se puede hacer / Quién la hace**: el límite de tiempo terminó **adentro de «Cuándo se puede hacer»** —es una pregunta sobre cuándo, y como sección propia quedaba con tres campos que ya tenían casa— y en su lugar apareció «Cómo se cumple», que agrupa descripción, confirmación al cierre y puntos por cumplirla (#20), que en la tabla de la spec no tenían sección asignada.
+
+Siguen siendo **tres secciones plegadas y tres campos a la vista**, que es lo que piden los criterios 7 y 8. Se registra acá y **no se edita la spec** (protocolo de `CLAUDE.md`).
+
+### El hueco que encontró la E2E: «Quién la hace» no se abría sola con turnos
+
+El criterio 8 de la spec dice que «Quién la hace» se abre sola si la actividad ya tiene **alcance EQUIPO, roles o turnos**. `abrirSeccionConDatos` contemplaba los dos primeros y **no los turnos**: editar una actividad que solo rota la mostraba plegada, que es justo el defecto que la T1 vino a corregir, con otra cara.
+
+La causa es real y vale anotarla: **el turno no está en `ActividadDto`** —vive en su propio recurso— y `obtenerTurno` llega **después** de que corre `abrirSeccionConDatos`. Se resolvió con el mapa que la lista ya tiene cargado (`turnos-de-hoy`, **una sola llamada por pantalla** desde la T1), que trae una fila por actividad con rotación activa haya o no asignación sellada de hoy. Sin costo nuevo.
+
+Lo encontró la suite de la T1 al fallar, no un unit test: es el segundo caso del ítem en que **la E2E ve algo que la unidad no puede ver** (el primero fue el estado que sobrevivía dentro de `ui-modal`, en la T2).
+
+### El segundo hueco: las tareas de equipo llegaban con un botón que el servidor rechaza
+
+`estadoHoyDe` no filtra por alcance —a propósito: el #15 decidió que **las de equipo se ven** en la lista del integrante aunque no se marquen desde ahí, porque las completa el jefe desde «Mi equipo»—, y `MiEstadoActividadHoyDto` **no trae `alcance`**. La primera versión de `filasDeRegistro` no lo miraba, así que al Tutor le aparecían con `✓ hizo` habilitado y el clic terminaba en un `400 ES_TAREA_DE_EQUIPO`.
+
+Se corrigió leyendo el alcance del **catálogo**, que la función ya recibía para resolver los nombres: la fila se muestra (el integrante también la ve), dice *«La marca el jefe del equipo»* y no ofrece ninguna de las tres acciones —tampoco `quitar`, porque anular una de equipo tiene su propio camino (#13)—.
+
+Es la lectura correcta del criterio 2 llevada hasta el final: «la misma lista que ve el integrante» incluye **las mismas restricciones**, no solo los mismos ítems.
+
+### Consecuencia sobre la suite de la T1 (no es una regresión)
+
+Al plegar «Quién la hace», el armador de turnos quedó **a un clic** en vez de suelto en el formulario, y los tres casos de `turnos-visibles.e2e.ts` que lo tocaban dejaron de encontrarlo. Se les agregó `abrirSeccionQuien()`, idempotente. El criterio 6 de la T1 —«el bloque de turnos aparece al crear»— **se sigue cumpliendo**: existe al crear, y desde plegada la sección dice su estado (decisión 3 de la T4: plegar no es esconder).
+
+### Tests nuevos (4 backend + 18 unit + 5 E2E)
+
+- `registro.service.spec.ts` (4): que `estadoHoyDe` devuelve la lista del usuario **pedido** y no la del principal que consulta; que un integrante sin marcas sale en cero; que **es la misma función** que `mi-estado-hoy` (`toEqual` entre las dos salidas, que es el criterio 2 de la tanda escrito como test); y el caso sin Sesión abierta. **Los tests que cubren `mi-estado-hoy` pasan sin modificarse** (criterio 9).
+- `core/registro-tutor.spec.ts` (12, nuevo): los cuatro motivos de bloqueo y su orden de precedencia, el filtro de `enPlan` (lo que el integrante no ve, el Tutor tampoco lo ve marcable), el turno ajeno, la tarea de equipo que se ve sin ofrecer acción, y el texto de repeticiones.
+- `libs/shared-ui/.../confirm-dialog.component.spec.ts` (6, nuevo): **el componente existía desde la Fase 10 sin ningún test** —la T2 le escribió specs a los tres componentes nuevos y este quedó afuera—. Se le escribe una al sumarle `pideMotivo`, fijando justamente el matiz que se pierde sin test: `requiereMotivo` muestra el textarea **y bloquea** confirmar hasta que haya texto (espacios no cuentan), `pideMotivo` lo muestra **y no lo exige**. Más el limpiado del motivo al reabrir, que es lo que evita mandarlo pegado a la marca siguiente.
+- `apps/e2e/src/registro-del-tutor.e2e.ts` (5, nuevo): elegir al integrante una vez y marcar con un clic **verificando en el historial que quedó el TUTOR como quien registró**; la corrección en la misma fila; el motivo viajando desde la confirmación; y los dos del modal (tres campos + tres secciones plegadas con su estado, y la que se abre sola al editar).
+
+### Peleas con el entorno, y el helper que salió de ellas
+
+- **El límite del Gateway ahora se toca corriendo la suite completa.** Con la suite nueva son cuatro escenarios de navegador seguidos, y las suites **que corren después** empiezan a recibir 429 aunque ellas mismas estén bien: en una corrida fallaron 7 tests que **pasaban los 7 al correr sus suites por separado**. No es flakiness, es presupuesto de requests compartido. Es la tercera tanda que tropieza con esto (T1 y T3 lo anotaron).
+- El error engaña: el 429 le pega al refresh silencioso y la pestaña vuelve al login, así que el síntoma que se ve es «el elemento no existe», no «me limitaron».
+- El que corta primero no es el límite global de 100/min sino **`/auth/login`, que es 10/min**: con un `beforeAll` por suite de navegador, la última se lo come antes de empezar.
+- **Se extrajo `apps/e2e/src/support/navegador.ts`** con `APP_URL` y un `entrarComoTutor` que **reintenta esperando la ventana**. Estaba copiado en cuatro archivos y **solo la herramienta de capturas tenía el reintento** —lo había aprendido la T3— mientras las tres suites que sí verifican cosas seguían con la versión frágil. Es el mismo diagnóstico que la T2 hizo sobre las pantallas, aplicado a los tests: el patrón copiado a mano diverge, y la copia que aprendió algo no se lo enseña a las otras.
+
+### Qué falta / verificar la próxima sesión
+
+1. **Segunda vuelta de la T4**: Historial de sesión (561 líneas), Equipos (538) y Recompensas (seis sub-pantallas), que la decisión 2 dejó para después a propósito.
+2. **El presupuesto de requests de la E2E**: el reintento del login destapona el arranque de cada suite, pero **no baja el consumo**. Antes de sumar una quinta suite de navegador conviene decidir el fondo: un escenario compartido entre suites, o un límite distinto en entorno de test. Subirlo en producción no es opción — es una defensa real.
+3. **La T5 (pulido final)** sigue con alcance solamente: transiciones, foco y teclado, responsive y revisión de textos.
+4. **El panel operativo con equipos** no se miró en esta vuelta: la lista por persona muestra lo individual, y una actividad de equipo la marca el jefe. Verificar que el Tutor no quede sin camino para eso.

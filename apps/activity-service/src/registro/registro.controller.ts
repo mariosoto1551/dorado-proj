@@ -81,6 +81,24 @@ export class RegistroController {
     return await this.registro.listarCompletadasOpcionales(tenant, grupoId, usuarioId);
   }
 
+  /**
+   * La lista de hoy de un integrante, vista por el Tutor (fase-14-23 T4).
+   *
+   * Es la MISMA que devuelve `mi-estado-hoy` para el propio integrante —misma
+   * función de servicio— para que el Tutor marque sobre lo que el integrante
+   * realmente ve: días programados (#11), plan del día (#17), rol (#19) y
+   * turno (#21) incluidos.
+   */
+  @Get('grupos/:grupoId/usuarios/:usuarioId/estado-hoy')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async estadoHoyDeUsuario(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string,
+    @Param('usuarioId') usuarioId: string
+  ): Promise<MiEstadoHoyDto> {
+    return await this.registro.estadoHoyDe(tenant, grupoId, usuarioId);
+  }
+
   /** Marcas rojas vivas de un usuario en la sesión abierta (fase-14-12). */
   @Get('grupos/:grupoId/usuarios/:usuarioId/marcas')
   @Roles(Rol.TUTOR, Rol.ORG_ADMIN)

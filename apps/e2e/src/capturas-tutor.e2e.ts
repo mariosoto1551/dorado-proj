@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import { Api } from './support/api';
 import {
@@ -6,9 +6,11 @@ import {
   crearCatalogo,
   crearOrganizacion,
   crearUmbrales,
+  iniciarSeccion,
   invitarYCanjearUsuario,
-  type Organizacion,
+  poll,
 } from './support/escenario';
+import { APP_URL, entrarComoTutor } from './support/navegador';
 
 /**
  * Paseo visual del área Tutor — herramienta de trabajo, NO un criterio.
@@ -21,7 +23,6 @@ import {
  * Gated por `E2E_CAPTURAS=1` para que no corra en la suite normal: tarda, no
  * verifica nada y deja archivos.
  */
-const APP_URL = process.env['E2E_APP_URL'] ?? 'http://localhost:4200';
 
 /** Cada pantalla del área Tutor, en el orden en que las lista el menú. */
 const PANTALLAS: { archivo: string; sufijoRuta: string; espera?: string }[] = [
@@ -42,34 +43,6 @@ const PANTALLAS: { archivo: string; sufijoRuta: string; espera?: string }[] = [
   { archivo: '15-invitaciones', sufijoRuta: '/invitaciones' },
 ];
 
-/**
- * Login por formulario (el access token vive en memoria, no hay atajo por
- * storage). `/auth/login` tiene el límite ESTRICTO del Gateway —10 req/min por
- * IP— y el navegador no reintenta, así que un 429 deja la pestaña en /login y
- * las 16 capturas salen de la pantalla de login. Se reintenta esperando la
- * ventana, que es lo que pasa cuando se corre esta herramienta varias veces
- * seguidas mientras se la ajusta.
- */
-async function entrarComoTutor(page: Page, org: Organizacion): Promise<void> {
-  for (let intento = 1; ; intento += 1) {
-    await page.goto(`${APP_URL}/login`);
-    await page.fill('#identificador', org.emailContacto);
-    await page.fill('#password', org.password);
-    await page.click('button[type="submit"]');
-
-    try {
-      await expect(page).not.toHaveURL(/\/login/, { timeout: 10_000 });
-      return;
-    } catch (error) {
-      if (intento >= 3) {
-        throw error;
-      }
-
-      await page.waitForTimeout(62_000);
-    }
-  }
-}
-
 test.describe('Paseo visual del área Tutor', () => {
   test.skip(process.env['E2E_CAPTURAS'] !== '1', 'Herramienta: correr con E2E_CAPTURAS=1');
 
@@ -81,9 +54,27 @@ test.describe('Paseo visual del área Tutor', () => {
 
     await configurarGrupoManual(org);
     await crearUmbrales(org);
-    await crearCatalogo(org);
+    const catalogo = await crearCatalogo(org);
+    const ana = await invitarYCanjearUsuario(base, org);
     await invitarYCanjearUsuario(base, org);
-    await invitarYCanjearUsuario(base, org);
+
+    // Con Sección abierta y algo registrado: las pantallas operativas vacías no
+    // sirven para juzgar si están sobrecargadas (T4).
+    const { seccionId } = await iniciarSeccion(org);
+    await org.api.postOk(`/activity/actividades/${catalogo.actividadOpcionalId}/completar`, {
+      usuarioId: ana.usuarioId,
+    });
+    await org.api.postOk(`/activity/conductas/${catalogo.conductaBuenaId}/registrar`, {
+      usuarioId: ana.usuarioId,
+    });
+    // El ledger de scoring se proyecta por el bus: sin esto el ranking sale en 0.
+    await poll(async () => {
+      const puntajes = await org.api.getOk<{ puntajeTotal: number }[]>(
+        `/scoring/grupos/${org.grupoId}/secciones/${seccionId}/puntajes`
+      );
+
+      expect(puntajes.some((p) => p.puntajeTotal !== 0)).toBe(true);
+    }, 'el ledger proyectó lo registrado');
 
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     await entrarComoTutor(page, org);
@@ -123,10 +114,21 @@ test.describe('Paseo visual del área Tutor', () => {
       });
     }
 
-    // La 16: el modal de actividades, que es la pantalla más cargada del área.
+    // Extra 1: el panel operativo CON un integrante elegido — sin eso no se ve
+    // la lista, que es lo que la T4 rediseñó.
+    await page.goto(`${APP_URL}/grupos/${org.grupoId}/secciones/actual`);
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: /Usuario de Prueba/ }).first().click();
+    await expect(page.getByRole('button', { name: /hizo/ }).first()).toBeVisible();
+    await page.screenshot({ path: 'capturas/17-registrar-persona.png', fullPage: true });
+
+    // Extra 2: el modal de actividades, que es la pantalla más cargada del área.
     await page.goto(`${APP_URL}/grupos/${org.grupoId}/actividades`);
     await page.waitForLoadState('networkidle');
     await page.getByRole('button', { name: /Nueva/ }).first().click();
+    // Sin esta espera la captura sale a mitad del `animate-fade-in`.
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.waitForTimeout(400);
     await page.screenshot({ path: 'capturas/16-modal-actividad.png', fullPage: true });
 
     await page.close();

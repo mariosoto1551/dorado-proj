@@ -17,9 +17,15 @@ import {
   type ConductaDto,
   EstadoSesion,
   type MarcaRojaDto,
+  type MiEstadoActividadHoyDto,
   type UsuarioDto,
 } from '@dorado/shared-types';
-import { ConfirmDialogComponent, EstadoSeccionBadgeComponent, EstadoVacioComponent } from '@dorado/shared-ui';
+import {
+  CampoComponent,
+  ConfirmDialogComponent,
+  EstadoSeccionBadgeComponent,
+  EstadoVacioComponent,
+} from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
@@ -28,9 +34,21 @@ import type { SeccionConSesionesResponse } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
+import {
+  filasDeRegistro,
+  textoDeRepeticiones,
+  type FilaRegistro,
+} from '../../core/registro-tutor';
 import { HistorialSesionComponent } from './historial-sesion.component';
 
-type AccionConfirmable = 'cierre-sesion' | 'evaluacion' | 'cerrar-seccion' | null;
+type AccionConfirmable =
+  | 'cierre-sesion'
+  | 'evaluacion'
+  | 'cerrar-seccion'
+  // fase-14-23 T4: el motivo del tutor se pide en la confirmación.
+  | 'no-hizo'
+  | 'quitar'
+  | null;
 
 /** fase-14-18: «Registrar» es lo de siempre; «historial» es la línea de tiempo. */
 type VistaPanel = 'registrar' | 'historial';
@@ -39,12 +57,14 @@ type VistaPanel = 'registrar' | 'historial';
 @Component({
   selector: 'app-panel-operativo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EstadoVacioComponent, 
+  imports: [
     FormsModule,
     EncabezadoPaginaComponent,
+    HistorialSesionComponent,
     EstadoSeccionBadgeComponent,
     ConfirmDialogComponent,
-    HistorialSesionComponent,
+    EstadoVacioComponent,
+    CampoComponent,
   ],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
@@ -100,7 +120,10 @@ type VistaPanel = 'registrar' | 'historial';
         <div class="mt-4 tarjeta">
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-bold text-slate-900 dark:text-white">Sección #{{ seccion()!.numero }}</h2>
-            <span class="text-xs text-slate-400 dark:text-slate-500">{{ seccion()!.sesiones.length }} sesiones</span>
+            <span class="text-xs text-slate-400 dark:text-slate-500">
+              {{ seccion()!.sesiones.length }}
+              {{ seccion()!.sesiones.length === 1 ? 'sesión' : 'sesiones' }}
+            </span>
           </div>
           <div class="mt-3 flex flex-wrap gap-1.5">
             @for (s of seccion()!.sesiones; track s.id) {
@@ -114,190 +137,167 @@ type VistaPanel = 'registrar' | 'historial';
           </div>
         </div>
 
-        <!-- Acciones rápidas: solo con sección ABIERTA y sesión abierta -->
+        <!-- ===== Registrar: un flujo POR PERSONA (fase-14-23 T4) =====
+             Antes eran tres formularios apilados con la misma forma («elegí
+             usuario → elegí ítem → Registrar»), y había que volver a elegir a
+             la misma persona en cada uno. Ahora se elige una vez y todo lo de
+             abajo es de ella. -->
         @if (seccion()!.estado === 'ABIERTA') {
           @if (sesionAbierta()) {
-            <div class="mt-4 grid gap-3 sm:grid-cols-2">
-              <!-- No hizo -->
-              <div class="tarjeta">
-                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Registrar «no hizo»</h3>
-                <select
-                  [(ngModel)]="usuarioNoHizo"
-                  class="mt-2 campo"
-                >
-                  <option value="">Usuario…</option>
-                  @for (u of usuarios(); track u.id) {
-                    <option [value]="u.id">{{ u.nombre }}</option>
-                  }
-                </select>
-                <select
-                  [(ngModel)]="actividadNoHizo"
-                  class="mt-2 campo"
-                >
-                  <option value="">Obligatoria…</option>
-                  @for (a of obligatorias(); track a.id) {
-                    <option [value]="a.id">{{ a.nombre }}</option>
-                  }
-                </select>
-                <!-- fase-14-12: la nota la ve el integrante en su pantalla. -->
-                <input
-                  type="text"
-                  [(ngModel)]="motivoNoHizo"
-                  maxlength="200"
-                  placeholder="Motivo (opcional)"
-                  class="mt-2 campo"
-                />
+            <div class="mt-4 flex flex-wrap gap-2">
+              @for (u of usuarios(); track u.id) {
                 <button
                   type="button"
-                  (click)="registrarNoHizo()"
-                  [disabled]="procesando() || !usuarioNoHizo || !actividadNoHizo"
-                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40 dark:bg-slate-700 dark:hover:bg-slate-600"
+                  (click)="elegirUsuario(u.id)"
+                  [attr.aria-pressed]="usuarioSel() === u.id"
+                  class="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                  [class]="
+                    usuarioSel() === u.id
+                      ? 'bg-marca-600 text-white'
+                      : 'border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800'
+                  "
                 >
-                  Registrar
+                  {{ u.nombre }}
                 </button>
-              </div>
-
-              <!-- Conducta -->
-              <div class="tarjeta">
-                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Registrar conducta</h3>
-                <select
-                  [(ngModel)]="usuarioConducta"
-                  class="mt-2 campo"
-                >
-                  <option value="">Usuario…</option>
-                  @for (u of usuarios(); track u.id) {
-                    <option [value]="u.id">{{ u.nombre }}</option>
-                  }
-                </select>
-                <select
-                  [(ngModel)]="conductaSel"
-                  class="mt-2 campo"
-                >
-                  <option value="">Conducta…</option>
-                  @for (c of conductas(); track c.id) {
-                    <option [value]="c.id">
-                      {{ c.nombre }} ({{ c.tipo === 'BUENA' ? '+' : '−' }}{{ c.valorPuntos }})
-                    </option>
-                  }
-                </select>
-                <button
-                  type="button"
-                  (click)="registrarConducta()"
-                  [disabled]="procesando() || !usuarioConducta || !conductaSel"
-                  class="mt-2 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:opacity-40 dark:bg-slate-700 dark:hover:bg-slate-600"
-                >
-                  Registrar
-                </button>
-              </div>
+              }
             </div>
 
-            <!-- Corregir completadas de un usuario (fase-14) -->
-            <div class="mt-3 tarjeta">
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Corregir completadas de un usuario</h3>
-              <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Quitá opcionales que un usuario marcó de más. Resta los puntos y en su pantalla
-                queda una barrita roja: ese intento se le gasta y solo vos podés devolvérselo.
-              </p>
-              <select
-                [(ngModel)]="usuarioCorregir"
-                (ngModelChange)="onUsuarioCorregirCambio()"
-                class="mt-2 campo"
-              >
-                <option value="">Usuario…</option>
-                @for (u of usuarios(); track u.id) {
-                  <option [value]="u.id">{{ u.nombre }}</option>
-                }
-              </select>
-
-              @if (usuarioCorregir) {
-                <!-- fase-14-12: el motivo aplica a la próxima quita de este bloque. -->
-                <input
-                  type="text"
-                  [(ngModel)]="motivoCorreccion"
-                  maxlength="200"
-                  placeholder="Motivo (opcional) — lo ve el integrante"
-                  class="mt-2 campo"
-                />
-
-                @if (cargandoCorreccion()) {
-                  <p class="mt-3 text-center text-xs text-slate-400 dark:text-slate-500">Cargando…</p>
-                } @else if (completadas().length === 0) {
-                  <p class="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                    Este usuario no tiene opcionales completadas en la sesión.
-                  </p>
+            @if (usuarioSel()) {
+              <div class="mt-3 tarjeta animate-fade-in">
+                @if (cargandoUsuario()) {
+                  <p class="py-6 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
                 } @else {
-                  <ul class="mt-3 space-y-2">
-                    @for (c of completadas(); track c.actividadId) {
-                      <li class="flex items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-                        <div class="min-w-0 flex-1">
-                          <p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{{ c.nombre }}</p>
-                          <p class="text-xs text-slate-500 dark:text-slate-400">
-                            {{ c.registros.length }}× · +{{ c.valorPuntos }} c/u
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          (click)="quitarUna(c)"
-                          [disabled]="procesando()"
-                          class="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-slate-300 text-lg font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                          aria-label="Quitar una"
-                          title="Quitar una"
-                        >
-                          −
-                        </button>
-                        <button
-                          type="button"
-                          (click)="quitarTodas(c)"
-                          [disabled]="procesando()"
-                          class="flex-none rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-500/10"
-                        >
-                          Quitar todas
-                        </button>
-                      </li>
-                    }
-                  </ul>
-                }
-
-                <!-- Marcas rojas de hoy, con su botón de deshacer (fase-14-12) -->
-                @if (marcas().length > 0) {
-                  <div class="mt-4 border-t border-slate-200 pt-3 dark:border-slate-800">
-                    <h4 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
-                      Marcas de hoy
-                    </h4>
-                    <ul class="mt-2 space-y-2">
-                      @for (m of marcas(); track m.registroId) {
-                        <li class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/60 p-3 dark:border-red-900 dark:bg-red-950/20">
-                          <div class="min-w-0 flex-1">
-                            <p class="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                              {{ m.nombre }}
-                            </p>
-                            <p class="text-xs text-red-600 dark:text-red-400">
-                              {{ m.tipo === 'NO_HIZO' ? 'No hizo' : 'Repetición quitada' }}
-                              @if (m.puntos !== 0) {
-                                · {{ m.puntos }} pts
+                  <!-- Su lista de hoy: la MISMA que ve el integrante -->
+                  @if (filas().length === 0) {
+                    <p class="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      Hoy no tiene ninguna actividad a la vista.
+                    </p>
+                  } @else {
+                    <ul class="divide-y divide-slate-100 dark:divide-slate-800">
+                      @for (f of filas(); track f.actividadId) {
+                        <li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 first:pt-0">
+                          <span class="min-w-0 flex-1">
+                            <span
+                              class="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100"
+                              [class.opacity-50]="f.motivoBloqueo !== null"
+                            >
+                              {{ f.nombre }}
+                            </span>
+                            <span class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400">
+                              <span>{{ f.tipoPuntaje === 'OBLIGATORIA' ? 'Obligatoria' : 'Opcional' }}</span>
+                              @if (repeticiones(f)) {
+                                <span>· {{ repeticiones(f) }}</span>
                               }
-                            </p>
-                            @if (m.motivoTutor) {
-                              <p class="truncate text-xs italic text-slate-500 dark:text-slate-400">
-                                «{{ m.motivoTutor }}»
-                              </p>
+                              @if (f.motivoBloqueo) {
+                                <span class="font-medium text-amber-600 dark:text-amber-400">
+                                  · {{ f.motivoBloqueo }}
+                                </span>
+                              }
+                            </span>
+                          </span>
+
+                          <span class="flex shrink-0 items-center gap-1.5">
+                            <button
+                              type="button"
+                              (click)="marcarHizo(f)"
+                              [disabled]="procesando() || !f.puedeCompletar"
+                              class="boton boton-sm bg-emerald-600 text-white hover:bg-emerald-700"
+                            >
+                              ✓ hizo
+                            </button>
+                            @if (f.puedeNoHizo) {
+                              <button
+                                type="button"
+                                (click)="pedirNoHizo(f)"
+                                [disabled]="procesando()"
+                                class="boton boton-neutro boton-sm"
+                              >
+                                ✗ no hizo
+                              </button>
                             }
-                          </div>
-                          <button
-                            type="button"
-                            (click)="deshacerMarca(m)"
-                            [disabled]="procesando()"
-                            class="flex-none rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                          >
-                            Deshacer
-                          </button>
+                            @if (f.puedeQuitar) {
+                              <button
+                                type="button"
+                                (click)="pedirQuitar(f)"
+                                [disabled]="procesando()"
+                                class="boton boton-peligro boton-sm"
+                                aria-label="Quitar una"
+                                title="Quitar una repetición"
+                              >
+                                −
+                              </button>
+                            }
+                          </span>
                         </li>
                       }
                     </ul>
+                  }
+
+                  <!-- Marcas rojas de hoy, con su deshacer (fase-14-12) -->
+                  @if (marcas().length > 0) {
+                    <div class="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                      <h4 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                        Marcas de hoy
+                      </h4>
+                      <ul class="mt-2 space-y-1.5">
+                        @for (m of marcas(); track m.registroId) {
+                          <li class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/60 px-3 py-2 dark:border-red-900 dark:bg-red-950/20">
+                            <span class="min-w-0 flex-1">
+                              <span class="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                {{ m.nombre }}
+                              </span>
+                              <span class="text-xs text-red-600 dark:text-red-400">
+                                {{ m.tipo === 'NO_HIZO' ? 'No hizo' : 'Repetición quitada' }}
+                                @if (m.puntos !== 0) {
+                                  · {{ m.puntos }} pts
+                                }
+                                @if (m.motivoTutor) {
+                                  · «{{ m.motivoTutor }}»
+                                }
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              (click)="deshacerMarca(m)"
+                              [disabled]="procesando()"
+                              class="boton boton-neutro boton-sm shrink-0"
+                            >
+                              Deshacer
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
+
+                  <!-- Conducta rápida: el único ítem que no está en la lista -->
+                  <div class="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                    <ui-campo etiqueta="Conducta" class="min-w-48 flex-1">
+                      <select [(ngModel)]="conductaSel" class="campo">
+                        <option value="">Elegí una…</option>
+                        @for (c of conductas(); track c.id) {
+                          <option [value]="c.id">
+                            {{ c.nombre }} ({{ c.tipo === 'BUENA' ? '+' : '−' }}{{ c.valorPuntos }})
+                          </option>
+                        }
+                      </select>
+                    </ui-campo>
+                    <button
+                      type="button"
+                      (click)="registrarConducta()"
+                      [disabled]="procesando() || !conductaSel"
+                      class="boton boton-primario"
+                    >
+                      Registrar
+                    </button>
                   </div>
                 }
-              }
-            </div>
+              </div>
+            } @else {
+              <p class="mt-3 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                Elegí a quién le vas a registrar algo.
+              </p>
+            }
           } @else {
             <p class="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               No hay una sesión abierta. Abrí la siguiente para registrar.
@@ -305,10 +305,12 @@ type VistaPanel = 'registrar' | 'historial';
           }
         }
 
-        <!-- Controles de la sección -->
+        <!-- Ritmo de la semana. Antes se llamaba «Controles» —un título que no
+             dice qué hacen— y «Forzar evaluación» tenía el mismo peso que
+             cerrar la sesión, siendo irreversible. -->
         <div class="mt-4 tarjeta">
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Controles</h3>
-          <div class="mt-3 flex flex-wrap gap-2">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Ritmo de la semana</h3>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
             @if (seccion()!.estado === 'ABIERTA') {
               @if (sesionAbierta()) {
                 <button
@@ -316,25 +318,28 @@ type VistaPanel = 'registrar' | 'historial';
                   (click)="confirmar.set('cierre-sesion')"
                   class="boton boton-neutro"
                 >
-                  Cerrar sesión abierta
+                  Cerrar la sesión de hoy
                 </button>
               } @else {
                 <button
                   type="button"
                   (click)="abrirSiguienteSesion()"
                   [disabled]="procesando()"
-                  class="boton boton-neutro"
+                  class="boton boton-primario"
                 >
-                  Abrir siguiente sesión
+                  Abrir la sesión de hoy
                 </button>
               }
               <button
                 type="button"
                 (click)="confirmar.set('evaluacion')"
-                class="rounded-lg bg-amber-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-amber-600"
+                class="boton boton-peligro text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/10"
               >
-                Forzar evaluación
+                Pasar a evaluación
               </button>
+              <span class="text-xs text-slate-400 dark:text-slate-500">
+                Pasar a evaluación cierra la semana para registrar. No se puede volver atrás.
+              </span>
             }
             @if (seccion()!.estado === 'EVALUACION') {
               <button
@@ -357,14 +362,19 @@ type VistaPanel = 'registrar' | 'historial';
       }
     </section>
 
+    <!-- El motivo del tutor (fase-14-12) se pide acá y no en un campo suelto:
+         antes quedaba escrito de una marca a la siguiente. Es OPCIONAL, así que
+         el diálogo no lo exige para confirmar. -->
     <ui-confirm-dialog
       [abierto]="confirmar() !== null"
       [titulo]="tituloConfirm()"
       [mensaje]="mensajeConfirm()"
       [textoConfirmar]="textoConfirm()"
-      [tono]="confirmar() === 'cerrar-seccion' ? 'peligro' : 'primario'"
-      (confirmar)="ejecutarConfirmado()"
-      (cancelar)="confirmar.set(null)"
+      [tono]="confirmar() === 'cerrar-seccion' || confirmPideMotivo() ? 'peligro' : 'primario'"
+      [pideMotivo]="confirmPideMotivo()"
+      placeholderMotivo="Motivo (opcional) — lo lee el integrante"
+      (confirmar)="ejecutarConfirmado($event)"
+      (cancelar)="cerrarConfirmacion()"
     />
   `,
 })
@@ -409,45 +419,53 @@ export class PanelOperativoPage {
       : 'registrar'
   );
 
-  protected usuarioNoHizo = '';
-
-  protected actividadNoHizo = '';
-
-  protected usuarioConducta = '';
-
   protected conductaSel = '';
 
-  protected usuarioCorregir = '';
+  /** fase-14-23 T4: se elige UNA vez y vale para todo lo de abajo. */
+  protected readonly usuarioSel = signal<string | null>(null);
 
-  /** Notas opcionales del tutor (fase-14-12): las lee el integrante. */
-  protected motivoNoHizo = '';
+  protected readonly cargandoUsuario = signal(false);
 
-  protected motivoCorreccion = '';
+  /** Su lista de hoy, tal cual la ve él (misma función del backend). */
+  protected readonly estadoHoy = signal<MiEstadoActividadHoyDto[]>([]);
 
+  /** La fila sobre la que está preguntando el diálogo de confirmación. */
+  protected readonly filaEnJuego = signal<FilaRegistro | null>(null);
+
+  /** Lo completado del integrante elegido: de acá salen los registroId a quitar. */
   protected readonly completadas = signal<CompletadaOpcionalDto[]>([]);
 
   /** Marcas rojas vivas del usuario elegido, para poder deshacerlas. */
   protected readonly marcas = signal<MarcaRojaDto[]>([]);
 
-  protected readonly cargandoCorreccion = signal(false);
-
   protected readonly sesionAbierta = computed(() =>
     this.seccion()?.sesiones.find((s) => s.estado === EstadoSesion.ABIERTA) ?? null
   );
 
-  /** "No hizo" es solo para obligatorias — las opcionales se corrigen quitando. */
-  protected readonly obligatorias = computed(() =>
-    this.actividades().filter((actividad) => actividad.tipoPuntaje === 'OBLIGATORIA')
+  /** Las filas del integrante elegido: su estado de hoy + el nombre del catálogo. */
+  protected readonly filas = computed<FilaRegistro[]>(() => {
+    const usuarioId = this.usuarioSel();
+
+    return usuarioId ? filasDeRegistro(this.estadoHoy(), this.actividades(), usuarioId) : [];
+  });
+
+  /** Las dos acciones que dejan rastro para el integrante piden motivo. */
+  protected readonly confirmPideMotivo = computed(
+    () => this.confirmar() === 'no-hizo' || this.confirmar() === 'quitar'
   );
 
   protected readonly tituloConfirm = computed(() => {
     switch (this.confirmar()) {
       case 'cierre-sesion':
-        return 'Cerrar sesión';
+        return 'Cerrar la sesión de hoy';
       case 'evaluacion':
-        return 'Forzar evaluación';
+        return 'Pasar a evaluación';
       case 'cerrar-seccion':
-        return 'Cerrar sección';
+        return 'Cerrar la semana';
+      case 'no-hizo':
+        return `Marcar «${this.filaEnJuego()?.nombre ?? ''}» como no hecha`;
+      case 'quitar':
+        return `Quitar una de «${this.filaEnJuego()?.nombre ?? ''}»`;
       default:
         return '';
     }
@@ -458,9 +476,13 @@ export class PanelOperativoPage {
       case 'cierre-sesion':
         return 'Se cerrará la sesión abierta. ¿Continuar?';
       case 'evaluacion':
-        return 'La sección pasará a evaluación y no se podrán registrar más actividades. ¿Continuar?';
+        return 'La sección pasa a evaluación y no se podrán registrar más actividades. No se puede volver atrás.';
       case 'cerrar-seccion':
         return 'La sección quedará cerrada definitivamente. ¿Continuar?';
+      case 'no-hizo':
+        return 'Le resta los puntos y le quema el intento del día. El motivo lo va a leer en su pantalla.';
+      case 'quitar':
+        return 'Le resta los puntos y ese intento se le gasta: solo vos podés devolvérselo. El motivo lo va a leer en su pantalla.';
       default:
         return '';
     }
@@ -469,11 +491,15 @@ export class PanelOperativoPage {
   protected readonly textoConfirm = computed(() => {
     switch (this.confirmar()) {
       case 'cierre-sesion':
-        return 'Cerrar sesión';
+        return 'Cerrar la sesión';
       case 'evaluacion':
-        return 'Forzar evaluación';
+        return 'Pasar a evaluación';
       case 'cerrar-seccion':
-        return 'Cerrar sección';
+        return 'Cerrar la semana';
+      case 'no-hizo':
+        return 'Marcar no hecha';
+      case 'quitar':
+        return 'Quitar una';
       default:
         return 'Confirmar';
     }
@@ -533,31 +559,93 @@ export class PanelOperativoPage {
     });
   }
 
-  protected registrarNoHizo(): void {
-    // Se guarda antes de limpiar el form: si el usuario marcado es el que el
-    // tutor está corrigiendo, hay que refrescar sus marcas al terminar.
-    const usuarioMarcado = this.usuarioNoHizo;
+  /**
+   * Marca «hizo» por el integrante — fase-14-23 T4.
+   *
+   * El endpoint ya lo permitía (`@Roles(USUARIO, TUTOR, ORG_ADMIN)`) y el
+   * cliente ya tenía el parámetro; lo que faltaba era la pantalla. Queda en el
+   * historial con el Tutor como quien registró.
+   */
+  protected marcarHizo(fila: FilaRegistro): void {
+    const usuarioId = this.usuarioSel();
+
+    if (!usuarioId || !fila.puedeCompletar) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.activity.completarActividad(fila.actividadId, usuarioId).subscribe({
+      next: () => {
+        this.toasts.exito(`«${fila.nombre}» marcada.`);
+        this.procesando.set(false);
+        this.cargarUsuario();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  /**
+   * El motivo del «no hizo» y del «quitar» se pide en la confirmación y no en
+   * un campo suelto del formulario: antes el texto quedaba escrito de una marca
+   * a la siguiente y era fácil mandarlo pegado a la equivocada.
+   */
+  protected pedirNoHizo(fila: FilaRegistro): void {
+    this.filaEnJuego.set(fila);
+    this.confirmar.set('no-hizo');
+  }
+
+  protected pedirQuitar(fila: FilaRegistro): void {
+    this.filaEnJuego.set(fila);
+    this.confirmar.set('quitar');
+  }
+
+  private registrarNoHizo(fila: FilaRegistro, motivo: string): void {
+    const usuarioId = this.usuarioSel();
+
+    if (!usuarioId) {
+      return;
+    }
 
     this.procesando.set(true);
     this.activity
-      .registrarNoHizo(this.actividadNoHizo, usuarioMarcado, this.motivoNoHizo || undefined)
+      .registrarNoHizo(fila.actividadId, usuarioId, motivo || undefined)
       .subscribe({
         next: () => {
-          this.toasts.exito('«No hizo» registrado.');
-          this.usuarioNoHizo = '';
-          this.actividadNoHizo = '';
-          this.motivoNoHizo = '';
+          this.toasts.exito(`«${fila.nombre}» marcada como no hecha.`);
           this.procesando.set(false);
-
-          if (usuarioMarcado === this.usuarioCorregir) {
-            this.cargarCompletadas();
-          }
+          this.cargarUsuario();
         },
         error: (e) => {
           this.toasts.error(mensajeDeError(e));
           this.procesando.set(false);
         },
       });
+  }
+
+  /** Quita la última repetición de una opcional (fase-14-12). */
+  private quitarUna(fila: FilaRegistro, motivo: string): void {
+    const completada = this.completadas().find((c) => c.actividadId === fila.actividadId);
+    const ultimo = completada?.registros[completada.registros.length - 1];
+
+    if (!ultimo) {
+      return;
+    }
+
+    this.procesando.set(true);
+    this.activity.eliminarRegistroActividad(ultimo.registroId, motivo || undefined).subscribe({
+      next: () => {
+        this.toasts.exito(`Se quitó una de «${fila.nombre}».`);
+        this.procesando.set(false);
+        this.cargarUsuario();
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
   }
 
   /** Deshace una marca roja: devuelve los puntos y limpia el rojo (fase-14-12). */
@@ -567,7 +655,7 @@ export class PanelOperativoPage {
       next: () => {
         this.toasts.exito(`Se deshizo la marca de «${marca.nombre}».`);
         this.procesando.set(false);
-        this.cargarCompletadas();
+        this.cargarUsuario();
       },
       error: (e) => {
         this.toasts.error(mensajeDeError(e));
@@ -577,11 +665,16 @@ export class PanelOperativoPage {
   }
 
   protected registrarConducta(): void {
+    const usuarioId = this.usuarioSel();
+
+    if (!usuarioId || !this.conductaSel) {
+      return;
+    }
+
     this.procesando.set(true);
-    this.activity.registrarConducta(this.conductaSel, this.usuarioConducta).subscribe({
+    this.activity.registrarConducta(this.conductaSel, usuarioId).subscribe({
       next: () => {
         this.toasts.exito('Conducta registrada.');
-        this.usuarioConducta = '';
         this.conductaSel = '';
         this.procesando.set(false);
       },
@@ -592,91 +685,75 @@ export class PanelOperativoPage {
     });
   }
 
-  protected onUsuarioCorregirCambio(): void {
+  protected cerrarConfirmacion(): void {
+    this.confirmar.set(null);
+    this.filaEnJuego.set(null);
+  }
+
+  protected elegirUsuario(usuarioId: string): void {
+    this.usuarioSel.set(this.usuarioSel() === usuarioId ? null : usuarioId);
+    this.estadoHoy.set([]);
     this.completadas.set([]);
     this.marcas.set([]);
-    this.motivoCorreccion = '';
 
-    if (this.usuarioCorregir) {
-      this.cargarCompletadas();
+    if (this.usuarioSel()) {
+      this.cargarUsuario();
     }
   }
 
-  protected quitarUna(completada: CompletadaOpcionalDto): void {
-    const ultimo = completada.registros[completada.registros.length - 1];
-
-    if (!ultimo) {
-      return;
-    }
-
-    this.procesando.set(true);
-    this.activity
-      .eliminarRegistroActividad(ultimo.registroId, this.motivoCorreccion || undefined)
-      .subscribe({
-        next: () => {
-          this.toasts.exito(`Se quitó una de «${completada.nombre}».`);
-          this.procesando.set(false);
-          this.cargarCompletadas();
-        },
-        error: (e) => {
-          this.toasts.error(mensajeDeError(e));
-          this.procesando.set(false);
-        },
-      });
+  protected repeticiones(fila: FilaRegistro): string {
+    return textoDeRepeticiones(fila);
   }
 
-  protected quitarTodas(completada: CompletadaOpcionalDto): void {
-    if (completada.registros.length === 0) {
+  /**
+   * Todo lo del integrante elegido en una sola tanda: su lista de hoy (la misma
+   * que ve él), lo que tiene completado y sus marcas rojas vivas.
+   */
+  private cargarUsuario(): void {
+    const usuarioId = this.usuarioSel();
+
+    if (!usuarioId) {
       return;
     }
 
-    const motivo = this.motivoCorreccion || undefined;
-
-    this.procesando.set(true);
-    forkJoin(
-      completada.registros.map((registro) =>
-        this.activity.eliminarRegistroActividad(registro.registroId, motivo)
-      )
-    ).subscribe({
-      next: () => {
-        this.toasts.exito(`Se quitaron todas las de «${completada.nombre}».`);
-        this.procesando.set(false);
-        this.cargarCompletadas();
-      },
-      error: (e) => {
-        this.toasts.error(mensajeDeError(e));
-        this.procesando.set(false);
-      },
-    });
-  }
-
-  /** Estado de corrección del usuario elegido: lo que hizo y lo que ya se le marcó. */
-  private cargarCompletadas(): void {
-    if (!this.usuarioCorregir) {
-      return;
-    }
-
-    this.cargandoCorreccion.set(true);
+    this.cargandoUsuario.set(true);
     forkJoin({
-      completadas: this.activity.completadasOpcionales(this.grupoId(), this.usuarioCorregir),
-      marcas: this.activity.marcasRojas(this.grupoId(), this.usuarioCorregir),
+      estado: this.activity.estadoHoyDeUsuario(this.grupoId(), usuarioId),
+      completadas: this.activity.completadasOpcionales(this.grupoId(), usuarioId),
+      marcas: this.activity.marcasRojas(this.grupoId(), usuarioId),
     }).subscribe({
-      next: ({ completadas, marcas }) => {
+      next: ({ estado, completadas, marcas }) => {
+        this.estadoHoy.set(estado.actividades);
         this.completadas.set(completadas);
         this.marcas.set(marcas);
-        this.cargandoCorreccion.set(false);
+        this.cargandoUsuario.set(false);
       },
       error: (e) => {
         this.toasts.error(mensajeDeError(e));
-        this.cargandoCorreccion.set(false);
+        this.cargandoUsuario.set(false);
       },
     });
   }
 
-  protected ejecutarConfirmado(): void {
+  protected ejecutarConfirmado(motivo: string): void {
     const accion = this.confirmar();
+    const fila = this.filaEnJuego();
     const s = this.seccion();
     this.confirmar.set(null);
+    this.filaEnJuego.set(null);
+
+    // Las dos que operan sobre una fila no necesitan la Sección: van primero.
+    if (accion === 'no-hizo' && fila) {
+      this.registrarNoHizo(fila, motivo);
+
+      return;
+    }
+
+    if (accion === 'quitar' && fila) {
+      this.quitarUna(fila, motivo);
+
+      return;
+    }
 
     if (!s) {
       return;

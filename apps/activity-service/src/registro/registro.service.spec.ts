@@ -1599,3 +1599,66 @@ describe('RegistroService — turnos rotativos (fase-14-21)', () => {
     expect(estado.actividades[0].turno).toBeNull();
   });
 });
+
+describe('RegistroService — estado-hoy de OTRO usuario, para el Tutor (fase-14-23 T4)', () => {
+  it('devuelve la lista del integrante pedido, no la del principal que consulta', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ id: 'opt', tipoPuntaje: 'OPCIONAL' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    // Lo marca el integrante para sí mismo…
+    await servicio.completar(tenantUsuario(), 'opt', {});
+
+    // …y el Tutor, que nunca marcó nada, lo ve igual al consultar por él.
+    const visto = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-1');
+    const opt = visto.actividades.find((a) => a.actividadId === 'opt');
+
+    expect(opt?.vecesHechas).toBe(1);
+  });
+
+  it('el Tutor consultando a un integrante que no marcó nada ve la lista en cero', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ id: 'opt', tipoPuntaje: 'OPCIONAL' })],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'opt', {});
+
+    const otro = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-2');
+    const opt = otro.actividades.find((a) => a.actividadId === 'opt');
+
+    // La actividad está (es del catálogo del grupo), pero sin marcas de ESE usuario.
+    expect(opt?.vecesHechas).toBe(0);
+  });
+
+  it('es la MISMA función que mi-estado-hoy: el integrante ve lo mismo que el Tutor ve de él', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'opt', tipoPuntaje: 'OPCIONAL', repeticionesMaximasSesion: 3 }),
+        actividadDePrueba({
+          id: 'obl',
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.completar(tenantUsuario(), 'opt', {});
+
+    const propio = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    const visto = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-1');
+
+    // El criterio 2 de la tanda: el Tutor marca sobre lo que el integrante ve.
+    expect(visto).toEqual(propio);
+  });
+
+  it('sin Sesión abierta responde lo mismo para el Tutor que para el integrante', async () => {
+    const { servicio } = crearServicio({ seccionActual: null });
+
+    const visto = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-1');
+
+    expect(visto).toEqual({ sesionId: null, planDelDiaActivo: false, actividades: [] });
+  });
+});

@@ -7,6 +7,7 @@ import {
   invitarYCanjearUsuario,
   type Organizacion,
 } from './support/escenario';
+import { APP_URL, entrarComoTutor } from './support/navegador';
 
 /**
  * Fase 14 · Ítem 23, tanda 1 — Turnos visibles y guardado único
@@ -22,8 +23,6 @@ import {
  * Gated por `E2E_UI=1` como el smoke de `flujo-completo.e2e.ts`: necesita
  * `app-web` servido en :4200, que no todas las corridas tienen.
  */
-const APP_URL = process.env['E2E_APP_URL'] ?? 'http://localhost:4200';
-
 interface Escenario {
   org: Organizacion;
   /** Los dos integrantes se llaman igual («Usuario de Prueba»): se eligen por id. */
@@ -65,15 +64,6 @@ async function crearObligatoria(org: Organizacion, nombre: string): Promise<stri
   return actividad.id;
 }
 
-/** Login por formulario: el access token vive en memoria, no hay atajo por storage. */
-async function entrarComoTutor(page: Page, org: Organizacion): Promise<void> {
-  await page.goto(`${APP_URL}/login`);
-  await page.fill('#identificador', org.emailContacto);
-  await page.fill('#password', org.password);
-  await page.click('button[type="submit"]');
-  await expect(page).not.toHaveURL(/\/login/);
-}
-
 async function irAActividades(page: Page, org: Organizacion, nombre: string): Promise<void> {
   await page.goto(`${APP_URL}/grupos/${org.grupoId}/actividades`);
   await expect(tarjeta(page, nombre)).toBeVisible();
@@ -98,8 +88,22 @@ function casillaTurnos(page: Page) {
     .locator('input[type="checkbox"]');
 }
 
+/**
+ * Abre «Quién la hace», que es donde la T4 metió el armador de turnos. Antes
+ * estaba suelto en el formulario: sigue existiendo al crear (criterio 6 de la
+ * T1) pero ahora a un clic, con la sección diciendo su estado desde plegada.
+ */
+async function abrirSeccionQuien(page: Page): Promise<void> {
+  const seccion = page.getByRole('button', { name: /Quién la hace/ });
+
+  if ((await seccion.getAttribute('aria-expanded')) !== 'true') {
+    await seccion.click();
+  }
+}
+
 /** Arma una secuencia con los integrantes indicados dentro del modal abierto. */
 async function armarSecuencia(page: Page, usuarioIds: string[]): Promise<void> {
+  await abrirSeccionQuien(page);
   await casillaTurnos(page).click();
 
   for (const usuarioId of usuarioIds) {
@@ -210,6 +214,9 @@ test.describe('fase-14-23 T1 — turnos visibles y guardado único', () => {
     await expect(tarjeta(page, existente)).toContainText('Por turnos');
 
     await tarjeta(page, existente).getByLabel('Editar').click();
+    // Con turnos ya puestos la sección se abre sola (criterio 8 de la T4);
+    // `abrirSeccionQuien` es idempotente y no la vuelve a cerrar.
+    await abrirSeccionQuien(page);
     await casillaTurnos(page).click();
     await page.getByRole('button', { name: 'Cancelar' }).click();
 
@@ -223,6 +230,9 @@ test.describe('fase-14-23 T1 — turnos visibles y guardado único', () => {
     // El bloque solo existe en una obligatoria individual.
     await page.selectOption('select[name="tipoPuntaje"]', { label: 'Obligatoria' });
 
+    // Desde la T4 vive dentro de «Quién la hace», plegada al crear. Sigue
+    // existiendo —que es lo que este criterio verifica— a un clic de distancia.
+    await abrirSeccionQuien(page);
     await expect(casillaTurnos(page)).toBeVisible();
   });
 });

@@ -344,6 +344,29 @@ export class RegistroService {
    * `{ sesionId: null, actividades: [] }` — no es un error.
    */
   async miEstadoHoy(tenant: TenantContext, grupoId: string): Promise<MiEstadoHoyDto> {
+    return await this.estadoHoyDe(tenant, grupoId, tenant.principalId);
+  }
+
+  /**
+   * El mismo estado, para el usuario que se pida — fase-14-23 T4.
+   *
+   * Lo consume `miEstadoHoy` (con el principal) y el endpoint del Tutor
+   * (`GET grupos/:grupoId/usuarios/:usuarioId/estado-hoy`), que necesita ver
+   * **exactamente la lista que ve el integrante** para poder marcarla. La
+   * alternativa era componerla en el frontend, y eso obligaba a reimplementar
+   * en Angular las reglas de visibilidad de cinco ítems (#10, #11, #17, #19,
+   * #21): duplicar lógica de negocio en la interfaz, justo lo que este
+   * proyecto no hace.
+   *
+   * `tenant` sigue decidiendo la organización y el grupo; `usuarioId` es solo
+   * el sujeto de la consulta. El aislamiento no se afloja: el controlador
+   * exige rol de Tutor y el filtro de tenant sigue activo.
+   */
+  async estadoHoyDe(
+    tenant: TenantContext,
+    grupoId: string,
+    usuarioId: string
+  ): Promise<MiEstadoHoyDto> {
     const seccion = await this.session.obtenerSeccionActual(grupoId);
     const sesionAbierta =
       seccion?.estado === EstadoSeccion.ABIERTA
@@ -353,8 +376,6 @@ export class RegistroService {
     if (!sesionAbierta) {
       return { sesionId: null, planDelDiaActivo: false, actividades: [] };
     }
-
-    const usuarioId = tenant.principalId;
 
     const [actividades, conteos, marcas, planActivo, elegidas] = await Promise.all([
       this.prisma.client.actividad.findMany({
