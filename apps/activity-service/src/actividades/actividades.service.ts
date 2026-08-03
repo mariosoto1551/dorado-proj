@@ -8,16 +8,22 @@ import {
 import { ActividadDto, Rol, TenantContext } from '@dorado/shared-types';
 
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
+import { esDestinatario } from '../comun/destinatario';
 import {
+  DestinatarioAmbiguoException,
+  DestinatarioIncompatibleConAlcanceException,
+  EquipoFueraDelGrupoException,
   RestriccionRolSoloIndividualException,
   RolGrupoInexistenteException,
   TareaEquipoDebeSerOpcionalException,
+  UsuarioFueraDelGrupoException,
+  VigenciaInvalidaException,
 } from '../comun/excepciones';
 import { asegurarLimiteActividadesDelGrupo } from '../comun/limite-plan-actividades';
 import { validarCamposLimiteTiempo } from '../comun/limite-tiempo';
-import { normalizarDiasSemana } from '../comun/programacion';
+import { esFechaCivilValida, normalizarDiasSemana } from '../comun/programacion';
 import { actividadADto } from '../comun/mapeadores';
-import { esDeSuRol, hayRestriccionesDeRol } from '../comun/restriccion-rol';
 import {
   esVisiblePara,
   filtroVisibilidadUsuario,
@@ -48,7 +54,8 @@ export class ActividadesService {
     private readonly billing: BillingClientService,
     private readonly acceso: AccesoGrupoService,
     private readonly eventos: EventosPublisherService,
-    private readonly identity: IdentityClientService
+    private readonly identity: IdentityClientService,
+    private readonly contexto: ContextoParticipanteService
   ) {}
 
   async crear(
@@ -79,14 +86,21 @@ export class ActividadesService {
       datos.comportamientoAlCierre
     );
 
-    // fase-14-19: valida contra el catálogo de roles de identity. Va antes del
-    // límite de plan por el mismo motivo que los campos condicionales: un
-    // request malformado no debería gastar la llamada a billing.
-    const rolesPermitidos = await this.resolverRolesPermitidos(
-      grupoId,
-      equipo.alcance,
-      datos.rolesPermitidos
-    );
+    // fase-14-19 + fase-14-24: valida el destinatario contra identity (roles,
+    // participantes o equipos del grupo). Va antes del límite de plan por el
+    // mismo motivo que los campos condicionales: un request malformado no
+    // debería gastar la llamada a billing.
+    const destinatario = await this.resolverDestinatario(grupoId, equipo.alcance, {
+      roles: datos.rolesPermitidos,
+      usuarios: datos.usuariosPermitidos,
+      equipos: datos.equiposPermitidos,
+    });
+
+    // fase-14-24: la vigencia se valida sin tocar la red (formato y orden).
+    const vigencia = this.resolverVigencia({
+      desde: datos.vigenteDesde,
+      hasta: datos.vigenteHasta,
+    });
 
     await this.asegurarLimiteActividades(tenant.organizacionId, grupoId);
 
@@ -121,7 +135,14 @@ export class ActividadesService {
           equipo.alcance,
           datos.siempreVisible
         ),
-        rolesPermitidos,
+        rolesPermitidos: destinatario.roles,
+        // fase-14-24: destinatario nominal y vigencia. Los tres arrays son
+        // excluyentes — `resolverDestinatario` ya garantizó que a lo sumo uno
+        // quedó no vacío.
+        usuariosPermitidos: destinatario.usuarios,
+        equiposPermitidos: destinatario.equipos,
+        vigenteDesde: vigencia.desde,
+        vigenteHasta: vigencia.hasta,
         creadaPorTutorId: tenant.principalId,
       },
     });
@@ -158,17 +179,18 @@ export class ActividadesService {
       orderBy: { createdAt: 'asc' },
     });
 
-    // fase-14-19: las restringidas a un rol ajeno se ocultan (decisión 6). El
-    // cruce REST se paga solo si el catálogo tiene alguna restricción, y solo
-    // para un USUARIO — el Tutor ve todo, que es lo que necesita para gestionar.
-    if (!esUsuario || !hayRestriccionesDeRol(actividades)) {
+    // fase-14-19 + fase-14-24: las restringidas a un rol, a personas o a equipos
+    // ajenos se ocultan. El cruce REST se paga solo si el catálogo tiene alguna
+    // restricción de esas (ver ContextoParticipanteService), y solo para un
+    // USUARIO — el Tutor ve todo, que es lo que necesita para gestionar.
+    if (!esUsuario) {
       return actividades.map(actividadADto);
     }
 
-    const rolGrupoId = await this.identity.rolDeUsuario(grupoId, tenant.principalId);
+    const contexto = await this.contexto.resolver(grupoId, tenant.principalId, actividades);
 
     return actividades
-      .filter((actividad) => esDeSuRol(actividad, rolGrupoId))
+      .filter((actividad) => esDestinatario(actividad, contexto))
       .map(actividadADto);
   }
 
@@ -228,11 +250,24 @@ export class ActividadesService {
     // fase-14-19: se revalida contra el alcance efectivo — pasar una actividad
     // restringida a alcance EQUIPO tiene que fallar, no restringir un equipo por
     // rol a escondidas. Un PATCH que no manda el campo conserva la restricción.
-    const rolesPermitidos = await this.resolverRolesPermitidos(
+    const destinatario = await this.resolverDestinatario(
       existente.grupoId,
       equipo.alcance,
-      datos.rolesPermitidos,
-      existente.rolesPermitidos
+      {
+        roles: datos.rolesPermitidos,
+        usuarios: datos.usuariosPermitidos,
+        equipos: datos.equiposPermitidos,
+      },
+      {
+        roles: existente.rolesPermitidos,
+        usuarios: existente.usuariosPermitidos,
+        equipos: existente.equiposPermitidos,
+      }
+    );
+
+    const vigencia = this.resolverVigencia(
+      { desde: datos.vigenteDesde, hasta: datos.vigenteHasta },
+      { desde: existente.vigenteDesde, hasta: existente.vigenteHasta }
     );
 
     // updateMany (no update): pasa por el filtro automático de tenant.
@@ -278,9 +313,21 @@ export class ActividadesService {
           datos.siempreVisible,
           existente.siempreVisible
         ),
-        rolesPermitidos,
+        // fase-14-19 + fase-14-24: los tres se escriben SIEMPRE, no solo si el
+        // request los trae. Es lo que hace que elegir un modo vacíe los otros
+        // dos — pasar de "por rol" a "estas personas" no puede dejar el rol
+        // viejo colgado, o la actividad quedaría con dos destinatarios.
+        rolesPermitidos: destinatario.roles,
+        usuariosPermitidos: destinatario.usuarios,
+        equiposPermitidos: destinatario.equipos,
+        vigenteDesde: vigencia.desde,
+        vigenteHasta: vigencia.hasta,
       },
     });
+
+    // fase-14-24: sacar a alguien del destinatario lo saca del pozo de turnos
+    // (decisión 6, sentido inverso al que valida `TurnosService.configurar`).
+    await this.podarTurnosFueraDelDestinatario(id, destinatario.usuarios);
 
     const actualizada = await this.prisma.client.actividad.findFirst({ where: { id } });
 
@@ -420,6 +467,183 @@ export class ActividadesService {
   }
 
   /**
+   * Destinatario efectivo (fase-14-24): los tres arrays, con la invariante de
+   * que **a lo sumo uno queda no vacío** (decisión 1 — los cuatro modos son
+   * excluyentes).
+   *
+   * El chequeo de exclusividad va acá y no en el DTO porque en un PATCH parcial
+   * la ambigüedad puede nacer del cruce entre lo que manda el request y lo que
+   * ya tenía la fila: mandar `usuariosPermitidos` a una actividad que hoy está
+   * restringida por rol la deja con dos modos activos, y el request por sí solo
+   * se ve perfectamente válido. Por eso se evalúan los valores FINALES.
+   *
+   * Elegir un modo **vacía los otros dos**. Es lo que hace que el selector de la
+   * UI se comporte como un selector: pasar de "por rol" a "estas personas" no
+   * deja el rol viejo colgado.
+   */
+  private async resolverDestinatario(
+    grupoId: string,
+    alcance: AlcanceActividad,
+    pedido: DestinatarioPedido,
+    fallback: DestinatarioFallback = { roles: [], usuarios: [], equipos: [] }
+  ): Promise<{ roles: string[]; usuarios: string[]; equipos: string[] }> {
+    const modoPedido = this.modoPedido(pedido);
+    const usuarios = [...new Set(pedido.usuarios ?? (modoPedido ? [] : fallback.usuarios))];
+    const equipos = [...new Set(pedido.equipos ?? (modoPedido ? [] : fallback.equipos))];
+
+    const llenos = [pedido.roles ?? (modoPedido ? [] : fallback.roles), usuarios, equipos].filter(
+      (lista) => lista.length > 0
+    );
+
+    if (llenos.length > 1) {
+      throw new DestinatarioAmbiguoException();
+    }
+
+    // El rol reusa su propia validación del ítem 19, intacta.
+    const roles = await this.resolverRolesPermitidos(
+      grupoId,
+      alcance,
+      pedido.roles ?? (modoPedido ? [] : undefined),
+      fallback.roles
+    );
+
+    await this.validarUsuariosPermitidos(grupoId, alcance, usuarios);
+    await this.validarEquiposPermitidos(grupoId, alcance, equipos);
+
+    return { roles, usuarios, equipos };
+  }
+
+  /**
+   * Saca del pozo de turnos a quien dejó de ser destinatario (fase-14-24,
+   * decisión 6).
+   *
+   * **No toca las `VueltaTurno` selladas**: la decisión 15 del ítem 21 dice que
+   * la permutación de la vuelta en curso se sella y no se reescribe, así que el
+   * recorte aplica desde la vuelta SIGUIENTE. Editar el destinatario a mitad de
+   * semana no le cambia el día a nadie que ya lo tenía asignado, que es
+   * exactamente lo que aquella decisión vino a garantizar.
+   *
+   * Sin destinatario nominal no hace nada: el pozo vuelve a ser todo el grupo.
+   */
+  private async podarTurnosFueraDelDestinatario(
+    actividadId: string,
+    usuariosPermitidos: string[]
+  ): Promise<void> {
+    if (usuariosPermitidos.length === 0) {
+      return;
+    }
+
+    const turno = await this.prisma.client.turnoActividad.findFirst({
+      where: { actividadId },
+      select: { id: true },
+    });
+
+    if (!turno) {
+      return;
+    }
+
+    await this.prisma.client.posicionTurno.deleteMany({
+      where: {
+        turnoActividadId: turno.id,
+        usuarioId: { notIn: usuariosPermitidos },
+      },
+    });
+  }
+
+  /** ¿El request eligió explícitamente un modo? Decide si el fallback aplica. */
+  private modoPedido(pedido: DestinatarioPedido): boolean {
+    return (
+      pedido.roles !== undefined ||
+      pedido.usuarios !== undefined ||
+      pedido.equipos !== undefined
+    );
+  }
+
+  private async validarUsuariosPermitidos(
+    grupoId: string,
+    alcance: AlcanceActividad,
+    usuarios: string[]
+  ): Promise<void> {
+    if (usuarios.length === 0) {
+      return;
+    }
+
+    if (alcance !== AlcanceActividad.INDIVIDUAL) {
+      throw new DestinatarioIncompatibleConAlcanceException(
+        'Una tarea de equipo se asigna a equipos, no a personas sueltas'
+      );
+    }
+
+    // Membresía real del grupo por REST interno (regla 2). Se usa el mismo
+    // interno que el ítem 19 dejó para el camino caliente: devuelve una fila por
+    // participante del grupo, que es justo lo que hace falta para validar.
+    const delGrupo = new Set(
+      (await this.identity.usuariosDelGrupo(grupoId)).map((usuario) => usuario.id)
+    );
+
+    if (usuarios.some((usuarioId) => !delGrupo.has(usuarioId))) {
+      throw new UsuarioFueraDelGrupoException();
+    }
+  }
+
+  private async validarEquiposPermitidos(
+    grupoId: string,
+    alcance: AlcanceActividad,
+    equipos: string[]
+  ): Promise<void> {
+    if (equipos.length === 0) {
+      return;
+    }
+
+    if (alcance !== AlcanceActividad.EQUIPO) {
+      throw new DestinatarioIncompatibleConAlcanceException(
+        'Solo una tarea de equipo puede asignarse a equipos'
+      );
+    }
+
+    const activos = new Set(
+      (await this.identity.equiposDelGrupo(grupoId))
+        .filter((equipo) => equipo.estado === 'ACTIVO')
+        .map((equipo) => equipo.equipoId)
+    );
+
+    if (equipos.some((equipoId) => !activos.has(equipoId))) {
+      throw new EquipoFueraDelGrupoException();
+    }
+  }
+
+  /**
+   * Vigencia efectiva (fase-14-24). Fechas civiles `"YYYY-MM-DD"`; `null`
+   * explícito la borra, `undefined` la deja como está (PATCH parcial).
+   *
+   * Una fecha `hasta` **ya pasada se acepta**: no es un error cargar algo que
+   * vence hoy, y el archivado automático se encarga en el cierre siguiente.
+   */
+  private resolverVigencia(
+    pedido: { desde?: string | null; hasta?: string | null },
+    fallback: { desde: string | null; hasta: string | null } = { desde: null, hasta: null }
+  ): { desde: string | null; hasta: string | null } {
+    const desde = pedido.desde !== undefined ? pedido.desde : fallback.desde;
+    const hasta = pedido.hasta !== undefined ? pedido.hasta : fallback.hasta;
+
+    for (const fecha of [desde, hasta]) {
+      if (fecha && !esFechaCivilValida(fecha)) {
+        throw new VigenciaInvalidaException(`"${fecha}" no es una fecha válida (YYYY-MM-DD)`);
+      }
+    }
+
+    // Comparación de strings: `YYYY-MM-DD` es lexicográfico y cronológico a la
+    // vez, que es el motivo de guardarlo así (decisión 9).
+    if (desde && hasta && desde > hasta) {
+      throw new VigenciaInvalidaException(
+        'La fecha de inicio no puede ser posterior a la de fin'
+      );
+    }
+
+    return { desde: desde ?? null, hasta: hasta ?? null };
+  }
+
+  /**
    * `puntosPorCumplir` efectivo (fase-14-20). Solo significa algo en una
    * OBLIGATORIA con `REQUIERE_CONFIRMACION`: es lo que gana el integrante al
    * confirmarla. Sin confirmación no hay acción que registrar, así que un valor
@@ -481,16 +705,15 @@ export class ActividadesService {
       throw new NotFoundException('Actividad no encontrada');
     }
 
-    // fase-14-19: para el integrante, una actividad de otro rol no existe — 404
-    // y no 403, igual que el resto de este método (el detalle no revela nada que
-    // la lista no muestre).
-    if (esUsuario && actividad.rolesPermitidos.length > 0) {
-      const rolGrupoId = await this.identity.rolDeUsuario(
-        actividad.grupoId,
-        tenant.principalId
-      );
+    // fase-14-19 + fase-14-24: para el integrante, una actividad que no es suya
+    // —por rol, por persona o por equipo— no existe: 404 y no 403, igual que el
+    // resto de este método (el detalle no revela nada que la lista no muestre).
+    if (esUsuario) {
+      const contexto = await this.contexto.resolver(actividad.grupoId, tenant.principalId, [
+        actividad,
+      ]);
 
-      if (!esDeSuRol(actividad, rolGrupoId)) {
+      if (!esDestinatario(actividad, contexto)) {
         throw new NotFoundException('Actividad no encontrada');
       }
     }
@@ -515,4 +738,18 @@ export class ActividadesService {
       grupoId
     );
   }
+}
+
+/** Lo que el request pide para cada modo; `undefined` = "no lo mandó". */
+interface DestinatarioPedido {
+  roles?: string[];
+  usuarios?: string[];
+  equipos?: string[];
+}
+
+/** Lo que la fila ya tenía, para resolver un PATCH parcial. */
+interface DestinatarioFallback {
+  roles: string[];
+  usuarios: string[];
+  equipos: string[];
 }

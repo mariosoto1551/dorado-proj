@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ClientesModule } from '../clientes/clientes.module';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import { TurnosModule } from '../turnos/turnos.module';
 import { CierreConsumer } from './cierre.consumer';
 import { CierreService } from './cierre.service';
@@ -13,6 +14,6 @@ import { CierreService } from './cierre.service';
  */
 @Module({
   imports: [ClientesModule, TurnosModule],
-  providers: [CierreConsumer, CierreService],
+  providers: [CierreConsumer, CierreService, ContextoParticipanteService],
 })
 export class ConsumoModule {}

@@ -16,6 +16,7 @@ import {
   AlcanceActividad,
   ComportamientoAlCierre,
   type ConfiguracionContenidoGrupoDto,
+  type EquipoDto,
   EstadoPropuesta,
   ModoCreacionContenidoUsuario,
   type PropuestaActividadDto,
@@ -36,6 +37,15 @@ import type { CrearActividadRequest } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { describirDias, DIAS_SEMANA } from '../../core/dias-semana';
+import {
+  agruparPorDestinatario,
+  modoDestinatario,
+  textoDestinatario,
+  textoVigencia,
+  venceHoy as actividadVenceHoy,
+  type ModoDestinatario,
+  type Nombres,
+} from '../../core/destinatario-actividad';
 import { sinIntegrantesConEsosRoles } from '../../core/roles-grupo';
 import { accionDeTurno, type EstadoTurnoForm, textoDelChipDeTurno } from '../../core/turnos';
 
@@ -97,6 +107,15 @@ interface FormActividad {
   siempreVisible: boolean;
   /** fase-14-19: ids de RolGrupo que la pueden ver; vacío = la ven todos. */
   rolesPermitidos: string[];
+  /** fase-14-24: el modo elegido en el selector. Los tres arrays de abajo son
+   *  excluyentes y el servidor lo valida, pero el form necesita saber cuál está
+   *  activo aunque su lista esté momentáneamente vacía. */
+  modoDestinatario: ModoDestinatario;
+  usuariosPermitidos: string[];
+  equiposPermitidos: string[];
+  /** fase-14-24: vigencia, "YYYY-MM-DD"; cadena vacía = sin límite por ese lado. */
+  vigenteDesde: string;
+  vigenteHasta: string;
 }
 
 const FORM_VACIO: FormActividad = {
@@ -115,6 +134,11 @@ const FORM_VACIO: FormActividad = {
   diasSemana: [],
   siempreVisible: false,
   rolesPermitidos: [],
+  modoDestinatario: 'TODOS',
+  usuariosPermitidos: [],
+  equiposPermitidos: [],
+  vigenteDesde: '',
+  vigenteHasta: '',
 };
 
 /** CRUD de Actividades (fase-10). Form con campos condicionales por tipoLimiteTiempo. */
@@ -296,8 +320,52 @@ const FORM_VACIO: FormActividad = {
           Todavía no hay actividades. Creá la primera.
         </ui-estado-vacio>
       } @else {
-        <ul class="mt-5 grid gap-3 sm:grid-cols-2">
-          @for (a of actividades(); track a.id) {
+        <!-- fase-14-24: buscador + secciones por destinatario. Antes esto era un
+             único @for en orden de creación: con 40 actividades era imposible
+             saber de un vistazo qué era general y qué era de alguien. -->
+        <div class="mt-5">
+          <input
+            [ngModel]="busqueda()"
+            (ngModelChange)="busqueda.set($event)"
+            name="busqueda"
+            type="search"
+            placeholder="Buscar actividad…"
+            aria-label="Buscar actividad"
+            class="campo"
+          />
+        </div>
+
+        @if (gruposVisibles().length === 0) {
+          <ui-estado-vacio class="mt-6">
+            Ninguna actividad coincide con «{{ busqueda() }}».
+          </ui-estado-vacio>
+        }
+
+        @for (grupo of gruposVisibles(); track grupo.modo) {
+        <section class="mt-5">
+          <button
+            type="button"
+            (click)="alternarGrupo(grupo.modo)"
+            [attr.aria-expanded]="!grupoPlegado(grupo.modo)"
+            class="flex w-full items-center gap-2 border-b border-slate-100 pb-1.5 text-left dark:border-slate-800"
+          >
+            <span
+              class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform dark:text-slate-500"
+              [class.rotate-90]="!grupoPlegado(grupo.modo)"
+            >
+              <app-icono nombre="chevron" />
+            </span>
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              {{ grupo.titulo }}
+            </h3>
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              {{ grupo.actividades.length }}
+            </span>
+          </button>
+
+        @if (!grupoPlegado(grupo.modo)) {
+        <ul class="mt-3 grid gap-3 sm:grid-cols-2">
+          @for (a of grupo.actividades; track a.id) {
             <li class="flex flex-col tarjeta">
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
@@ -362,6 +430,30 @@ const FORM_VACIO: FormActividad = {
                     🏷 {{ rolDe(rolId)?.nombre ?? 'rol archivado' }}
                   </span>
                 }
+                <!-- fase-14-24: a quién va dirigida y hasta cuándo vale. -->
+                @if (chipDestinatario(a); as destinatario) {
+                  @if (a.rolesPermitidos.length === 0) {
+                    <span
+                      class="rounded-full bg-fuchsia-100 px-2 py-0.5 font-semibold text-fuchsia-700 dark:bg-fuchsia-500/20 dark:text-fuchsia-300"
+                      title="Solo la ven estos destinatarios"
+                    >
+                      👤 {{ destinatario }}
+                    </span>
+                  }
+                }
+                @if (chipVigencia(a); as vigencia) {
+                  <span
+                    class="rounded-full px-2 py-0.5 font-semibold"
+                    [class]="venceHoy(a)
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+                    [title]="venceHoy(a)
+                      ? 'Vence hoy: al cerrar la sesión se archiva sola'
+                      : 'Solo se puede hacer en esas fechas'"
+                  >
+                    📅 {{ vigencia }}@if (venceHoy(a)) { · vence hoy }
+                  </span>
+                }
                 @if (sinNadieConEsosRoles(a)) {
                   <span
                     class="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
@@ -420,6 +512,9 @@ const FORM_VACIO: FormActividad = {
             </li>
           }
         </ul>
+        }
+        </section>
+        }
       }
     </section>
 
@@ -611,6 +706,35 @@ const FORM_VACIO: FormActividad = {
                             </p>
                           </div>
 
+                          <!-- fase-14-24: la vigencia va junto a los días porque
+                               es la misma pregunta a otra escala, y porque las
+                               dos se CRUZAN (decisión 8): «los lunes, durante
+                               marzo» necesita ver las dos cosas a la vez. -->
+                          <div>
+                            <span class="etiqueta-campo">¿Entre qué fechas?</span>
+                            <div class="mt-1.5 grid grid-cols-2 gap-3">
+                              <ui-campo etiqueta="Desde" [opcional]="true">
+                                <input
+                                  [(ngModel)]="form.vigenteDesde"
+                                  name="vigenteDesde"
+                                  type="date"
+                                  class="campo"
+                                />
+                              </ui-campo>
+                              <ui-campo etiqueta="Hasta" [opcional]="true">
+                                <input
+                                  [(ngModel)]="form.vigenteHasta"
+                                  name="vigenteHasta"
+                                  type="date"
+                                  class="campo"
+                                />
+                              </ui-campo>
+                            </div>
+                            <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                              {{ resumenVigencia() }}
+                            </p>
+                          </div>
+
                           <ui-campo etiqueta="Repeticiones máx. por sesión">
                             <input
                               [(ngModel)]="form.repeticionesMaximasSesion"
@@ -675,38 +799,144 @@ const FORM_VACIO: FormActividad = {
                             />
                           }
 
-                          <!-- fase-14-19: restringir por rol del grupo. Solo INDIVIDUAL -->
-                          @if (roles().length > 0 && form.alcance === AA.INDIVIDUAL) {
-                            <div>
-                              <span class="etiqueta-campo">Restringir a roles</span>
-                              <div class="mt-1.5 flex flex-wrap gap-1.5">
-                                @for (rol of roles(); track rol.id) {
+                          <!-- fase-14-24: los cuatro modos de destinatario son
+                               EXCLUYENTES (decisión 1). Antes «restringir a
+                               roles» era una lista suelta; ahora es una de las
+                               opciones de una sola pregunta, que es lo que
+                               evita tener que explicar cómo se cruzan dos
+                               filtros distintos. -->
+                          <div>
+                            <span class="etiqueta-campo">¿Quién la hace?</span>
+                            <div class="mt-1.5 grid gap-1.5">
+                              @for (m of modosDisponibles(); track m.clave) {
+                                <button
+                                  type="button"
+                                  (click)="elegirModoDestinatario(m.clave)"
+                                  [attr.aria-pressed]="form.modoDestinatario === m.clave"
+                                  class="flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition"
+                                  [class]="form.modoDestinatario === m.clave
+                                    ? 'border-marca-500 bg-marca-50 text-marca-700 dark:bg-marca-900/30 dark:text-marca-200'
+                                    : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'"
+                                >
+                                  <span
+                                    class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2"
+                                    [class]="form.modoDestinatario === m.clave
+                                      ? 'border-marca-600 dark:border-marca-300'
+                                      : 'border-slate-300 dark:border-slate-600'"
+                                  >
+                                    @if (form.modoDestinatario === m.clave) {
+                                      <span class="h-2 w-2 rounded-full bg-marca-600 dark:bg-marca-300"></span>
+                                    }
+                                  </span>
+                                  {{ m.etiqueta }}
+                                </button>
+                              }
+                            </div>
+
+                            @if (form.modoDestinatario === 'ROLES') {
+                              <div class="mt-2.5 animate-fade-in">
+                                <div class="flex flex-wrap gap-1.5">
+                                  @for (rol of roles(); track rol.id) {
+                                    <button
+                                      type="button"
+                                      (click)="alternarRol(rol.id)"
+                                      [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
+                                      class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+                                      [class]="form.rolesPermitidos.includes(rol.id)
+                                        ? 'border-transparent text-white'
+                                        : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
+                                      [style.background-color]="
+                                        form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
+                                      "
+                                    >
+                                      {{ rol.nombre }}
+                                    </button>
+                                  }
+                                </div>
+                                <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                                  Quien reciba el rol más adelante queda incluido solo.
+                                </p>
+                              </div>
+                            }
+
+                            @if (form.modoDestinatario === 'USUARIOS') {
+                              <div class="mt-2.5 animate-fade-in">
+                                <div class="flex flex-wrap gap-1.5">
+                                  @for (u of usuariosDelGrupo(); track u.id) {
+                                    <button
+                                      type="button"
+                                      (click)="alternarUsuarioPermitido(u.id)"
+                                      [attr.aria-pressed]="form.usuariosPermitidos.includes(u.id)"
+                                      class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+                                      [class]="form.usuariosPermitidos.includes(u.id)
+                                        ? 'border-transparent bg-marca-600 text-white'
+                                        : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'"
+                                    >
+                                      {{ u.nombre }}
+                                    </button>
+                                  }
+                                </div>
+
+                                <!-- Los atajos precargan una lista EDITABLE, no
+                                     una regla: mismo patrón que el pozo de
+                                     turnos del #21 (decisión 2). Es lo que
+                                     resuelve «los de cocina y además Ana». -->
+                                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                  <span class="text-xs text-slate-400 dark:text-slate-500">Precargar:</span>
                                   <button
                                     type="button"
-                                    (click)="alternarRol(rol.id)"
-                                    [attr.aria-pressed]="form.rolesPermitidos.includes(rol.id)"
-                                    class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-                                    [class]="form.rolesPermitidos.includes(rol.id)
-                                      ? 'border-transparent text-white'
-                                      : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'"
-                                    [style.background-color]="
-                                      form.rolesPermitidos.includes(rol.id) ? rol.colorHex : null
-                                    "
+                                    (click)="precargarTodoElGrupo()"
+                                    class="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
                                   >
-                                    {{ rol.nombre }}
+                                    todo el grupo
                                   </button>
+                                  @for (rol of roles(); track rol.id) {
+                                    <button
+                                      type="button"
+                                      (click)="precargarRol(rol.id)"
+                                      class="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                                    >
+                                      {{ rol.nombre }}
+                                    </button>
+                                  }
+                                </div>
+
+                                <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                                  @if (form.usuariosPermitidos.length === 0) {
+                                    Eleg&iacute; al menos a una persona.
+                                  } @else {
+                                    Solo la ven {{ resumenUsuariosElegidos() }} — al resto no le
+                                    aparece, y tampoco se le descuenta si es obligatoria.
+                                  }
+                                </p>
+                              </div>
+                            }
+
+                            @if (form.modoDestinatario === 'EQUIPOS') {
+                              <div class="mt-2.5 animate-fade-in">
+                                <div class="flex flex-wrap gap-1.5">
+                                  @for (e of equipos(); track e.id) {
+                                    <button
+                                      type="button"
+                                      (click)="alternarEquipoPermitido(e.id)"
+                                      [attr.aria-pressed]="form.equiposPermitidos.includes(e.id)"
+                                      class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+                                      [class]="form.equiposPermitidos.includes(e.id)
+                                        ? 'border-transparent bg-teal-600 text-white'
+                                        : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'"
+                                    >
+                                      {{ e.nombre }}
+                                    </button>
+                                  }
+                                </div>
+                                @if (equipos().length === 0) {
+                                  <p class="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                                    Este grupo todav&iacute;a no tiene equipos.
+                                  </p>
                                 }
                               </div>
-                              <p class="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                                @if (form.rolesPermitidos.length === 0) {
-                                  Sin marcar ninguno, la ven todos los integrantes.
-                                } @else {
-                                  Solo la ven quienes tengan alguno de esos roles — al resto no le
-                                  aparece, y tampoco se les descuenta si es obligatoria.
-                                }
-                              </p>
-                            </div>
-                          }
+                            }
+                          </div>
 
                           <!-- fase-14-17: solo tiene efecto con el plan del día activo -->
                           @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
@@ -803,6 +1033,15 @@ export class ActividadesPage {
   // ---- fase-14-21: turnos ----
   /** Integrantes del grupo, para armar la secuencia de turnos. */
   protected readonly usuariosDelGrupo = signal<UsuarioDto[]>([]);
+
+  /** fase-14-24: equipos del grupo, para el modo «ciertos equipos». */
+  protected readonly equipos = signal<EquipoDto[]>([]);
+
+  /** fase-14-24: término del buscador de la lista del catálogo. */
+  protected readonly busqueda = signal('');
+
+  /** Secciones plegadas a mano por el Tutor. Todas abiertas por default. */
+  private readonly gruposPlegados = signal<ReadonlySet<ModoDestinatario>>(new Set());
 
   /** Rotación de la actividad en edición, tal como está en el servidor. */
   protected readonly turnoDeLaActividad = signal<TurnoActividadDto | null>(null);
@@ -985,6 +1224,12 @@ export class ActividadesPage {
       diasSemana: [...a.diasSemana],
       siempreVisible: a.siempreVisible,
       rolesPermitidos: [...a.rolesPermitidos],
+      // fase-14-24: el modo se DERIVA de los arrays, igual que en el servidor.
+      modoDestinatario: modoDestinatario(a),
+      usuariosPermitidos: [...a.usuariosPermitidos],
+      equiposPermitidos: [...a.equiposPermitidos],
+      vigenteDesde: a.vigenteDesde ?? '',
+      vigenteHasta: a.vigenteHasta ?? '',
     };
     this.abrirSeccionConDatos(a);
     this.formAbierto.set(true);
@@ -1011,6 +1256,153 @@ export class ActividadesPage {
   /** Nombre y color de un rol, para los chips de la lista del catálogo. */
   protected rolDe(rolGrupoId: string): RolGrupoDto | undefined {
     return this.roles().find((rol) => rol.id === rolGrupoId);
+  }
+
+  // ---- fase-14-24: la lista agrupada ----
+
+  /** Las secciones con contenido, ya filtradas por el buscador. */
+  protected readonly gruposVisibles = computed(() =>
+    agruparPorDestinatario(this.actividades(), this.busqueda())
+  );
+
+  protected grupoPlegado(modo: ModoDestinatario): boolean {
+    return this.gruposPlegados().has(modo);
+  }
+
+  protected alternarGrupo(modo: ModoDestinatario): void {
+    const plegados = new Set(this.gruposPlegados());
+
+    if (!plegados.delete(modo)) {
+      plegados.add(modo);
+    }
+
+    this.gruposPlegados.set(plegados);
+  }
+
+  /** Los diccionarios de nombres que arman los chips de destinatario. */
+  protected nombresParaChips(): Nombres {
+    return {
+      usuarios: new Map(this.usuariosDelGrupo().map((u) => [u.id, u.nombre])),
+      roles: new Map(this.roles().map((rol) => [rol.id, rol.nombre])),
+      equipos: new Map(this.equipos().map((e) => [e.id, e.nombre])),
+    };
+  }
+
+  /** El chip «Ana y Luis» / «Cocina» / «Equipo Rojo»; null si es de todos. */
+  protected chipDestinatario(actividad: ActividadDto): string | null {
+    return textoDestinatario(actividad, this.nombresParaChips());
+  }
+
+  protected chipVigencia(actividad: ActividadDto): string | null {
+    return textoVigencia(actividad);
+  }
+
+  protected venceHoy(actividad: ActividadDto): boolean {
+    return actividadVenceHoy(actividad);
+  }
+
+  // ---- fase-14-24: destinatario y vigencia ----
+
+  /**
+   * Los modos que tiene sentido ofrecer para ESTA actividad.
+   *
+   * «Estas personas» no aparece en una tarea de equipo y «Estos equipos» solo
+   * aparece ahí (decisión 5): asignar una tarea colectiva a personas sueltas
+   * obliga a preguntarse qué pasa con los otros miembros del equipo. Y «Por rol»
+   * se oculta si el grupo no cargó ninguno, para no ofrecer una lista vacía.
+   */
+  protected modosDisponibles(): Array<{ clave: ModoDestinatario; etiqueta: string }> {
+    const esEquipo = this.form.alcance === AlcanceActividad.EQUIPO;
+
+    return [
+      { clave: 'TODOS' as const, etiqueta: 'Todo el grupo' },
+      ...(!esEquipo && this.roles().length > 0
+        ? [{ clave: 'ROLES' as const, etiqueta: 'Los de cierto rol' }]
+        : []),
+      ...(esEquipo
+        ? [{ clave: 'EQUIPOS' as const, etiqueta: 'Ciertos equipos' }]
+        : [{ clave: 'USUARIOS' as const, etiqueta: 'Estas personas' }]),
+    ];
+  }
+
+  /**
+   * Cambiar de modo **vacía los otros dos**, igual que hace el servidor al
+   * guardar. Si no, pasar de «por rol» a «estas personas» dejaría el rol viejo
+   * colgado en el form y el request saldría con dos modos activos.
+   */
+  protected elegirModoDestinatario(modo: ModoDestinatario): void {
+    this.form.modoDestinatario = modo;
+
+    if (modo !== 'ROLES') {
+      this.form.rolesPermitidos = [];
+    }
+
+    if (modo !== 'USUARIOS') {
+      this.form.usuariosPermitidos = [];
+    }
+
+    if (modo !== 'EQUIPOS') {
+      this.form.equiposPermitidos = [];
+    }
+  }
+
+  protected alternarUsuarioPermitido(usuarioId: string): void {
+    const actuales = this.form.usuariosPermitidos;
+
+    this.form.usuariosPermitidos = actuales.includes(usuarioId)
+      ? actuales.filter((id) => id !== usuarioId)
+      : [...actuales, usuarioId];
+  }
+
+  protected alternarEquipoPermitido(equipoId: string): void {
+    const actuales = this.form.equiposPermitidos;
+
+    this.form.equiposPermitidos = actuales.includes(equipoId)
+      ? actuales.filter((id) => id !== equipoId)
+      : [...actuales, equipoId];
+  }
+
+  /** Atajo: llena la lista con todo el grupo, y queda editable. */
+  protected precargarTodoElGrupo(): void {
+    this.form.usuariosPermitidos = this.usuariosDelGrupo().map((usuario) => usuario.id);
+  }
+
+  /**
+   * Atajo: **suma** a los del rol, no reemplaza. Es lo que resuelve el caso
+   * mixto sin inventar una regla de cruce: «precargá cocina» y después sumás a
+   * Ana a mano, y lo que se guarda es la lista resultante.
+   */
+  protected precargarRol(rolGrupoId: string): void {
+    // `UsuarioDto` ya trae su rol desde el ítem 19: el atajo no cuesta una
+    // llamada nueva (mismo camino que usa el armador de turnos).
+    const delRol = this.usuariosDelGrupo()
+      .filter((usuario) => usuario.rolGrupo?.id === rolGrupoId)
+      .map((usuario) => usuario.id);
+
+    this.form.usuariosPermitidos = [...new Set([...this.form.usuariosPermitidos, ...delRol])];
+  }
+
+  protected resumenUsuariosElegidos(): string {
+    return textoDestinatario(
+      { usuariosPermitidos: this.form.usuariosPermitidos } as ActividadDto,
+      this.nombresParaChips()
+    ) ?? 'nadie';
+  }
+
+  /** «Siempre disponible», «solo el 24/12», «del 01/03 al 30/03»… */
+  protected resumenVigencia(): string {
+    const texto = textoVigencia({
+      vigenteDesde: this.form.vigenteDesde || null,
+      vigenteHasta: this.form.vigenteHasta || null,
+    } as ActividadDto);
+
+    if (!texto) {
+      return 'Sin fechas, la actividad es permanente.';
+    }
+
+    return this.form.diasSemana.length > 0
+      ? `Se puede hacer ${describirDias(this.form.diasSemana).toLowerCase()}, ${texto}.`
+      : `Se puede hacer ${texto}.`;
   }
 
   /** fase-14-19: restringida a roles que hoy no tiene nadie (ver core/roles-grupo). */
@@ -1078,6 +1470,18 @@ export class ActividadesPage {
         partes.push(`${this.form.duracionCronometroMinutos} min`);
       }
 
+      // fase-14-24: sin esto, una actividad acotada a marzo se vería idéntica a
+      // una permanente con la sección plegada (criterio de la T4: plegar no es
+      // esconder).
+      const vigencia = textoVigencia({
+        vigenteDesde: this.form.vigenteDesde || null,
+        vigenteHasta: this.form.vigenteHasta || null,
+      } as ActividadDto);
+
+      if (vigencia) {
+        partes.push(`📅 ${vigencia}`);
+      }
+
       return partes.join(' · ');
     }
 
@@ -1086,7 +1490,9 @@ export class ActividadesPage {
 
   private resumenDeQuien(): string {
     if (this.form.alcance === AlcanceActividad.EQUIPO) {
-      return 'un equipo';
+      const elegidos = this.form.equiposPermitidos.length;
+
+      return elegidos > 0 ? `${elegidos} equipo${elegidos === 1 ? '' : 's'}` : 'un equipo';
     }
 
     const partes: string[] = [];
@@ -1099,6 +1505,11 @@ export class ActividadesPage {
 
     if (roles > 0) {
       partes.push(`${roles} rol${roles === 1 ? '' : 'es'}`);
+    }
+
+    // fase-14-24: mismo criterio que arriba con la vigencia.
+    if (this.form.usuariosPermitidos.length > 0) {
+      partes.push(`👤 ${this.resumenUsuariosElegidos()}`);
     }
 
     if (this.form.siempreVisible) {
@@ -1117,6 +1528,10 @@ export class ActividadesPage {
     if (
       a.alcance === AlcanceActividad.EQUIPO ||
       a.rolesPermitidos.length > 0 ||
+      // fase-14-24: el destinatario nominal es exactamente lo mismo que el rol
+      // para este criterio — si la actividad ya es de alguien, hay que verlo.
+      a.usuariosPermitidos.length > 0 ||
+      a.equiposPermitidos.length > 0 ||
       a.siempreVisible ||
       // Los turnos NO están en `ActividadDto` —viven en su propio recurso— y
       // `obtenerTurno` llega después de esta línea. Se usa el mapa que la lista
@@ -1129,8 +1544,14 @@ export class ActividadesPage {
       return;
     }
 
-    if (a.diasSemana.length > 0 || a.repeticionesMaximasSesion > 1 ||
-        a.tipoLimiteTiempo !== TipoLimiteTiempo.SIN_LIMITE) {
+    if (
+      a.diasSemana.length > 0 ||
+      // fase-14-24: la vigencia vive en esta sección, así que la abre igual.
+      a.vigenteDesde !== null ||
+      a.vigenteHasta !== null ||
+      a.repeticionesMaximasSesion > 1 ||
+      a.tipoLimiteTiempo !== TipoLimiteTiempo.SIN_LIMITE
+    ) {
       this.seccionAbierta.set('cuando');
 
       return;
@@ -1280,7 +1701,21 @@ export class ActividadesPage {
       siempreVisible: !esEquipo && f.tipoPuntaje === TipoPuntaje.OPCIONAL && f.siempreVisible,
       // fase-14-19: una tarea de equipo no se restringe por rol (el backend
       // devolvería 400) — se manda vacío en vez de dejar que el form lo pida.
-      rolesPermitidos: esEquipo ? [] : [...f.rolesPermitidos],
+      rolesPermitidos:
+        !esEquipo && f.modoDestinatario === 'ROLES' ? [...f.rolesPermitidos] : [],
+      // fase-14-24: los tres arrays son EXCLUYENTES y se mandan siempre — el
+      // modo activo lleva su lista y los otros dos van vacíos. Mandarlos
+      // siempre es lo que hace que cambiar de modo borre el anterior; si se
+      // omitieran, el PATCH parcial conservaría el destinatario viejo y la
+      // actividad quedaría con dos, que es 400 DESTINATARIO_AMBIGUO.
+      usuariosPermitidos:
+        !esEquipo && f.modoDestinatario === 'USUARIOS' ? [...f.usuariosPermitidos] : [],
+      equiposPermitidos:
+        esEquipo && f.modoDestinatario === 'EQUIPOS' ? [...f.equiposPermitidos] : [],
+      // Cadena vacía = «sin límite por ese lado»: el input date vacío da '', y
+      // el backend espera null.
+      vigenteDesde: f.vigenteDesde || null,
+      vigenteHasta: f.vigenteHasta || null,
       // Solo una OBLIGATORIA puede requerir confirmación; para OPCIONAL el
       // backend fuerza ASUME_HECHA igual (fase-14-08).
       comportamientoAlCierre:
@@ -1334,6 +1769,12 @@ export class ActividadesPage {
     this.identity.listarRolesGrupo(grupoId).subscribe({
       next: (roles) => this.roles.set(roles),
       error: () => this.roles.set([]),
+    });
+    // fase-14-24: sin equipos cargados, el modo «ciertos equipos» no ofrece
+    // nada — mismo criterio que los roles en un grupo que no los usa.
+    this.identity.listarEquipos(grupoId).subscribe({
+      next: (equipos) => this.equipos.set(equipos.filter((e) => e.estado === 'ACTIVO')),
+      error: () => this.equipos.set([]),
     });
     // fase-14-23: una sola llamada para toda la lista — el endpoint ya venía
     // resuelto del #21 y ninguna pantalla lo usaba. Solo trae las actividades

@@ -6,6 +6,7 @@ import type { EventEnvelope, SesionEventoPayload } from '@dorado/shared-events';
 import type { UsuarioDto } from '@dorado/shared-types';
 
 import type { IdentityClientService } from '../clientes/identity-client.service';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import type {
   EventoAPublicar,
   EventosPublisherService,
@@ -22,6 +23,13 @@ function matchea(fila: Fila, where: Fila): boolean {
   return Object.entries(where).every(([campo, condicion]) => {
     if (condicion && typeof condicion === 'object' && 'in' in (condicion as object)) {
       return (condicion as { in: unknown[] }).in.includes(fila[campo]);
+    }
+
+    // fase-14-24: `vigenteHasta: { not: null }` acota el archivado a las que
+    // tienen fecha de fin. Sin esto el filtro pasaba de largo y el test del
+    // archivado no probaba nada.
+    if (condicion && typeof condicion === 'object' && 'not' in (condicion as object)) {
+      return fila[campo] !== (condicion as { not: unknown }).not;
     }
 
     return fila[campo] === condicion;
@@ -49,6 +57,20 @@ function crearBd(opciones: OpcionesBd) {
     actividad: {
       findMany: async ({ where }: { where: Fila }) =>
         opciones.actividades.filter((actividad) => matchea(actividad as Fila, where)),
+      // fase-14-24: el archivado por vencimiento. Muta las filas de `opciones`
+      // para que el test pueda afirmar sobre el estado resultante.
+      updateMany: async ({ where, data }: { where: Fila; data: Fila }) => {
+        const ids = (where['id'] as { in: string[] }).in;
+        const afectadas = opciones.actividades.filter((actividad) =>
+          ids.includes(actividad.id)
+        );
+
+        for (const actividad of afectadas) {
+          Object.assign(actividad, data);
+        }
+
+        return { count: afectadas.length };
+      },
     },
     // fase-14-21: con `turnos` vacío, toda obligatoria sigue siendo "de todos" —
     // que es el comportamiento previo al ítem y el de casi todos estos tests.
@@ -108,9 +130,13 @@ function usuario(id: string): UsuarioDto {
  * default, lunes 13/07/2026 00:00 en La Paz (04:00Z) — la misma semana de
  * referencia que `deadline.spec.ts` y `programacion.spec.ts`.
  */
+// `null` (no `undefined`) significa "el payload no trae fechaInicio": un
+// `undefined` explícito dispara el valor por default del parámetro, y con eso
+// el test del ítem 11 que dice probar el mensaje viejo nunca ejercitaba esa
+// rama — pasaba porque la programada era de un martes y la sesión, de un lunes.
 function envelopeCierre(
   eventId: string = randomUUID(),
-  fechaInicio: string | undefined = '2026-07-13T04:00:00.000Z'
+  fechaInicio: string | null = '2026-07-13T04:00:00.000Z'
 ): EventEnvelope<SesionEventoPayload> {
   return {
     eventId,
@@ -126,7 +152,7 @@ function envelopeCierre(
       organizacionId: 'org-1',
       grupoId: 'grupo-1',
       numero: 1,
-      ...(fechaInicio !== undefined && { fechaInicio }),
+      ...(fechaInicio !== null && { fechaInicio }),
     },
   };
 }
@@ -157,7 +183,12 @@ function crearServicio(
   } as unknown as EventosPublisherService;
 
   return {
-    servicio: new CierreService(bd.prisma, identity, eventos),
+    servicio: new CierreService(
+      bd.prisma,
+      identity,
+      eventos,
+      new ContextoParticipanteService(identity)
+    ),
     publicados,
     identity,
   };
@@ -326,7 +357,7 @@ describe('CierreService — obligatorias programadas (fase-14-11)', () => {
     const bd = crearBd({ actividades: [CONFIRMABLE_MARTES(), CONFIRMABLE()] });
     const { servicio } = crearServicio(bd, [usuario('u1')]);
 
-    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), undefined));
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), null));
 
     expect(bd.registros).toHaveLength(1);
     expect(bd.registros[0]).toMatchObject({ actividadId: 'obl-1' });
@@ -520,5 +551,104 @@ describe('CierreService — el castigo alcanza SOLO al del turno (fase-14-21)', 
 
     expect(bd.registros).toHaveLength(1);
     expect(bd.registros[0]).toMatchObject({ usuarioId: 'jose' });
+  });
+});
+
+// --- Destinatario nominal y vigencia (fase-14-24) ---
+
+describe('CierreService — destinatario nominal (fase-14-24)', () => {
+  const OBLIGATORIA_DE_ANA = () =>
+    actividadDePrueba({
+      id: 'obl-piano',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 10,
+      usuariosPermitidos: ['ana'],
+    });
+
+  it('solo castiga al asignado — el resto del grupo no recibe nada', async () => {
+    // Es EL test del item, el mismo punto ciego que el rol del #19: sin el
+    // filtro, Luis y Sol terminan la sesion con -10 por algo que su lista nunca
+    // mostro, y no lo delata ninguna pantalla hasta el dia siguiente.
+    const bd = crearBd({ actividades: [OBLIGATORIA_DE_ANA()] });
+    const { servicio, publicados } = crearServicio(bd, [
+      usuario('ana'),
+      usuario('luis'),
+      usuario('sol'),
+    ]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(1);
+    expect(bd.registros[0]).toMatchObject({ usuarioId: 'ana', valorPuntosSnapshot: -10 });
+    expect(publicados).toHaveLength(1);
+  });
+
+  it('sin destinatario nominal castiga a todos, como siempre', async () => {
+    const bd = crearBd({ actividades: [CONFIRMABLE()] });
+    const { servicio } = crearServicio(bd, [usuario('ana'), usuario('luis')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(2);
+  });
+});
+
+describe('CierreService — vigencia y archivado automatico (fase-14-24)', () => {
+  // El envelope por default es lunes 13/07/2026 en La Paz.
+  const VENCIDA = () =>
+    actividadDePrueba({
+      id: 'obl-campania',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 10,
+      vigenteHasta: '2026-07-12',
+    });
+
+  it('no castiga una obligatoria fuera de vigencia', async () => {
+    // Mismo caso que motivo el item 11 con los dias, ahora con fechas: restar
+    // puntos por no hacer algo que ya no correspondia hacer es un bug de puntaje.
+    const bd = crearBd({ actividades: [VENCIDA()] });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(0);
+  });
+
+  it('si castiga el ultimo dia de vigencia (extremo inclusivo)', async () => {
+    const bd = crearBd({
+      actividades: [actividadDePrueba({ ...VENCIDA(), vigenteHasta: '2026-07-13' })],
+    });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros).toHaveLength(1);
+  });
+
+  it('archiva la vencida al cerrar la sesion, y no la del mismo dia', async () => {
+    const vencida = VENCIDA();
+    const vigenteHoy = actividadDePrueba({ id: 'obl-hoy', vigenteHasta: '2026-07-13' });
+    const permanente = actividadDePrueba({ id: 'obl-siempre' });
+    const bd = crearBd({ actividades: [vencida, vigenteHoy, permanente] });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(vencida.estado).toBe('ARCHIVADA');
+    expect(vigenteHoy.estado).toBe('ACTIVA');
+    expect(permanente.estado).toBe('ACTIVA');
+  });
+
+  it('sin fechaInicio no archiva nada: ante la duda no se toca el catalogo', async () => {
+    // Mismo criterio que el castigo automatico ante un mensaje viejo en la cola.
+    const vencida = VENCIDA();
+    const bd = crearBd({ actividades: [vencida] });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre(randomUUID(), null));
+
+    expect(vencida.estado).toBe('ACTIVA');
   });
 });

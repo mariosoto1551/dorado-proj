@@ -128,6 +128,20 @@ model Actividad {
   // FK: son de otra base (regla 2), se validan por REST interno al escribir.
   // Vacío = la ven todos, que es el default y el comportamiento previo al ítem.
   rolesPermitidos            String[]         @default([])
+  // fase-14-24: destinatario NOMINAL — ids de Usuario (identity). Misma forma y
+  // mismo criterio que `rolesPermitidos`: sin FK, validados por REST al escribir.
+  // La diferencia con el rol es de intención, no de mecánica (decisión 3): el rol
+  // es dinámico (quien lo reciba mañana queda incluido), esta lista es estática.
+  usuariosPermitidos         String[]         @default([])
+  // fase-14-24: ids de Equipo (identity). Solo con alcance = EQUIPO (decisión 5).
+  equiposPermitidos          String[]         @default([])
+  // fase-14-24: vigencia. Fecha CIVIL "YYYY-MM-DD" en el calendario local del
+  // Grupo, no un DateTime (decisión 9) — misma convención que `deadlineHora`,
+  // que guarda "HH:mm" local desde Fase 7. Un DateTime obligaría a decidir a qué
+  // hora y en qué zona empieza el "1 de marzo", que es justo el error que el
+  // ítem 11 se cuidó de no cometer. Los dos null = permanente (default).
+  vigenteDesde               String?
+  vigenteHasta               String?
   estado                     EstadoCatalogo   @default(ACTIVA)
   // fase-14-10: default TUTOR + autor nulo ⇒ toda actividad preexistente
   // conserva el comportamiento actual (migración retro-compatible).

@@ -54,6 +54,10 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     diasSemana: actividad.diasSemana,
     siempreVisible: actividad.siempreVisible,
     rolesPermitidos: actividad.rolesPermitidos,
+    usuariosPermitidos: actividad.usuariosPermitidos,
+    equiposPermitidos: actividad.equiposPermitidos,
+    vigenteDesde: actividad.vigenteDesde,
+    vigenteHasta: actividad.vigenteHasta,
     estado: actividad.estado,
   };
 }

@@ -8,8 +8,13 @@ import type {
 import { ROUTING_KEYS } from '@dorado/shared-events';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
-import { estaDisponibleEn } from '../comun/programacion';
-import { esDeSuRol, hayRestriccionesDeRol } from '../comun/restriccion-rol';
+import {
+  estaDisponibleEn,
+  tieneProgramacion,
+  vigenciaVencidaEn,
+} from '../comun/programacion';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
+import { esDestinatario } from '../comun/destinatario';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, RegistroActividad } from '../generated/prisma/client';
 import {
@@ -46,7 +51,8 @@ export class CierreService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityClientService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly contexto: ContextoParticipanteService
   ) {}
 
   async procesarSesionCerrada(envelope: EventEnvelope<SesionEventoPayload>): Promise<void> {
@@ -151,6 +157,81 @@ export class CierreService {
         `SesionCerrada ${sesionId}: ${creados.length} no-hizo automáticos generados (grupo ${grupoId})`
       );
     }
+
+    // fase-14-24: al final, y FUERA de la transacción del castigo a propósito —
+    // archivar es independiente de si hubo o no no-hizo que registrar, y una
+    // falla acá no debe deshacer un ledger ya escrito. Si no corre, la actividad
+    // vencida simplemente se archiva en el cierre siguiente.
+    await this.archivarVencidas(organizacionId, grupoId, fechaInicio);
+  }
+
+  /**
+   * Archiva las actividades cuya vigencia terminó antes del día de la Sesión que
+   * se cierra (fase-14-24, decisión 11).
+   *
+   * Vive acá porque el cierre de Sesión es **el único punto del sistema que
+   * corre una vez por día por grupo y que ya resolvió la fecha y la timezone**.
+   * Un cron nuevo sería una segunda fuente de verdad sobre "qué día es hoy para
+   * este grupo", que es justo lo que el ítem 11 se cuidó de no crear.
+   *
+   * Sin `fechaInicio` (mensaje viejo en la cola) **no se archiva nada**: ante la
+   * duda no se cambia el catálogo, mismo criterio que el castigo automático.
+   *
+   * No es una operación destructiva: `ARCHIVADA` ya existe y ya significa esto,
+   * el ledger de los días en que la actividad sí corrió queda intacto (regla 6),
+   * y el Tutor puede desarchivarla —aunque para revivirla de verdad tenga que
+   * correr el `hasta`, o se vuelve a archivar en el cierre siguiente—.
+   */
+  private async archivarVencidas(
+    organizacionId: string,
+    grupoId: string,
+    fechaInicio: string | undefined
+  ): Promise<void> {
+    if (!fechaInicio) {
+      return;
+    }
+
+    const candidatas = await this.prisma.client.actividad.findMany({
+      where: {
+        organizacionId,
+        grupoId,
+        estado: EstadoCatalogo.ACTIVA,
+        vigenteHasta: { not: null },
+      },
+      select: { id: true, vigenteHasta: true },
+    });
+
+    if (candidatas.length === 0) {
+      return;
+    }
+
+    const grupo = await this.identity.obtenerGrupo(grupoId);
+
+    if (!grupo) {
+      this.logger.warn(
+        `Grupo ${grupoId} no encontrado en identity — no se archivan las actividades vencidas`
+      );
+
+      return;
+    }
+
+    const inicio = new Date(fechaInicio);
+    const vencidas = candidatas.filter((actividad) =>
+      vigenciaVencidaEn(actividad.vigenteHasta, inicio, grupo.timezone)
+    );
+
+    if (vencidas.length === 0) {
+      return;
+    }
+
+    await this.prisma.client.actividad.updateMany({
+      where: { id: { in: vencidas.map((actividad) => actividad.id) } },
+      data: { estado: EstadoCatalogo.ARCHIVADA },
+    });
+
+    this.logger.log(
+      `SesionCerrada: ${vencidas.length} actividad(es) archivada(s) por vencimiento (grupo ${grupoId})`
+    );
   }
 
   /** Pares (usuarioId, actividad) sin registro de esta sesión — a penalizar. */
@@ -192,14 +273,16 @@ export class CierreService {
     // participante nunca existió, y aparece al día siguiente como un puntaje
     // negativo inexplicable. Se paga una sola llamada, y solo si el catálogo del
     // grupo tiene alguna restricción (decisión 13).
-    const rolPorUsuario = hayRestriccionesDeRol(obligatorias)
-      ? new Map(
-          (await this.identity.rolesAsignados(scope.grupoId)).map((fila) => [
-            fila.usuarioId,
-            fila.rolGrupoId,
-          ])
-        )
-      : new Map<string, string | null>();
+    //
+    // fase-14-24: lo mismo vale para el destinatario nominal — una obligatoria
+    // asignada a Ana no puede castigar a Luis. `resolverParaGrupo` arma el
+    // contexto de TODO el grupo con dos llamadas en total (no dos por persona),
+    // y con cero si el catálogo no tiene ninguna restricción.
+    const contextoPorUsuario = await this.contexto.resolverParaGrupo(
+      scope.grupoId,
+      usuarios.map((usuario) => usuario.id),
+      obligatorias
+    );
 
     // fase-14-21: para una obligatoria con turno activo, el ÚNICO candidato es
     // el asignado del ámbito — el resto del grupo ni se evalúa (decisiones 6 y
@@ -224,11 +307,12 @@ export class CierreService {
         : usuarios;
 
       for (const usuario of candidatos) {
-        const rolGrupoId = rolPorUsuario.get(usuario.id) ?? null;
+        const contexto = contextoPorUsuario.get(usuario.id);
 
         if (
+          contexto &&
           !yaResuelto.has(`${usuario.id}::${actividad.id}`) &&
-          esDeSuRol(actividad, rolGrupoId)
+          esDestinatario(actividad, contexto)
         ) {
           pendientes.push({ usuarioId: usuario.id, actividad });
         }
@@ -298,7 +382,7 @@ export class CierreService {
     grupoId: string,
     fechaInicioSesion: string | undefined
   ): Promise<Actividad[]> {
-    const programadas = obligatorias.filter((actividad) => actividad.diasSemana.length > 0);
+    const programadas = obligatorias.filter(tieneProgramacion);
 
     if (programadas.length === 0) {
       return obligatorias;
@@ -309,7 +393,7 @@ export class CierreService {
         `SesionCerrada sin fechaInicio en el payload — se saltean ${programadas.length} obligatoria(s) programada(s) del grupo ${grupoId}`
       );
 
-      return obligatorias.filter((actividad) => actividad.diasSemana.length === 0);
+      return obligatorias.filter((actividad) => !tieneProgramacion(actividad));
     }
 
     const grupo = await this.identity.obtenerGrupo(grupoId);
@@ -319,13 +403,13 @@ export class CierreService {
         `Grupo ${grupoId} no encontrado en identity — se saltean las obligatorias programadas`
       );
 
-      return obligatorias.filter((actividad) => actividad.diasSemana.length === 0);
+      return obligatorias.filter((actividad) => !tieneProgramacion(actividad));
     }
 
     const inicio = new Date(fechaInicioSesion);
 
     return obligatorias.filter((actividad) =>
-      estaDisponibleEn(actividad.diasSemana, inicio, grupo.timezone)
+      estaDisponibleEn(actividad, inicio, grupo.timezone)
     );
   }
 

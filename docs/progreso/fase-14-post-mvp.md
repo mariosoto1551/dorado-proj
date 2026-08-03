@@ -1092,3 +1092,77 @@ Se resolvió con un **seam de configuración en el middleware**, no bajando la d
 2. **`catalogo-items` y `billeteras` no se tocaron**: el primero ya confirmaba y el segundo no tiene acciones destructivas. Quedan como estaban a propósito, no por olvido.
 3. **Cuidado al bajar procesos en Windows**: en esta sesión un `taskkill /T` sobre los PID de los puertos 3000-3008 **se llevó puesta la infra de Docker y el `public-site`** — el árbol de procesos alcanzaba más de lo previsto. Para reiniciar el stack conviene `pnpm dev:backend` (que hace su propio teardown) y verificar `docker ps` después. Nada se perdió (los contenedores se relevantan y las bases son volúmenes), pero costó veinte minutos.
 4. **El área Usuario sigue afuera** del ítem entero (decisión de alcance 1). Sus seis pantallas no vieron ninguna de las cinco tandas.
+
+---
+
+## Ítem 24: Destinatario y vigencia de una Actividad
+
+- **Estado**: EN_PROGRESO — completo y verificado. 344/344 tests de activity-service (61 nuevos), 104/104 de app-web (22 nuevos), lint y build verdes, **migración aplicada contra `activity_db` real y verificada por `\d "Actividad"`**, y suite E2E nueva.
+- **Fecha**: 2026-08-03 / **Spec**: `docs/phases/fase-14-24-destinatario-y-vigencia.md` (escrita en esta sesión) / **Commit**: — (branch `fase-14-tienda-de-monedas`)
+- **Origen**: pedido de José (2026-08-03), tres molestias que aparecieron usando la app. Nace del mismo lugar que el #23 —la experiencia de uso— pero **agrega capacidades**, así que va como ítem propio y no como una tanda de aquel.
+
+### Las tres molestias, que son la misma vista de tres lados
+
+**La actividad no dice para quién ni hasta cuándo es, así que la pantalla tampoco puede decirlo.** (a) una actividad era del Grupo entero o de nadie —lo más cerca eran el rol del #19 y el turno del #21—; (b) todo era diario o por día de la semana, sin «el 24 de diciembre» ni «durante marzo»; (c) la lista del Tutor era un `@for` plano en orden de creación, sin agrupar ni buscar.
+
+### El diseño del #11 se cobró, y conviene dejarlo anotado
+
+La spec del ítem 11 declaró `comun/programacion.ts` **punto único de extensión** «para cuando se agreguen fechas concretas o rangos, lo que José anticipó». Este ítem fue esa extensión, y el diseño funcionó como estaba escrito: **la vigencia entró entera por `estaDisponibleEn` y los 8 puntos de enforcement la heredaron sin lógica nueva**. El compilador los enumeró solos al cambiar la firma —de tres parámetros sueltos a un objeto `ProgramacionActividad`—, que fue la forma más barata de comprobar que no faltaba ninguno.
+
+Es el primer ítem del proyecto que **cobra una extensión que otra spec dejó preparada por nombre**. Vale como evidencia a favor del patrón: escribir el punto único cuesta poco en el momento y ahorra un rediseño después.
+
+### Lo que sí costó: el destinatario es la TERCERA regla de «quién ve qué»
+
+Ya estaban la de autoría (#10, `visibilidad-actividad.ts`) y la de rol (#19, `restriccion-rol.ts`), cada una con su archivo y su advertencia escrita de que **hay que aplicarla en cada lectura y cada escritura**. Con una tercera suelta, «aplicar dos y olvidar la tercera» dejaba de ser un descuido improbable.
+
+Se resolvió **componiendo las tres** en `comun/destinatario.ts` (`esDestinatario` / `filtroDestinatario`): quien aplica una, aplica las tres. Los otros dos archivos **no cambian de comportamiento** —el nuevo los llama—; lo que se consolidó es el punto de llamada, no la regla.
+
+### Decisiones de implementación que importan
+
+1. **Los cuatro modos son excluyentes y el modo NO se guarda**: se deriva de qué array está lleno. Un enum no evitaría el estado inconsistente (habría que validar igual) y sí obligaría a migrar el valor de toda fila existente. La invariante vive en `resolverDestinatario`, que evalúa los valores **finales** (request + fila) porque en un PATCH parcial la ambigüedad nace del cruce: mandar `usuariosPermitidos` a una actividad restringida por rol la deja con dos modos, y el request por sí solo se ve válido.
+2. **Elegir un modo vacía los otros dos**, en el servidor y en el formulario. Es lo que hace que el selector se comporte como un selector.
+3. **Las fechas son `String` `"YYYY-MM-DD"`, no `DateTime`** — misma convención que `deadlineHora` con `"HH:mm"` desde Fase 7. Un `DateTime` obligaría a decidir a qué hora y en qué zona empieza el «1 de marzo», que es el error que el #11 se cuidó de no cometer. Bonus: la comparación de strings `YYYY-MM-DD` es lexicográfica y cronológica a la vez.
+4. **`vigenciaVencidaEn` es una función aparte de `estaDisponibleEn`**, y la separación es el ítem entero en miniatura: lo que **hoy no toca** vuelve mañana (no se archiva), lo que **venció** no vuelve (se archiva). Mezclarlas habría archivado toda actividad de los martes cada miércoles.
+5. **El archivado automático vive en el consumidor de `SesionCerrada`** (el del #8), no en un cron nuevo: es el único punto del sistema que corre una vez por día por grupo y que **ya resolvió la fecha y la timezone**. Un cron sería una segunda fuente de verdad sobre «qué día es hoy para este grupo». Corre **fuera de la transacción del castigo**: archivar no debe poder deshacer un ledger ya escrito.
+6. **Dos motivos, dos códigos**: `ACTIVIDAD_FUERA_DE_VIGENCIA` y `ACTIVIDAD_NO_DISPONIBLE_HOY` son mensajes distintos para el integrante («todavía no empieza» no es «los martes»), y la vigencia gana cuando fallan las dos porque es el motivo más definitivo. El factory `excepcionSiNoDisponible` evita repetir ese `if` en los tres puntos que rechazan escritura.
+7. **Costo cero para quien no usa el ítem**: `ContextoParticipanteService` mira el catálogo ya leído y pide a identity **solo lo que el catálogo exige** (mismo patrón que `hayRestriccionesDeRol` del #19 y `necesitaTimezone`). En un grupo sin destinatarios ni roles, `mi-estado-hoy` no agrega ni una llamada. Para el cierre de Sesión hay `resolverParaGrupo`, que arma el contexto de todo el grupo con **dos llamadas en total**, no dos por persona.
+8. **Los gates de «¿tiene programación?» hubo que ampliarlos uno por uno.** Ocho lugares preguntaban `diasSemana.length > 0` para decidir si pagar el cruce REST; con solo vigencia cargada, la actividad se salteaba el chequeo entero. Es la parte del ítem que el cambio de firma **no** detectó sola: compila igual. Se centralizó en `tieneProgramacion`.
+
+### El hueco que encontró la E2E: el bloqueo estaba, el ocultamiento no
+
+La decisión 10 de la spec dice que **fuera de su rango la actividad no aparece** — a diferencia del «hoy no toca» del #11, que sí se ve en gris porque mañana vuelve. Lo implementado cubría el **enforcement** (no se puede registrar, 409 `ACTIVIDAD_FUERA_DE_VIGENCIA`) y **no el ocultamiento**: la vencida seguía llegando a `mi-estado-hoy` con su botón, y el clic terminaba en un 409.
+
+Es la misma clase de error que la T4 del #23 encontró con las tareas de equipo —la lista traía un botón que el servidor rechaza—, y **ningún unit test lo iba a agarrar**: los que existían verificaban que completar fallara, que es la mitad de la regla.
+
+La causa de raíz es de orden en el código: `estadoHoyDe` resolvía la timezone **después** de armar la lista de visibles, así que en el punto donde se filtraba todavía no había con qué evaluar fechas. Se reordenó (contexto → timezone → filtro de vigencia → turnos → mapeo) y el filtro usa `motivoNoDisponible === 'FUERA_DE_VIGENCIA'`, **no** `estaDisponibleEn`: la vigencia oculta y el día apaga, y esa distinción es el ítem entero en miniatura. Sin timezone resuelta no se filtra nada — mismo criterio fail-open que `disponibleHoy`, porque esconder actividades por una falla de identity es peor que mostrarlas de más.
+
+Quedaron dos tests que fijan el matiz: uno afirma que la vencida y la futura **no están en la lista**, y el otro que una actividad de otro día **sí está, con `disponibleHoy: false`**.
+
+### El hallazgo del camino: un test del #11 que nunca probó lo que decía
+
+`cierre.service.spec.ts` tenía un test llamado «envelope sin fechaInicio (mensaje viejo): saltea las programadas y castiga las normales» que llamaba `envelopeCierre(randomUUID(), undefined)`. **En JavaScript un `undefined` explícito dispara el valor por default del parámetro**, así que el payload siempre viajaba con `fechaInicio` y la rama nunca se ejercitaba. Pasaba por otro motivo: la actividad programada era de un martes y la sesión, de un lunes.
+
+Se destapó al escribir el test equivalente para el archivado, que falló por eso mismo. Corregido cambiando el centinela a `null` (que no dispara el default); el test del #11 sigue verde y **ahora sí prueba lo que dice**.
+
+También hizo falta enseñarle al doble de Prisma de ese spec el operador `{ not: null }` y `updateMany`: sin eso el filtro del archivado pasaba de largo y el test no probaba nada.
+
+### Frontend
+
+- **`core/destinatario-actividad.ts`** con las reglas de presentación (agrupar, buscar, los dos chips, `venceHoy`), testeado aparte — mismo criterio que `core/turnos.ts` (#23 T1), `core/home-grupo.ts` (T3) y `core/registro-tutor.ts` (T4). El componente no decide.
+- **El modal**: «¿Quién la hace?» pasó de una lista suelta de roles a **un selector de cuatro modos**, dentro de la sección «Quién la hace» que la T4 ya había creado. Los atajos de precarga («todo el grupo», «los de cocina») **suman a una lista editable**, no fijan una regla — es el patrón del pozo de turnos del #21, y es lo que resuelve «los de cocina y además Ana» sin inventar una semántica de cruce. La vigencia va **junto a los días**, porque se cruzan.
+- **Los resúmenes de sección plegada dicen lo nuevo** (`👤 Ana y Luis`, `📅 del 01/03 al 30/03`): sin eso, una actividad acotada a marzo se vería idéntica a una permanente, que es el defecto que la T4 vino a corregir.
+- **La lista**: buscador (sin distinguir mayúsculas ni acentos) + cuatro secciones plegables con contador. **Las secciones vacías no se muestran** — un grupo que no usa equipos no debería ver «De equipos (0)» para siempre.
+
+### Peleas con el entorno
+
+- **Procesos viejos en 3000-3008**: la primera corrida de la E2E falló entera contra un stack de una sesión anterior, con el código previo — el síntoma era que las validaciones nuevas devolvían 201 en vez de 400. Está anotado desde antes; conviene verificar el código que corre, no solo que el puerto responda.
+- **La misma trampa con otra cara, y esta costó tres corridas**: un `e2e-up` posterior **no reemplaza** un proceso viejo que sigue tomando el puerto — el `nx serve` nuevo compila el bundle actualizado, falla al bindear y **el viejo sigue atendiendo**. El síntoma era desconcertante: `dist/main.js` tenía el código nuevo (verificado con `grep`), los unit tests pasaban, y la API se comportaba **mitad nueva y mitad vieja** (`disponibleHoy: false` correcto, filtro ausente) — porque el proceso había cargado el bundle 20 minutos antes de que se recompilara. Node no recarga en caliente. **Diagnóstico rápido**: comparar `CreationDate` del proceso del puerto contra el `mtime` de `dist/apps/<servicio>/main.js`; si el proceso es más viejo, está corriendo otra cosa. Los avisos de `inspector on localhost:9229 failed` son la pista temprana y es fácil descartarlos como benignos.
+- **`node scripts/e2e-up.mjs --serve-only` no sobrevive** si se lo lanza con `&` desde una shell que después termina: los nueve `nx serve` mueren juntos con el padre. El ciclo completo (`node scripts/e2e-up.mjs`) es el camino confiable.
+- **Procesos Nx huérfanos que se acumulan**: tras varias corridas abortadas quedaron 24 procesos `nx` vivos que hacían fallar los builds con «Failed to load Nx plugin(s)» y bloqueaban `nx reset` con `EPERM`. Se limpian filtrando por `CommandLine` (`dorado-project` + `nx@23`) con `Stop-Process` **sin `/T`** — el árbol completo se lleva puesta la infra de Docker, que es la advertencia que la T4 del #23 ya había dejado anotada.
+
+### Qué falta / verificar la próxima sesión
+
+1. **El chip de destinatario reusa el diccionario de nombres ya cargado**; un id sin nombre conocido (participante que se fue del grupo) **se omite** en vez de mostrarse crudo. Conviene verlo en pantalla una vez con ese caso real.
+2. **La lista del participante no se reordenó**: sigue siendo alcance de la segunda vuelta del #23. Lo único que cambió para él sale del servidor (deja de recibir lo que no le corresponde).
+3. **Conductas quedan afuera a propósito** (decisión 15 de la spec), igual que el contenido creado por integrantes (#10, que ya es personal por definición).
+4. **El archivado automático depende de que la Sesión cierre.** Un grupo que no abre sesiones no archiva sus vencidas — correcto por diseño (nada corre), pero conviene tenerlo presente si aparece un reporte de «la actividad vencida sigue ahí».

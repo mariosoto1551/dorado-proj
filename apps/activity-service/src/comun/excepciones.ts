@@ -1,5 +1,7 @@
 import { DomainException } from '@dorado/shared-auth';
 
+import { motivoNoDisponible, type ProgramacionActividad } from './programacion';
+
 // Excepciones tipadas de activity-service (ADR-00 §7): cada una lleva su
 // `code` estable; HttpExceptionFilter las traduce al sobre ApiErrorResponse.
 // Los 403/404 sin code de negocio propio usan las excepciones estándar de
@@ -431,4 +433,108 @@ export class NoEsSuTurnoException extends DomainException {
     // nombre de alguien a quien hoy no le tocaba (decisiones 6 y 17).
     super('NO_ES_SU_TURNO', 'Hoy no le toca a ese integrante', 400);
   }
+}
+
+// --- Destinatario y vigencia (fase-14-24) ---
+
+export class DestinatarioAmbiguoException extends DomainException {
+  constructor() {
+    // Los cuatro modos son excluyentes (decisión 1): permitir dos a la vez
+    // obligaría a fijar una semántica de cruce —¿intersección o unión?— que no
+    // se puede explicar en una pantalla. El caso mixto se resuelve con el atajo
+    // que precarga la lista de personas, no con una regla.
+    super(
+      'DESTINATARIO_AMBIGUO',
+      'Una actividad tiene un solo destinatario: todo el grupo, un rol, personas o equipos',
+      400
+    );
+  }
+}
+
+export class UsuarioFueraDelGrupoException extends DomainException {
+  constructor() {
+    super(
+      'USUARIO_FUERA_DEL_GRUPO',
+      'Alguno de los participantes indicados no pertenece a este grupo',
+      400
+    );
+  }
+}
+
+export class EquipoFueraDelGrupoException extends DomainException {
+  constructor() {
+    super(
+      'EQUIPO_FUERA_DEL_GRUPO',
+      'Alguno de los equipos indicados no está activo en este grupo',
+      400
+    );
+  }
+}
+
+export class DestinatarioIncompatibleConAlcanceException extends DomainException {
+  constructor(mensaje: string) {
+    // Decisión 5: con alcance EQUIPO el destinatario es por equipo. Asignar una
+    // tarea colectiva a personas sueltas obliga a preguntarse qué pasa con los
+    // otros miembros de ese equipo, y no hay respuesta buena.
+    super('DESTINATARIO_INCOMPATIBLE_CON_ALCANCE', mensaje, 400);
+  }
+}
+
+export class VigenciaInvalidaException extends DomainException {
+  constructor(mensaje: string) {
+    super('VIGENCIA_INVALIDA', mensaje, 400);
+  }
+}
+
+export class ActividadFueraDeVigenciaException extends DomainException {
+  constructor(vigenteDesde: string | null, vigenteHasta: string | null) {
+    super(
+      'ACTIVIDAD_FUERA_DE_VIGENCIA',
+      'La actividad no está vigente en esta fecha',
+      409,
+      // Las fechas viajan en el error por el mismo motivo que los días en
+      // ACTIVIDAD_NO_DISPONIBLE_HOY: que el cliente pueda decir cuáles son.
+      { vigenteDesde, vigenteHasta }
+    );
+  }
+}
+
+export class TurnoFueraDelDestinatarioException extends DomainException {
+  constructor() {
+    // Decisión 6: una sola verdad sobre quién participa. Si la actividad es de
+    // ciertas personas, el pozo de la rotación sale de ahí.
+    super(
+      'TURNO_FUERA_DEL_DESTINATARIO',
+      'La secuencia de turnos solo puede incluir a los destinatarios de la actividad',
+      400
+    );
+  }
+}
+
+/**
+ * La excepción que corresponde a una actividad que hoy no corre, o `null` si sí
+ * corre (fase-14-24).
+ *
+ * Existe para que los tres puntos que **rechazan** una escritura —completar /
+ * iniciar cronómetro / no-hizo del tutor, tarea de equipo y plan del día— no
+ * repitan cada uno el mismo `if` de dos ramas. El motivo importa: "todavía no
+ * empezó" y "los martes" son mensajes distintos para el integrante, y el cliente
+ * necesita el `code` para saber cuál mostrar.
+ */
+export function excepcionSiNoDisponible(
+  actividad: ProgramacionActividad & { vigenteDesde: string | null; vigenteHasta: string | null },
+  fechaInicioSesion: Date,
+  timezone: string
+): DomainException | null {
+  const motivo = motivoNoDisponible(actividad, fechaInicioSesion, timezone);
+
+  if (motivo === 'FUERA_DE_VIGENCIA') {
+    return new ActividadFueraDeVigenciaException(actividad.vigenteDesde, actividad.vigenteHasta);
+  }
+
+  if (motivo === 'OTRO_DIA') {
+    return new ActividadNoDisponibleHoyException(actividad.diasSemana);
+  }
+
+  return null;
 }

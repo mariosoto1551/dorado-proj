@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { ClientesModule } from '../clientes/clientes.module';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import { ContenidoUsuarioModule } from '../contenido-usuario/contenido-usuario.module';
 import { PlanDiaController } from './plan-dia.controller';
 import { PlanDiaService } from './plan-dia.service';
@@ -14,7 +15,7 @@ import { PlanDiaService } from './plan-dia.service';
 @Module({
   imports: [ClientesModule, ContenidoUsuarioModule],
   controllers: [PlanDiaController],
-  providers: [PlanDiaService, AccesoGrupoService],
+  providers: [ContextoParticipanteService, PlanDiaService, AccesoGrupoService],
   exports: [PlanDiaService],
 })
 export class PlanDiaModule {}

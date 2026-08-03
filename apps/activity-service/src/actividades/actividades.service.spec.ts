@@ -7,12 +7,17 @@ import type { BillingClientService } from '../clientes/billing-client.service';
 import type { IdentityClientService } from '../clientes/identity-client.service';
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
+  DestinatarioAmbiguoException,
+  DestinatarioIncompatibleConAlcanceException,
   LimitePlanAlcanzadoException,
   RestriccionRolSoloIndividualException,
   RolGrupoInexistenteException,
+  UsuarioFueraDelGrupoException,
+  VigenciaInvalidaException,
 } from '../comun/excepciones';
 import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad } from '../generated/prisma/client';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActividadesService } from './actividades.service';
 import type { CrearActividadRequest } from './dto/actividades.dto';
@@ -39,6 +44,11 @@ const ACTIVIDAD_BASE: Actividad = {
   valorPuntos: 10,
   // fase-14-20: solo se usa en OBLIGATORIA + REQUIERE_CONFIRMACION.
   puntosPorCumplir: 0,
+  // fase-14-24: sin destinatario nominal ni vigencia = como antes del ítem.
+  usuariosPermitidos: [],
+  equiposPermitidos: [],
+  vigenteDesde: null,
+  vigenteHasta: null,
   tipoLimiteTiempo: 'SIN_LIMITE',
   deadlineHora: null,
   duracionCronometroMinutos: null,
@@ -92,6 +102,14 @@ interface OpcionesMock {
   rolDeUsuario?: string | null;
   /** fase-14-19: filas que devuelve el listado del catálogo. */
   filas?: Actividad[];
+  /** fase-14-24: participantes del grupo, para validar el destinatario nominal. */
+  usuariosDelGrupo?: Array<{ id: string }>;
+  /** fase-14-24: equipos del grupo. */
+  equiposDelGrupo?: Array<{
+    equipoId: string;
+    estado: 'ACTIVO' | 'INACTIVO';
+    miembros: Array<{ usuarioId: string }>;
+  }>;
 }
 
 function crearServicio(opciones: OpcionesMock = {}) {
@@ -137,10 +155,19 @@ function crearServicio(opciones: OpcionesMock = {}) {
   // NO se llama cuando el catálogo no tiene restricciones (decisión 13).
   const rolesDelGrupo = vi.fn().mockResolvedValue(opciones.rolesDelGrupo ?? []);
   const rolDeUsuario = vi.fn().mockResolvedValue(opciones.rolDeUsuario ?? null);
-  const identity = { rolesDelGrupo, rolDeUsuario } as unknown as IdentityClientService;
+  // fase-14-24: los dos internos que valida el destinatario nominal.
+  const usuariosDelGrupo = vi.fn().mockResolvedValue(opciones.usuariosDelGrupo ?? []);
+  const equiposDelGrupo = vi.fn().mockResolvedValue(opciones.equiposDelGrupo ?? []);
+  const identity = {
+    rolesDelGrupo,
+    rolDeUsuario,
+    usuariosDelGrupo,
+    equiposDelGrupo,
+  } as unknown as IdentityClientService;
+  const contexto = new ContextoParticipanteService(identity);
 
   return {
-    servicio: new ActividadesService(prisma, billing, acceso, eventos, identity),
+    servicio: new ActividadesService(prisma, billing, acceso, eventos, identity, contexto),
     crear,
     actualizar,
     buscarPrimera,
@@ -687,5 +714,166 @@ describe('ActividadesService — listado filtrado por rol (decisión 6)', () => 
     await servicio.listar(tenantUsuario(), 'grupo-1', {});
 
     expect(rolDeUsuario).not.toHaveBeenCalled();
+  });
+});
+
+// --- Destinatario y vigencia (fase-14-24) ---
+
+describe('ActividadesService — destinatario: los cuatro modos son excluyentes', () => {
+  const ANA = '11111111-1111-4111-8111-111111111111';
+  const LUIS = '22222222-2222-4222-8222-222222222222';
+  const ROL = '33333333-3333-4333-8333-333333333333';
+  const EQUIPO = '44444444-4444-4444-8444-444444444444';
+
+  const DEL_GRUPO = [{ id: ANA }, { id: LUIS }];
+  const EQUIPOS = [{ equipoId: EQUIPO, estado: 'ACTIVO' as const, miembros: [{ usuarioId: ANA }] }];
+
+  it('persiste el destinatario por personas', async () => {
+    const { servicio, crear } = crearServicio({ usuariosDelGrupo: DEL_GRUPO });
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ usuariosPermitidos: [ANA, LUIS] })
+    );
+
+    expect(crear).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        usuariosPermitidos: [ANA, LUIS],
+        rolesPermitidos: [],
+        equiposPermitidos: [],
+      }),
+    });
+  });
+
+  it('rol + personas a la vez es DESTINATARIO_AMBIGUO', async () => {
+    // La razon esta en la spec: permitir el cruce obliga a fijar una semantica
+    // (interseccion o union) que no se puede explicar en una pantalla.
+    const { servicio, crear } = crearServicio({
+      usuariosDelGrupo: DEL_GRUPO,
+      rolesDelGrupo: [{ id: ROL, estado: 'ACTIVO' }],
+    });
+
+    const intento = servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ usuariosPermitidos: [ANA], rolesPermitidos: [ROL] })
+    );
+
+    await expect(intento).rejects.toThrow(DestinatarioAmbiguoException);
+    expect(crear).not.toHaveBeenCalled();
+  });
+
+  it('un participante de otro grupo es USUARIO_FUERA_DEL_GRUPO', async () => {
+    const { servicio } = crearServicio({ usuariosDelGrupo: [{ id: ANA }] });
+
+    const intento = servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ usuariosPermitidos: [ANA, LUIS] })
+    );
+
+    await expect(intento).rejects.toThrow(UsuarioFueraDelGrupoException);
+  });
+
+  it('personas sobre una tarea de EQUIPO es incompatible con el alcance', async () => {
+    const { servicio } = crearServicio({ usuariosDelGrupo: DEL_GRUPO });
+
+    const intento = servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ alcance: 'EQUIPO', usuariosPermitidos: [ANA] })
+    );
+
+    await expect(intento).rejects.toThrow(DestinatarioIncompatibleConAlcanceException);
+  });
+
+  it('equipos exige alcance EQUIPO, y con el alcance correcto persiste', async () => {
+    const { servicio, crear } = crearServicio({ equiposDelGrupo: EQUIPOS });
+
+    await expect(
+      servicio.crear(tenantDePrueba(), 'grupo-1', requestDePrueba({ equiposPermitidos: [EQUIPO] }))
+    ).rejects.toThrow(DestinatarioIncompatibleConAlcanceException);
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ alcance: 'EQUIPO', equiposPermitidos: [EQUIPO] })
+    );
+
+    expect(crear).toHaveBeenCalledWith({
+      data: expect.objectContaining({ equiposPermitidos: [EQUIPO], usuariosPermitidos: [] }),
+    });
+  });
+
+  it('sin destinatario los tres arrays quedan vacios: el default no cambia', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(tenantDePrueba(), 'grupo-1', requestDePrueba());
+
+    expect(crear).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        rolesPermitidos: [],
+        usuariosPermitidos: [],
+        equiposPermitidos: [],
+        vigenteDesde: null,
+        vigenteHasta: null,
+      }),
+    });
+  });
+});
+
+describe('ActividadesService — vigencia (fase-14-24)', () => {
+  it('persiste el rango tal cual', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ vigenteDesde: '2026-12-24', vigenteHasta: '2026-12-24' })
+    );
+
+    expect(crear).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        vigenteDesde: '2026-12-24',
+        vigenteHasta: '2026-12-24',
+      }),
+    });
+  });
+
+  it('desde posterior a hasta es VIGENCIA_INVALIDA', async () => {
+    const { servicio } = crearServicio();
+
+    const intento = servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ vigenteDesde: '2026-12-25', vigenteHasta: '2026-12-24' })
+    );
+
+    await expect(intento).rejects.toThrow(VigenciaInvalidaException);
+  });
+
+  it('una fecha que no existe en el calendario tampoco pasa', async () => {
+    const { servicio } = crearServicio();
+
+    const intento = servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ vigenteHasta: '2026-02-30' })
+    );
+
+    await expect(intento).rejects.toThrow(VigenciaInvalidaException);
+  });
+
+  it('un "hasta" ya pasado SE ACEPTA: lo archiva el cierre siguiente', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({ vigenteHasta: '2020-01-01' })
+    );
+
+    expect(crear).toHaveBeenCalled();
   });
 });

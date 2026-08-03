@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { EventEnvelope, SesionEventoPayload } from '@dorado/shared-events';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
-import { estaDisponibleEn } from '../comun/programacion';
+import { estaDisponibleEn, tieneProgramacion } from '../comun/programacion';
 import {
   type MotivoSalteo,
   sellarOrdenDeVuelta,
@@ -292,7 +292,7 @@ export class SelladoTurnosService {
     fechaInicio: string | undefined,
     timezone: string | undefined
   ): boolean {
-    if (actividad.diasSemana.length === 0) {
+    if (!tieneProgramacion(actividad)) {
       return true;
     }
 
@@ -304,7 +304,7 @@ export class SelladoTurnosService {
       return false;
     }
 
-    return estaDisponibleEn(actividad.diasSemana, new Date(fechaInicio), timezone);
+    return estaDisponibleEn(actividad, new Date(fechaInicio), timezone);
   }
 
   private async yaProcesado(eventId: string): Promise<boolean> {

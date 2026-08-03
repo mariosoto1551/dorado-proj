@@ -32,7 +32,6 @@ import { deadlineVencido, instanteDeDeadline } from '../comun/deadline';
 import { requiereSeleccionDelPlan } from '../comun/elegibilidad-plan';
 import {
   ActividadDenegadaPorTutorException,
-  ActividadNoDisponibleHoyException,
   ActividadNoEsDeSuRolException,
   ActividadNoEsDeTuRolException,
   ActividadPersonalDeOtroUsuarioException,
@@ -40,6 +39,7 @@ import {
   CronometroVencidoException,
   DeadlineVencidoException,
   EsTareaDeEquipoException,
+  excepcionSiNoDisponible,
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
   NoEsSuTurnoException,
@@ -49,8 +49,13 @@ import {
   SinTurnoVigenteException,
 } from '../comun/excepciones';
 import { registroActividadADto, registroConductaADto } from '../comun/mapeadores';
-import { estaDisponibleEn } from '../comun/programacion';
-import { esDeSuRol, hayRestriccionesDeRol } from '../comun/restriccion-rol';
+import {
+  estaDisponibleEn,
+  motivoNoDisponible,
+  tieneProgramacion,
+} from '../comun/programacion';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
+import { esDestinatario } from '../comun/destinatario';
 import {
   esVisiblePara,
   filtroVisibilidadUsuario,
@@ -134,7 +139,8 @@ export class RegistroService {
     private readonly session: SessionClientService,
     private readonly eventos: EventosPublisherService,
     private readonly planDia: PlanDiaService,
-    private readonly turnos: TurnosService
+    private readonly turnos: TurnosService,
+    private readonly contexto: ContextoParticipanteService
   ) {}
 
   /** POST /activity/actividades/:id/iniciar-cronometro — USUARIO (self). */
@@ -406,13 +412,47 @@ export class RegistroService {
       this.planDia.idsElegidos(usuarioId, sesionAbierta.id),
     ]);
 
-    // fase-14-19: las actividades restringidas a un rol que el integrante no
-    // tiene se OCULTAN por completo (decisión 6). El cruce REST hacia identity
-    // se paga solo si el catálogo del grupo tiene alguna restricción (decisión
-    // 13): en un grupo que no usa roles esto no agrega ni una llamada.
-    const visibles = hayRestriccionesDeRol(actividades)
-      ? await this.filtrarPorRol(actividades, grupoId, usuarioId)
-      : actividades;
+    // fase-14-19 + fase-14-24: las actividades que no son para este integrante
+    // —por rol, por persona o por equipo— se OCULTAN por completo. El cruce REST
+    // hacia identity se paga solo si el catálogo del grupo tiene alguna de esas
+    // restricciones: en un grupo que no las usa esto no agrega ni una llamada.
+    const contexto = await this.contexto.resolver(grupoId, usuarioId, actividades);
+    const destinatarias = actividades.filter((actividad) => esDestinatario(actividad, contexto));
+
+    const vecesPorActividad = new Map(
+      conteos.map((conteo) => [conteo.actividadId, conteo._count._all])
+    );
+    const marcasPorActividad = agruparMarcasPorActividad(marcas);
+
+    // La timezone del Grupo se pide UNA vez por request, y solo si hace falta:
+    // para evaluar actividades programadas (fase-14-11), acotadas por fechas
+    // (fase-14-24) o para resolver el instante del deadline (fase-14-14). Sin
+    // ninguna de las tres no se paga.
+    const necesitaTimezone = destinatarias.some(
+      (actividad) =>
+        tieneProgramacion(actividad) ||
+        actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE
+    );
+    const timezone = necesitaTimezone
+      ? (await this.identity.obtenerGrupo(grupoId))?.timezone
+      : undefined;
+    const inicioSesion = new Date(sesionAbierta.fechaInicio);
+
+    // fase-14-24, decisión 10: fuera de su rango de fechas la actividad NO se
+    // muestra. Es lo contrario del «hoy no toca» del ítem 11 —que sí se ve en
+    // gris, porque mañana vuelve—: un rango que terminó no vuelve nunca, y uno
+    // que no empezó no dice nada útil todavía. Por eso se filtra acá y no se
+    // resuelve con `disponibleHoy`, que sigue significando lo del ítem 11.
+    //
+    // Sin timezone resuelta no se filtra nada: mismo criterio fail-open que
+    // `disponibleHoy` — el servidor decide de verdad al registrar, y esconder
+    // actividades por una falla ajena es peor que mostrarlas de más.
+    const visibles = timezone
+      ? destinatarias.filter(
+          (actividad) =>
+            motivoNoDisponible(actividad, inicioSesion, timezone) !== 'FUERA_DE_VIGENCIA'
+        )
+      : destinatarias;
 
     // fase-14-21: a quién le toca cada obligatoria rotativa hoy. Una consulta
     // para todas (no una por actividad), y ninguna si el grupo no usa turnos.
@@ -423,24 +463,6 @@ export class RegistroService {
       sesionAbierta.seccionId,
       usuarioId
     );
-
-    const vecesPorActividad = new Map(
-      conteos.map((conteo) => [conteo.actividadId, conteo._count._all])
-    );
-    const marcasPorActividad = agruparMarcasPorActividad(marcas);
-
-    // La timezone del Grupo se pide UNA vez por request, y solo si hace falta:
-    // para evaluar actividades programadas (fase-14-11) o para resolver el
-    // instante del deadline (fase-14-14). Sin ninguna de las dos no se paga.
-    const necesitaTimezone = visibles.some(
-      (actividad) =>
-        actividad.diasSemana.length > 0 ||
-        actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE
-    );
-    const timezone = necesitaTimezone
-      ? (await this.identity.obtenerGrupo(grupoId))?.timezone
-      : undefined;
-    const inicioSesion = new Date(sesionAbierta.fechaInicio);
 
     const items: MiEstadoActividadHoyDto[] = visibles.map((actividad) => {
       const vecesHechas = vecesPorActividad.get(actividad.id) ?? 0;
@@ -486,7 +508,7 @@ export class RegistroService {
         // el servidor el que decide de verdad al registrar, y una pantalla que
         // apaga botones por una falla ajena es peor que una que los deja.
         disponibleHoy: timezone
-          ? estaDisponibleEn(actividad.diasSemana, inicioSesion, timezone)
+          ? estaDisponibleEn(actividad, inicioSesion, timezone)
           : true,
         diasSemana: actividad.diasSemana,
         requiereSeleccion,
@@ -1049,21 +1071,6 @@ export class RegistroService {
   }
 
   /**
-   * Quita de la lista las actividades restringidas a un rol que el integrante no
-   * tiene (fase-14-19, decisión 6: se ocultan, no se muestran deshabilitadas).
-   * Una sola llamada a identity para toda la lista, nunca una por actividad.
-   */
-  private async filtrarPorRol(
-    actividades: Actividad[],
-    grupoId: string,
-    usuarioId: string
-  ): Promise<Actividad[]> {
-    const rolGrupoId = await this.identity.rolDeUsuario(grupoId, usuarioId);
-
-    return actividades.filter((actividad) => esDeSuRol(actividad, rolGrupoId));
-  }
-
-  /**
    * Las TRES reglas de "esta actividad le corresponde hoy a este participante":
    * autoría (fase-14-10), rol (fase-14-19) y turno (fase-14-21). Van juntas
    * porque los tres flujos de registro —cronómetro, completar/confirmar y el
@@ -1086,7 +1093,7 @@ export class RegistroService {
       throw new ActividadPersonalDeOtroUsuarioException();
     }
 
-    await this.asegurarEsDeSuRol(actividad, tenant, usuarioObjetivo);
+    await this.asegurarEsDestinatario(actividad, tenant, usuarioObjetivo);
     await this.asegurarEsSuTurno(actividad, tenant, usuarioObjetivo);
   }
 
@@ -1156,18 +1163,26 @@ export class RegistroService {
   }
 
   /** fase-14-19, extraída para que el turno no quede detrás de un early return. */
-  private async asegurarEsDeSuRol(
+  private async asegurarEsDestinatario(
     actividad: Actividad,
     tenant: TenantContext,
     usuarioObjetivo: string
   ): Promise<void> {
-    if (actividad.rolesPermitidos.length === 0) {
+    // fase-14-24: sin restricción de ningún tipo, cero llamadas a identity —
+    // que es el caso de todo lo anterior a los ítems 19 y 24.
+    if (
+      actividad.rolesPermitidos.length === 0 &&
+      actividad.usuariosPermitidos.length === 0 &&
+      actividad.equiposPermitidos.length === 0
+    ) {
       return;
     }
 
-    const rolGrupoId = await this.identity.rolDeUsuario(actividad.grupoId, usuarioObjetivo);
+    const contexto = await this.contexto.resolver(actividad.grupoId, usuarioObjetivo, [
+      actividad,
+    ]);
 
-    if (esDeSuRol(actividad, rolGrupoId)) {
+    if (esDestinatario(actividad, contexto)) {
       return;
     }
 
@@ -1261,7 +1276,7 @@ export class RegistroService {
     actividad: Actividad,
     sesion: SesionDeRegistro
   ): Promise<void> {
-    if (actividad.diasSemana.length === 0) {
+    if (!tieneProgramacion(actividad)) {
       return;
     }
 
@@ -1271,8 +1286,15 @@ export class RegistroService {
       throw new NotFoundException('Grupo no encontrado');
     }
 
-    if (!estaDisponibleEn(actividad.diasSemana, sesion.fechaInicioSesion, grupo.timezone)) {
-      throw new ActividadNoDisponibleHoyException(actividad.diasSemana);
+    // fase-14-24: días de la semana Y vigencia por fechas.
+    const noDisponible = excepcionSiNoDisponible(
+      actividad,
+      sesion.fechaInicioSesion,
+      grupo.timezone
+    );
+
+    if (noDisponible) {
+      throw noDisponible;
     }
   }
 

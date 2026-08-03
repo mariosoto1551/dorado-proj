@@ -5,6 +5,7 @@ import { EstadoSeccion, EstadoSesion } from '@dorado/shared-types';
 import type { GrupoDto, TenantContext, UsuarioDto } from '@dorado/shared-types';
 
 import type { IdentityClientService } from '../clientes/identity-client.service';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import type {
   SeccionActualInterna,
   SessionClientService,
@@ -170,7 +171,8 @@ function crearServicio(opciones: {
     session,
     identity,
     configuracion,
-    { asegurarAccesoLectura: () => undefined } as never
+    { asegurarAccesoLectura: () => undefined } as never,
+    new ContextoParticipanteService(identity)
   );
 
   // fase-14-21: TurnosService REAL contra la misma bd en memoria, igual que el
@@ -185,7 +187,15 @@ function crearServicio(opciones: {
   );
 
   return {
-    servicio: new RegistroService(bd.prisma, identity, session, eventos, planDia, turnos),
+    servicio: new RegistroService(
+      bd.prisma,
+      identity,
+      session,
+      eventos,
+      planDia,
+      turnos,
+      new ContextoParticipanteService(identity)
+    ),
     planDia,
     turnos,
     bd,
@@ -1660,5 +1670,158 @@ describe('RegistroService — estado-hoy de OTRO usuario, para el Tutor (fase-14
     const visto = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-1');
 
     expect(visto).toEqual({ sesionId: null, planDelDiaActivo: false, actividades: [] });
+  });
+});
+
+describe('RegistroService — destinatario nominal (fase-14-24)', () => {
+  function bdConDeAna() {
+    return crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba(),
+        actividadDePrueba({
+          id: 'actividad-piano',
+          nombre: 'Practicar piano',
+          usuariosPermitidos: ['usuario-1'],
+        }),
+      ],
+    });
+  }
+
+  it('mi-estado-hoy la muestra al asignado', async () => {
+    const { servicio } = crearServicio({ bd: bdConDeAna() });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual([
+      'actividad-1',
+      'actividad-piano',
+    ]);
+  });
+
+  it('mi-estado-hoy la OCULTA a quien no esta en la lista (decision 4)', async () => {
+    const { servicio } = crearServicio({ bd: bdConDeAna() });
+    const otro = { ...tenantUsuario(), principalId: 'usuario-2' } as TenantContext;
+
+    const estado = await servicio.miEstadoHoy(otro, 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual(['actividad-1']);
+  });
+
+  it('el no destinatario tampoco la completa: la pantalla no decide, el servidor si', async () => {
+    const { servicio } = crearServicio({ bd: bdConDeAna() });
+    const otro = { ...tenantUsuario(), principalId: 'usuario-2' } as TenantContext;
+
+    await expect(servicio.completar(otro, 'actividad-piano', {})).rejects.toMatchObject({
+      code: 'ACTIVIDAD_NO_ES_DE_TU_ROL',
+    });
+  });
+
+  it('el asignado la completa normalmente', async () => {
+    const { servicio } = crearServicio({ bd: bdConDeAna() });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'actividad-piano', {})
+    ).resolves.toMatchObject({ actividadId: 'actividad-piano' });
+  });
+
+  it('COSTO CERO: sin restricciones no se llama a identity, como antes del item', async () => {
+    const { servicio, rolDeUsuario } = crearServicio();
+
+    await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(rolDeUsuario).not.toHaveBeenCalled();
+  });
+});
+
+describe('RegistroService — vigencia por fechas (fase-14-24)', () => {
+  // La Sesion de la bd en memoria arranca el lunes 13/07/2026 en La Paz (la
+  // misma referencia que programacion.spec.ts y deadline.spec.ts). Las fechas
+  // van ancladas a ESE dia, no a "hoy": la vigencia se evalua sobre el dia de
+  // inicio de la Sesion, no sobre el reloj de quien corre el test.
+  const ANTES = '2026-07-01';
+  const DESPUES = '2026-07-31';
+
+  it('fuera del rango la actividad NO APARECE en la lista (decision 10)', async () => {
+    // Es lo contrario del «hoy no toca» del item 11, que si se ve en gris: un
+    // rango que termino no vuelve nunca, y uno que no empezo no dice nada util
+    // todavia. La E2E encontro que el bloqueo del registro estaba y el
+    // ocultamiento no — se veia igual, con boton, y el clic terminaba en 409.
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba(),
+        actividadDePrueba({ id: 'act-vencida', vigenteHasta: ANTES }),
+        actividadDePrueba({ id: 'act-futura', vigenteDesde: DESPUES }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+
+    expect(estado.actividades.map((item) => item.actividadId)).toEqual(['actividad-1']);
+  });
+
+  it('dentro del rango SI aparece, y la de otro dia sigue apareciendo en gris', async () => {
+    // El matiz que separa las dos reglas: la vigencia OCULTA, el dia APAGA.
+    const otroDia = (new Date('2026-07-13T04:00:00.000Z').getUTCDay() + 1) % 7;
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'act-vigente', vigenteDesde: ANTES, vigenteHasta: DESPUES }),
+        actividadDePrueba({ id: 'act-otro-dia', diasSemana: [otroDia] }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
+    const ids = estado.actividades.map((item) => item.actividadId);
+
+    expect(ids).toEqual(['act-vigente', 'act-otro-dia']);
+    expect(
+      estado.actividades.find((item) => item.actividadId === 'act-otro-dia')?.disponibleHoy
+    ).toBe(false);
+  });
+
+  it('fuera del rango NO se puede completar', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'act-vencida', vigenteHasta: ANTES }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'act-vencida', {})
+    ).rejects.toMatchObject({ code: 'ACTIVIDAD_FUERA_DE_VIGENCIA' });
+  });
+
+  it('dentro del rango se completa normalmente', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          id: 'act-campania',
+          vigenteDesde: ANTES,
+          vigenteHasta: DESPUES,
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'act-campania', {})
+    ).resolves.toMatchObject({ actividadId: 'act-campania' });
+  });
+
+  it('el error distingue vigencia de "hoy no es su dia" (dos motivos, dos codes)', async () => {
+    // Son mensajes distintos para el integrante: "todavia no empieza" no es
+    // "los martes", y el cliente necesita el code para saber cual mostrar.
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ id: 'act-futura', vigenteDesde: DESPUES }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd });
+
+    await expect(
+      servicio.completar(tenantUsuario(), 'act-futura', {})
+    ).rejects.toMatchObject({ code: 'ACTIVIDAD_FUERA_DE_VIGENCIA' });
   });
 });

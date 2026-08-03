@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ClientesModule } from '../clientes/clientes.module';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import { PlanDiaModule } from '../plan-dia/plan-dia.module';
 import { TurnosModule } from '../turnos/turnos.module';
 import { RegistroController } from './registro.controller';
@@ -12,6 +13,6 @@ import { RegistroService } from './registro.service';
 @Module({
   imports: [ClientesModule, PlanDiaModule, TurnosModule],
   controllers: [RegistroController],
-  providers: [RegistroService],
+  providers: [ContextoParticipanteService, RegistroService],
 })
 export class RegistroModule {}

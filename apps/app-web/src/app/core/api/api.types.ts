@@ -72,6 +72,17 @@ export interface CrearActividadRequest {
   siempreVisible?: boolean;
   /** fase-14-19: ids de RolGrupo que la ven; vacío u omitido = la ven todos. */
   rolesPermitidos?: string[];
+  /**
+   * fase-14-24: destinatario nominal. Excluyente con `rolesPermitidos` y
+   * `equiposPermitidos` — el servidor devuelve 400 DESTINATARIO_AMBIGUO si
+   * viene más de uno con datos.
+   */
+  usuariosPermitidos?: string[];
+  /** fase-14-24: ids de Equipo; exige `alcance = EQUIPO`. */
+  equiposPermitidos?: string[];
+  /** fase-14-24: vigencia "YYYY-MM-DD" del calendario local del Grupo. */
+  vigenteDesde?: string | null;
+  vigenteHasta?: string | null;
 }
 
 export type EditarActividadRequest = Partial<CrearActividadRequest>;

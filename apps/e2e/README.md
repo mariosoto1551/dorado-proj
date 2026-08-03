@@ -13,6 +13,7 @@ con un smoke opcional de UI. No es una app desplegable: es el arnés de pruebas.
 | `seguridad-inmutabilidad.e2e.ts` | 3 | **Test de seguridad**: editar `valorPuntos` no altera asientos pasados; corrección post-cierre = fila nueva con `corregidoDeId`; `ResultadoSeccion` intacto; no se registra sin Sesión ABIERTA. |
 | `carga-bus.e2e.ts` | 4 | ~500 registros en ráfaga → scoring los proyecta sin pérdidas ni duplicados; la DLQ (`scoring.dlq`) recibe un mensaje veneno. |
 | `plan-del-dia.e2e.ts` | fase-14 · ítem 17 | El **plan del día**: con el modo apagado nada cambia (retro-compatibilidad); encendido, las opcionales del tutor se esconden hasta elegirlas, se sacan mientras no se empezaron, el alta automática al completar, y el plan se vacía en la Sesión siguiente. |
+| `destinatario-y-vigencia.e2e.ts` | fase-14 · ítem 24 | **Destinatario nominal**: la actividad de Ana no existe para Luis en ninguno de los tres caminos (lista, catálogo, registro) y **el castigo al cerrar la Sesión solo alcanza al destinatario** — el punto que no se ve en ninguna pantalla. Los cuatro modos excluyentes, los ids validados contra el grupo del JWT y el cambio de modo que borra el anterior. **Vigencia**: fuera del rango no se registra ni aparece, la obligatoria vencida no castiga **y queda archivada al cerrar**, el cruce con los días del ítem 11 devuelve el código del día (no el de la fecha), y los rangos inválidos se rechazan. |
 
 ## Cómo correr
 

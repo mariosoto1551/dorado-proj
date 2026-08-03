@@ -30,6 +30,9 @@ import {
  */
 const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Fecha civil "YYYY-MM-DD" (fase-14-24). El calendario real lo valida el service. */
+const FECHA_CIVIL = /^\d{4}-\d{2}-\d{2}$/;
+
 // POST /activity/grupos/:grupoId/actividades
 export class CrearActividadRequest {
   @IsString()
@@ -124,6 +127,33 @@ export class CrearActividadRequest {
   @ArrayUnique()
   @IsUUID('4', { each: true })
   rolesPermitidos?: string[];
+
+  // fase-14-24: destinatario NOMINAL — ids de Usuario. Excluyente con
+  // rolesPermitidos y equiposPermitidos (400 DESTINATARIO_AMBIGUO si viene más
+  // de uno); el service valida que sean del grupo y que la actividad sea INDIVIDUAL.
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  usuariosPermitidos?: string[];
+
+  // fase-14-24: ids de Equipo. Exige alcance = EQUIPO (decisión 5).
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  equiposPermitidos?: string[];
+
+  // fase-14-24: vigencia, fecha CIVIL del calendario local del Grupo. null
+  // explícito la borra; el service valida el formato real (30/02 no pasa) y que
+  // desde <= hasta.
+  @IsOptional()
+  @Matches(FECHA_CIVIL, { message: 'vigenteDesde debe tener formato YYYY-MM-DD' })
+  vigenteDesde?: string | null;
+
+  @IsOptional()
+  @Matches(FECHA_CIVIL, { message: 'vigenteHasta debe tener formato YYYY-MM-DD' })
+  vigenteHasta?: string | null;
 }
 
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
@@ -215,6 +245,33 @@ export class EditarActividadRequest {
   @ArrayUnique()
   @IsUUID('4', { each: true })
   rolesPermitidos?: string[];
+
+  // fase-14-24: destinatario NOMINAL — ids de Usuario. Excluyente con
+  // rolesPermitidos y equiposPermitidos (400 DESTINATARIO_AMBIGUO si viene más
+  // de uno); el service valida que sean del grupo y que la actividad sea INDIVIDUAL.
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  usuariosPermitidos?: string[];
+
+  // fase-14-24: ids de Equipo. Exige alcance = EQUIPO (decisión 5).
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  equiposPermitidos?: string[];
+
+  // fase-14-24: vigencia, fecha CIVIL del calendario local del Grupo. null
+  // explícito la borra; el service valida el formato real (30/02 no pasa) y que
+  // desde <= hasta.
+  @IsOptional()
+  @Matches(FECHA_CIVIL, { message: 'vigenteDesde debe tener formato YYYY-MM-DD' })
+  vigenteDesde?: string | null;
+
+  @IsOptional()
+  @Matches(FECHA_CIVIL, { message: 'vigenteHasta debe tener formato YYYY-MM-DD' })
+  vigenteHasta?: string | null;
 }
 
 // GET /activity/grupos/:grupoId/actividades?estado= — solo tutores; para

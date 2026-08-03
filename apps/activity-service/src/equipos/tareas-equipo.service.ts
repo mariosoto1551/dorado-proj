@@ -23,13 +23,14 @@ import { SessionClientService } from '../clientes/session-client.service';
 import {
   ActividadNoDisponibleHoyException,
   EquipoNoEncontradoException,
+  excepcionSiNoDisponible,
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
   NoEsTareaDeEquipoException,
   NoHaySesionAbiertaException,
   SoloJefeCompletaTareaEquipoException,
 } from '../comun/excepciones';
-import { estaDisponibleEn } from '../comun/programacion';
+import { estaDisponibleEn, tieneProgramacion } from '../comun/programacion';
 import { resolverSesionAbierta } from '../comun/sesion-abierta';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, RegistroTareaEquipo } from '../generated/prisma/client';
@@ -102,15 +103,25 @@ export class TareasEquipoService {
     const seccion = await this.session.obtenerSeccionActual(equipo.grupoId);
     const sesion = resolverSesionAbierta(seccion);
 
-    // fase-14-11: una tarea de equipo también puede estar programada.
-    if (actividad.diasSemana.length > 0) {
+    // fase-14-11 + fase-14-24: una tarea de equipo también puede estar
+    // programada por días o acotada por fechas. El cruce REST para resolver la
+    // timezone se paga solo si tiene alguna de las dos (patrón del ítem 11).
+    if (tieneProgramacion(actividad)) {
       const grupo = await this.identity.obtenerGrupo(equipo.grupoId);
 
-      if (
-        !grupo ||
-        !estaDisponibleEn(actividad.diasSemana, sesion.fechaInicioSesion, grupo.timezone)
-      ) {
+      if (!grupo) {
         throw new ActividadNoDisponibleHoyException(actividad.diasSemana);
+      }
+
+      // El motivo decide cuál de las dos excepciones sale.
+      const noDisponible = excepcionSiNoDisponible(
+        actividad,
+        sesion.fechaInicioSesion,
+        grupo.timezone
+      );
+
+      if (noDisponible) {
+        throw noDisponible;
       }
     }
 
@@ -218,7 +229,7 @@ export class TareasEquipoService {
       : [];
 
     // fase-14-11: la timezone se pide UNA vez y solo si hay alguna programada.
-    const hayProgramadas = tareas.some((tarea) => tarea.diasSemana.length > 0);
+    const hayProgramadas = tareas.some(tieneProgramacion);
     const timezone =
       hayProgramadas && sesion
         ? (await this.identity.obtenerGrupo(equipo.grupoId))?.timezone
@@ -244,7 +255,7 @@ export class TareasEquipoService {
         motivoTutor: ultimoMotivoDeAnulacion(anulados),
         disponibleHoy:
           timezone && sesion
-            ? estaDisponibleEn(tarea.diasSemana, sesion.fechaInicioSesion, timezone)
+            ? estaDisponibleEn(tarea, sesion.fechaInicioSesion, timezone)
             : true,
         diasSemana: tarea.diasSemana,
         registros: esTutor ? suyos.map(registroTareaEquipoADto) : [],

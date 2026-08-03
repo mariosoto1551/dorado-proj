@@ -5,6 +5,7 @@ import { EstadoSeccion, EstadoSesion } from '@dorado/shared-types';
 import type { GrupoDto, TenantContext } from '@dorado/shared-types';
 
 import type { IdentityClientService } from '../clientes/identity-client.service';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
 import type {
   SeccionActualInterna,
   SessionClientService,
@@ -136,9 +137,14 @@ function crearServicio(
     }),
   } as unknown as ConfiguracionContenidoService;
 
-  const servicio = new PlanDiaService(bd.prisma, session, identity, config, {
-    asegurarAccesoLectura: () => undefined,
-  } as never);
+  const servicio = new PlanDiaService(
+    bd.prisma,
+    session,
+    identity,
+    config,
+    { asegurarAccesoLectura: () => undefined } as never,
+    new ContextoParticipanteService(identity)
+  );
 
   return { servicio, bd };
 }

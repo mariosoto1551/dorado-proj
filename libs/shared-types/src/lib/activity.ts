@@ -95,6 +95,31 @@ export interface ActividadDto {
    * Solo aplica a actividades INDIVIDUAL del catálogo del Tutor.
    */
   rolesPermitidos: string[];
+  /**
+   * fase-14-24: destinatario NOMINAL — ids de `Usuario` (identity). Vacío = no
+   * es el modo activo. Excluyente con `rolesPermitidos` y `equiposPermitidos`:
+   * los cuatro modos (todos / rol / personas / equipos) no se combinan.
+   *
+   * La diferencia con el rol es de intención, no de mecánica: el rol es
+   * **dinámico** (quien lo reciba mañana queda incluido solo), esta lista es
+   * **estática** (quien entre al grupo mañana no entra a la lista).
+   *
+   * Quien no es destinatario NO la ve — se oculta, igual que con el rol.
+   */
+  usuariosPermitidos: string[];
+  /** fase-14-24: ids de `Equipo` (identity). Solo con `alcance = EQUIPO`. */
+  equiposPermitidos: string[];
+  /**
+   * fase-14-24: vigencia. Fecha CIVIL `"YYYY-MM-DD"` del calendario local del
+   * Grupo, no un instante — misma convención que `deadlineHora` con `"HH:mm"`.
+   * Ambos extremos son inclusivos, así que `desde = hasta` es "solo ese día".
+   * Los dos en null = permanente, que es el default.
+   *
+   * Se cruza con `diasSemana`: "los lunes y miércoles, del 1 al 30 de marzo"
+   * exige cumplir las dos condiciones.
+   */
+  vigenteDesde: string | null;
+  vigenteHasta: string | null;
   estado: 'ACTIVA' | 'ARCHIVADA';
 }
 

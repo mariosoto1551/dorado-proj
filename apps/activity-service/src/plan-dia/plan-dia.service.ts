@@ -7,14 +7,15 @@ import { SessionClientService } from '../clientes/session-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { esElegibleParaElPlan } from '../comun/elegibilidad-plan';
 import {
-  ActividadNoDisponibleHoyException,
   ActividadNoElegibleParaElPlanException,
   ActividadNoEsDeTuRolException,
   ActividadYaEmpezadaException,
+  excepcionSiNoDisponible,
   PlanDelDiaInactivoException,
 } from '../comun/excepciones';
-import { estaDisponibleEn } from '../comun/programacion';
-import { esDeSuRol } from '../comun/restriccion-rol';
+import { tieneProgramacion } from '../comun/programacion';
+import { ContextoParticipanteService } from '../comun/contexto-participante.service';
+import { esDestinatario } from '../comun/destinatario';
 import { resolverSesionAbierta } from '../comun/sesion-abierta';
 import { esVisiblePara } from '../comun/visibilidad-actividad';
 import { ConfiguracionContenidoService } from '../contenido-usuario/configuracion-contenido.service';
@@ -38,7 +39,8 @@ export class PlanDiaService {
     private readonly session: SessionClientService,
     private readonly identity: IdentityClientService,
     private readonly config: ConfiguracionContenidoService,
-    private readonly acceso: AccesoGrupoService
+    private readonly acceso: AccesoGrupoService,
+    private readonly contexto: ContextoParticipanteService
   ) {}
 
   /** POST /activity/grupos/:grupoId/plan-dia — USUARIO (self). Idempotente. */
@@ -204,12 +206,13 @@ export class PlanDiaService {
       throw new ActividadNoElegibleParaElPlanException();
     }
 
-    // fase-14-19: sin esto la hoja «＋ Elegir» sería una puerta lateral a lo que
-    // la lista oculta. Solo cuesta una llamada si la actividad está restringida.
-    if (actividad.rolesPermitidos.length > 0) {
-      const rolGrupoId = await this.identity.rolDeUsuario(grupoId, usuarioId);
+    // fase-14-19 + fase-14-24: sin esto la hoja «＋ Elegir» sería una puerta
+    // lateral a lo que la lista oculta. Solo cuesta una llamada si la actividad
+    // tiene alguna restricción de destinatario.
+    if (actividad.rolesPermitidos.length > 0 || actividad.usuariosPermitidos.length > 0) {
+      const contexto = await this.contexto.resolver(grupoId, usuarioId, [actividad]);
 
-      if (!esDeSuRol(actividad, rolGrupoId)) {
+      if (!esDestinatario(actividad, contexto)) {
         throw new ActividadNoEsDeTuRolException();
       }
     }
@@ -223,7 +226,7 @@ export class PlanDiaService {
     grupoId: string,
     fechaInicioSesion: Date
   ): Promise<void> {
-    if (actividad.diasSemana.length === 0) {
+    if (!tieneProgramacion(actividad)) {
       return;
     }
 
@@ -231,8 +234,15 @@ export class PlanDiaService {
 
     // Sin timezone (identity no respondió) se deja pasar: el `completar` valida
     // igual, y bloquear una elección por una falla ajena es peor.
-    if (timezone && !estaDisponibleEn(actividad.diasSemana, fechaInicioSesion, timezone)) {
-      throw new ActividadNoDisponibleHoyException(actividad.diasSemana);
+    if (!timezone) {
+      return;
+    }
+
+    // fase-14-24: días de la semana Y vigencia por fechas.
+    const noDisponible = excepcionSiNoDisponible(actividad, fechaInicioSesion, timezone);
+
+    if (noDisponible) {
+      throw noDisponible;
     }
   }
 

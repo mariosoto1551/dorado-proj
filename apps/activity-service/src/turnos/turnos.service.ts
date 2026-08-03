@@ -16,6 +16,7 @@ import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
   SecuenciaVaciaException,
   SinTurnoVigenteException,
+  TurnoFueraDelDestinatarioException,
   TurnoNoConfiguradoException,
   TurnoSoloIndividualException,
   TurnoSoloObligatoriaException,
@@ -100,6 +101,19 @@ export class TurnosService {
 
     if (datos.posiciones.some((posicion) => !idsDelGrupo.has(posicion.usuarioId))) {
       throw new UsuarioNoEsDelGrupoException();
+    }
+
+    // fase-14-24, decisión 6: si la actividad tiene destinatario nominal, el
+    // pozo sale de ahí. Una sola verdad sobre quién participa — cargar en la
+    // rotación a alguien que no es destinatario le daría un turno que su
+    // pantalla nunca le va a mostrar, y el castigo caería igual.
+    if (
+      actividad.usuariosPermitidos.length > 0 &&
+      datos.posiciones.some(
+        (posicion) => !actividad.usuariosPermitidos.includes(posicion.usuarioId)
+      )
+    ) {
+      throw new TurnoFueraDelDestinatarioException();
     }
 
     const turno = await this.prisma.client.$transaction(async (tx) => {

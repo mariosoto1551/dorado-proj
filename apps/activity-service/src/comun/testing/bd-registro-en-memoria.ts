@@ -320,6 +320,11 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     siempreVisible: false,
     // fase-14-19: sin restricción de rol = la ven todos los del grupo.
     rolesPermitidos: [],
+    // fase-14-24: sin destinatario nominal ni vigencia = la ven todos, siempre.
+    usuariosPermitidos: [],
+    equiposPermitidos: [],
+    vigenteDesde: null,
+    vigenteHasta: null,
     estado: 'ACTIVA',
     // fase-14-10: por defecto es del catálogo del tutor (visible para todos).
     origen: 'TUTOR',
