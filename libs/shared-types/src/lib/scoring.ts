@@ -73,3 +73,34 @@ export interface PuntajeEquipoDto {
   puntajeTotal: number;
   porMiembro: Array<{ usuarioId: string; puntos: number }>;
 }
+
+/**
+ * Puntaje de un participante dentro del resumen del Grupo (fase-14-29 tanda 3,
+ * herramienta `resumen_puntajes`). Sin nombre a propósito: scoring no conoce
+ * nombres y no debe salir a identity para armar esto — quien consume el
+ * resumen ya tiene la lista de participantes y compone por ID (regla 2).
+ */
+export interface PuntajeResumidoDto {
+  usuarioId: string;
+  puntajeTotal: number;
+  /** Nombre de la zona alcanzada, o null si ninguna matcheó / está descalificado. */
+  nombreZona: string | null;
+  descalificado: boolean;
+}
+
+/**
+ * Foto de los puntajes del Grupo en la Sección más reciente que tenga
+ * movimiento (fase-14-29). La Sección se resuelve dentro de scoring, desde su
+ * propio ledger: pedírsela a session-service encadenaría un tercer servicio
+ * para responder una pregunta que el ledger ya contesta.
+ *
+ * `seccionId` en null (y la lista vacía) significa que el Grupo todavía no
+ * registró un solo punto — no es un error.
+ */
+export interface ResumenPuntajesGrupoDto {
+  grupoId: string;
+  seccionId: string | null;
+  /** Si los puntajes salen del snapshot `ResultadoSeccion` (Sección ya evaluada) o del ledger en vivo. */
+  origen: 'SNAPSHOT' | 'EN_VIVO';
+  puntajes: PuntajeResumidoDto[];
+}

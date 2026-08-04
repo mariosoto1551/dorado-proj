@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
 import {
@@ -7,11 +7,21 @@ import {
   CatalogoRendibleDto,
   ComportamientoAlCierre,
   ConductaDto,
+  CumplimientoActividadDto,
+  ResumenCumplimientoDto,
   TipoPuntaje,
 } from '@dorado/shared-types';
 
 import { actividadADto, conductaADto } from '../comun/mapeadores';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Ventana por defecto del resumen de cumplimiento, en días. Un mes cubre varias
+ * Secciones semanales sin que una racha vieja tape lo que pasa ahora.
+ */
+const DIAS_CUMPLIMIENTO_DEFAULT = 30;
+
+const DIAS_CUMPLIMIENTO_MAX = 365;
 
 /**
  * Endpoints internos servicio-a-servicio (ADR-00 §4): protegidos por
@@ -99,6 +109,152 @@ export class InternalController {
         bonoJefePuntos: null,
         repeticionesMaximasSesion: null,
       })),
+    };
+  }
+
+  /**
+   * fase-14-29 (herramienta `listar_actividades`): el catálogo COMPLETO del
+   * Grupo, con el DTO entero y no un recorte.
+   *
+   * A diferencia de `catalogo-rendible`, que existe para llenar una pantalla de
+   * configuración, esto alimenta a quien tiene que proponer ediciones: para
+   * decidir si a una actividad le falta el deadline o le sobran repeticiones
+   * hacen falta los veintipico de campos, no siete.
+   *
+   * Devuelve también las ARCHIVADAS salvo que se filtre: "¿qué archivamos y por
+   * qué?" es una pregunta legítima sobre el catálogo.
+   */
+  @Get('grupos/:grupoId/actividades')
+  async actividadesDelGrupo(
+    @Param('grupoId') grupoId: string,
+    @Query('estado') estado?: string
+  ): Promise<ActividadDto[]> {
+    const actividades = await this.prisma.client.actividad.findMany({
+      where: {
+        grupoId,
+        ...(estado === 'ACTIVA' || estado === 'ARCHIVADA' ? { estado } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return actividades.map(actividadADto);
+  }
+
+  /** fase-14-29 (herramienta `listar_conductas`). Mismo criterio que el de arriba. */
+  @Get('grupos/:grupoId/conductas')
+  async conductasDelGrupo(
+    @Param('grupoId') grupoId: string,
+    @Query('estado') estado?: string
+  ): Promise<ConductaDto[]> {
+    const conductas = await this.prisma.client.conducta.findMany({
+      where: {
+        grupoId,
+        ...(estado === 'ACTIVA' || estado === 'ARCHIVADA' ? { estado } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return conductas.map(conductaADto);
+  }
+
+  /**
+   * fase-14-29 (herramienta `resumen_cumplimiento`): cuánto se usa cada
+   * actividad del catálogo en los últimos N días.
+   *
+   * Existe porque es la pregunta que el catálogo no contesta — ahí las veinte
+   * actividades se ven igual de vivas, y la que nadie hizo nunca no se
+   * distingue de la que se hace todos los días.
+   *
+   * Se cuentan solo las marcas VIGENTES: `eliminado` sin `revertidoPorTutorId`
+   * queda afuera, igual que queda afuera del puntaje. Contar una marca que el
+   * Tutor quitó diría que la actividad se cumple cuando el Tutor decidió lo
+   * contrario.
+   *
+   * Las actividades sin ninguna marca se devuelven igual, con todo en cero: son
+   * justamente el caso que la herramienta existe para encontrar.
+   */
+  @Get('grupos/:grupoId/resumen-cumplimiento')
+  async resumenCumplimiento(
+    @Param('grupoId') grupoId: string,
+    @Query('dias') diasQuery?: string
+  ): Promise<ResumenCumplimientoDto> {
+    const dias = this.diasValidos(diasQuery);
+    const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+
+    const [actividades, registros] = await Promise.all([
+      this.prisma.client.actividad.findMany({
+        where: { grupoId },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.client.registroActividad.findMany({
+        where: {
+          grupoId,
+          createdAt: { gte: desde },
+          // Una marca eliminada no cuenta; una eliminada y después revertida
+          // (fase-14-12) sí, porque volvió a valer.
+          OR: [{ eliminado: false }, { revertidoPorTutorId: { not: null } }],
+        },
+        select: {
+          actividadId: true,
+          usuarioId: true,
+          tipo: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      grupoId,
+      dias,
+      actividades: actividades.map((actividad) =>
+        this.cumplimientoDe(actividad, registros)
+      ),
+    };
+  }
+
+  private diasValidos(diasQuery?: string): number {
+    const parseado = Number.parseInt(diasQuery ?? '', 10);
+
+    if (!Number.isFinite(parseado) || parseado < 1) {
+      return DIAS_CUMPLIMIENTO_DEFAULT;
+    }
+
+    return Math.min(parseado, DIAS_CUMPLIMIENTO_MAX);
+  }
+
+  private cumplimientoDe(
+    actividad: {
+      id: string;
+      nombre: string;
+      estado: string;
+      tipoPuntaje: string;
+      valorPuntos: number;
+    },
+    registros: Array<{
+      actividadId: string;
+      usuarioId: string;
+      tipo: string;
+      createdAt: Date;
+    }>
+  ): CumplimientoActividadDto {
+    const suyos = registros.filter((registro) => registro.actividadId === actividad.id);
+    const completadas = suyos.filter((registro) => registro.tipo === 'COMPLETADA');
+    const ultima = completadas.reduce<Date | null>(
+      (masReciente, registro) =>
+        masReciente === null || registro.createdAt > masReciente ? registro.createdAt : masReciente,
+      null
+    );
+
+    return {
+      actividadId: actividad.id,
+      nombre: actividad.nombre,
+      estado: actividad.estado as CumplimientoActividadDto['estado'],
+      tipoPuntaje: actividad.tipoPuntaje as TipoPuntaje,
+      valorPuntos: actividad.valorPuntos,
+      vecesCompletada: completadas.length,
+      vecesNoHizo: suyos.length - completadas.length,
+      participantesDistintos: new Set(completadas.map((registro) => registro.usuarioId)).size,
+      ultimaVezCompletada: ultima?.toISOString() ?? null,
     };
   }
 }

@@ -13,6 +13,10 @@ function envBase(extra: Record<string, unknown> = {}): Record<string, unknown> {
     JWT_PUBLIC_KEY,
     GATEWAY_INTERNAL_SECRET: 'secreto-interno-de-al-menos-16',
     BILLING_INTERNAL_URL: 'http://localhost:3002',
+    ACTIVITY_INTERNAL_URL: 'http://localhost:3003',
+    IDENTITY_INTERNAL_URL: 'http://localhost:3001',
+    SCORING_INTERNAL_URL: 'http://localhost:3005',
+    REWARDS_INTERNAL_URL: 'http://localhost:3006',
     ...extra,
   };
 }
@@ -47,6 +51,25 @@ describe('validarEnv — ai-service', () => {
     const { BILLING_INTERNAL_URL: _omitida, ...sinBilling } = envBase();
 
     expect(() => validarEnv(sinBilling)).toThrow(/BILLING_INTERNAL_URL/);
+  });
+
+  /**
+   * fase-14-29 tanda 3: las cuatro son requeridas a propósito. Un servicio que
+   * levanta sin saber a quién preguntarle deja herramientas que fallan de a una
+   * en medio de una conversación — mucho más difícil de diagnosticar que un
+   * proceso que no arranca y dice por qué.
+   */
+  it.each([
+    'ACTIVITY_INTERNAL_URL',
+    'IDENTITY_INTERNAL_URL',
+    'SCORING_INTERNAL_URL',
+    'REWARDS_INTERNAL_URL',
+  ])('no arranca sin %s (origen de las herramientas de lectura)', (variable) => {
+    const env = envBase();
+
+    delete env[variable];
+
+    expect(() => validarEnv(env)).toThrow(new RegExp(variable));
   });
 
   it('no arranca sin DATABASE_URL', () => {

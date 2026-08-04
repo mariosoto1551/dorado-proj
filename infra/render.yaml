@@ -250,6 +250,49 @@ services:
       - key: LOG_LEVEL
         value: info
 
+  # ─────────────── ai-service (fase-14-29) ───────────────
+  # El décimo servicio, y el único que habla con una API externa de pago.
+  # Sin RABBITMQ_URL a propósito: no publica ni consume eventos (decisión 15).
+  - type: web
+    name: ai-service
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile.service
+    dockerContext: .
+    plan: starter
+    region: virginia
+    healthCheckPath: /internal/health
+    envVars:
+      - key: SERVICE
+        value: ai-service
+      - key: PORT
+        value: '3009'
+      - key: DATABASE_URL # base ai_db
+        sync: false
+      - key: GATEWAY_INTERNAL_SECRET
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: BILLING_INTERNAL_URL
+        sync: false # decide si el plan incluye el asistente y con qué cuota
+      # Los cuatro orígenes de las herramientas de lectura (tanda 3). Son
+      # REQUERIDOS: sin ellos el servicio no levanta, a propósito.
+      - key: ACTIVITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: IDENTITY_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: SCORING_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: REWARDS_INTERNAL_URL
+        sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      # Key del service account del project de OpenAI del entorno
+      # (dorado-prod). NO va en ningún otro servicio ni en app-web.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+
   # ─────────────── gateway (único público de cara a los frontends) ───────────────
   - type: web
     name: gateway
@@ -288,5 +331,7 @@ services:
         sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
       - key: AUDIT_INTERNAL_URL
         sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: AI_INTERNAL_URL
+        sync: false # fase-14-29: asistente de IA (décimo servicio)
       - key: LOG_LEVEL
         value: info

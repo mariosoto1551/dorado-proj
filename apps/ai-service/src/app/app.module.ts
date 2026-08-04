@@ -6,6 +6,8 @@ import { SharedLoggingModule } from '@dorado/shared-logging';
 import { ClientesModule } from '../clientes/clientes.module';
 import { validarEnv } from '../config/env.schema';
 import { ConfiguracionModule } from '../configuracion/configuracion.module';
+import { HerramientasModule } from '../herramientas/herramientas.module';
+import { InternalModule } from '../internal/internal.module';
 import { PrismaModule } from '../prisma/prisma.module';
 
 /**
@@ -27,6 +29,8 @@ import { PrismaModule } from '../prisma/prisma.module';
     PrismaModule,
     ClientesModule,
     ConfiguracionModule,
+    HerramientasModule,
+    InternalModule,
   ],
 })
 export class AppModule {}

@@ -351,3 +351,23 @@ export interface CanjeRecompensaDto {
   entregadaPorTutorId: string | null;
   entregadaEn: string | null;
 }
+
+/**
+ * Fila cruda de `RendimientoAccion` (fase-14-29 tanda 3, herramienta
+ * `listar_rendimientos_monedas`). A diferencia de `RendimientoAccionDto`, que
+ * la pantalla del Tutor recibe ya cruzada con el catálogo de activity, esta
+ * NO sale de rewards: es lo que rewards guarda y nada más.
+ *
+ * El cruce con el catálogo lo hace quien consume, que para eso tiene su propia
+ * herramienta `listar_actividades` — evitar el fan-out rewards→activity en un
+ * camino de solo lectura mantiene el costo del asistente donde se puede ver.
+ */
+export interface RendimientoAccionInternoDto {
+  tipoAccion: TipoAccionRendimiento;
+  /** actividadId o conductaId según `tipoAccion`. */
+  origenId: string;
+  /** Nombre al momento de configurarlo; puede haber cambiado en el catálogo. */
+  nombreSnapshot: string;
+  monedas: number;
+  monedasBonoJefe: number;
+}

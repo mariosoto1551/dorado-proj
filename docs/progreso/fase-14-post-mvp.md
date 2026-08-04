@@ -1568,10 +1568,10 @@ cd apps/<servicio> && npx prisma migrate diff --from-config-datasource --to-sche
 
 ---
 
-## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1 y 2 EJECUTADAS (2026-08-04)
+## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1, 2 y 3 EJECUTADAS (2026-08-04)
 
-> Spec: `docs/phases/fase-14-29-asistente-ia.md` (escrita en esta misma sesión, antes de tocar código). Índice: entrada #29 de `fase-14-post-mvp.md`.
-> **Estado: 2 de 7 tandas.** Las cinco restantes están enumeradas abajo con su punto de entrada exacto.
+> Spec: `docs/phases/fase-14-29-asistente-ia.md` (escrita antes de tocar código). Índice: entrada #29 de `fase-14-post-mvp.md`.
+> **Estado: 3 de 7 tandas.** Las cuatro restantes están enumeradas abajo con su punto de entrada exacto.
 
 ### Origen (pedido de José, 2026-08-04)
 
@@ -1644,11 +1644,58 @@ Servicio NestJS nuevo, **puerto 3009**, prefijo `/api/ai`, base propia `ai_db`. 
 - `admin-web:test` sigue fallando por no tener ningún `.spec.ts` — deuda declarada del #5, **verificada como preexistente**, no una regresión de este ítem.
 - **Sin E2E todavía**: es la tanda 7. Nada de lo hecho hasta acá pasó por el Gateway.
 
-### Cómo seguir: las cinco tandas que faltan
+### Tanda 3 — clientes internos de lectura + las 8 herramientas (2026-08-04)
+
+Los dos tests estructurales se escribieron **como tests sobre la forma, no sobre el comportamiento**, que es la diferencia que hace que sigan valiendo en la tanda 6:
+
+- **`definiciones.spec.ts`** recorre las 8 definiciones y falla si alguna declara un parámetro que matchee `/organizacion|grupo|tenant|usuarioId|principal/`. Un test de comportamiento probaría que las herramientas de HOY ignoran el tenant que manda el modelo; este prueba que **no hay dónde escribirlo**. Verifica además que ninguna tenga `required` no vacío (un obligatorio sería contexto, y el contexto lo pone el servicio) y que ninguna acepte propiedades extra.
+- **`clientes-solo-lectura.spec.ts`** lee los archivos de `src/clientes/` **como texto** y falla ante cualquier `method:` que no sea `'GET'`, ante cualquier mención de `POST|PUT|PATCH|DELETE`, y si aparece un `fetch(` fuera de la base. Leer el fuente en vez de importarlo es a propósito: lo que se quiere fijar es una propiedad de lo que se commitea, y un `method: 'POST'` en una rama que ningún test recorre igual aparece. Tiene también un test que falla si la carpeta se queda sin clientes — el modo de falla clásico de un test que barre archivos es pasar por estar vacío.
+
+**La forma que hace verdadero al primero**: todos los clientes extienden `ClienteInternoBase`, que expone **un solo método de red, `get`**. No existe el método que escribiría. `BillingClientService` se migró a la misma base en el camino (su `null` significa otra cosa —fail-closed, apaga el asistente— pero eso lo decide `ConfiguracionService`, no el cliente).
+
+**Y la que hace verdadero al segundo**: `ContextoHerramienta` es el único argumento de tenant del ejecutor, y **solo `AccesoGrupoService.contextoPara` sabe construirlo**. No se puede ejecutar una herramienta sobre un grupo que nadie validó porque no hay forma de fabricar un contexto sin pasar por la validación.
+
+**Ese `AccesoGrupoService` no es una copia del de los otros servicios, y la diferencia importa.** En activity/rewards/scoring, una lectura con un `grupoId` ajeno la vuelve inofensiva el filtro automático de tenant de Prisma: devuelve lista vacía. `ai-service` **no tiene tablas propias con estos datos** — los pide por REST interno con el `grupoId` como parámetro, y los endpoints internos confían en el llamador. Si acá no se valida la pertenencia, **no la valida nadie**: para un `ORG_ADMIN` (que viaja con `grupoIds` vacío por diseño) el chequeo local pasa siempre, así que hace falta la llamada a identity. Es exactamente el criterio de aceptación 4, y se verificó contra identity real con dos organizaciones distintas.
+
+**Endpoints internos nuevos** (todos `GET`, todos de solo lectura): `activity` sumó `grupos/:id/actividades`, `grupos/:id/conductas` y `grupos/:id/resumen-cumplimiento`; `scoring` sumó `grupos/:id/resumen-puntajes`; y **`rewards` estrenó `InternalController`** — la spec de Fase 8 no le había definido ninguno y hasta acá solo tenía el health.
+
+Dos decisiones de diseño de esos endpoints:
+
+- **`resumen-puntajes` resuelve la Sección dentro de scoring**, desde su propio ledger (`EventoPuntos` más reciente del grupo), en vez de pedírsela a session-service. Encadenar un tercer servicio para contestar algo que el ledger ya sabe agrega una dependencia y un modo de falla a un camino de solo lectura. Devuelve `origen: SNAPSHOT | EN_VIVO` y el ejecutor lo traduce a `definitivo: true/false`: **el modelo tiene que poder decir «provisorio» cuando lo es**.
+- **`resumen-cumplimiento` cuenta solo las marcas vigentes** (`eliminado` sin `revertidoPorTutorId` queda afuera, igual que queda afuera del puntaje) y **devuelve también las actividades con 0 marcas**, que son justamente el caso que la herramienta existe para encontrar. Verificado contra datos reales: de 18 actividades del grupo piloto, apareció una en 0/0/0.
+
+`listar_participantes` compone gente + roles + equipos en **una sola herramienta y no en tres**: las tres preguntas se hacen juntas («¿a quién le pongo esta actividad?»), y separarlas costaría tres vueltas del loop, o sea tres llamadas al proveedor pagadas para responder una cosa. **Sin emails ni `username`**, y no por un filtro: `UsuarioDto` no tiene email, así que no hay de dónde sacarlo — la única forma en que una regla sobre datos personales sobrevive a las próximas cuatro tandas. Hay un test que serializa la salida y busca `@`.
+
+Las cuatro `*_INTERNAL_URL` nuevas son **requeridas** en el env schema, no opcionales: un servicio que levanta sin saber a quién preguntarle deja herramientas que fallan de a una en medio de una conversación, mucho más difícil de diagnosticar que un proceso que no arranca y dice por qué.
+
+#### El bug que encontró levantar el stack (y el que encontró el build)
+
+1. **`ai-service` no tenía `internal-health.controller.ts`.** Faltaba desde la tanda 2 y no se notó porque la verificación de esa tanda fue contra el puerto directo. El Gateway pingea `/internal/health`, no la puerta pública: `GET /api/health` reportaba **`ai: "down"` con el servicio arriba y contestando 401 correctamente**. Peor que un dato feo en una pantalla: volvía **imposible de verificar el criterio de aceptación 9** de la spec —«con ai-service apagado, el health lo reporta caído»— porque lo reportaba caído siempre, prendido o apagado. **Sexto caso del mismo modo de falla en la Fase 14** (tras `turnos-de-hoy` del #23 T1, el «✓ hizo» del #23 T4, el ocultamiento del #24, el consumidor round-robin del #28 y la API key vacía de la tanda 2): *la unidad verifica la pieza y lo que falla es el cable*.
+2. **`EstadoCatalogo` no existe como tipo en `shared-types`** (los DTOs del catálogo usan el literal `'ACTIVA' | 'ARCHIVADA'`). Lo escribí en el DTO nuevo y **tests y lint pasaron los dos en verde**: vitest transpila sin chequear tipos y ESLint no está en modo type-aware. Lo agarró el `build`. Vale como recordatorio de que en este repo **los tres targets miran cosas distintas** y ninguno subsume a los otros.
+
+#### Verificación de la tanda 3
+
+| Proyecto | Antes | Después |
+|---|---|---|
+| `ai-service` | 18/18 | **47/47** (+29: 6 estructurales de definiciones, 4 estructurales de clientes, 12 del ejecutor, 5 de acceso al grupo, 2 de env) |
+| `activity-service` | 357/357 | **357/357** |
+| `scoring-service` | 63/63 | **63/63** |
+| `rewards-service` | 206/206 | **206/206** |
+| El resto del workspace | — | sin cambios (app-web 159, identity 48, session 74, notification 22, gateway 36, shared-ui 24, shared-auth 20, billing 9, e2e 17) |
+
+- **`lint` 19/19** y **`build` 18/18** verdes (`--skip-nx-cache` los dos).
+- **Stack real levantado** (7 servicios) y los **8 endpoints internos nuevos ejercitados con `x-internal-secret`: los 8 en 200 con datos del grupo piloto**.
+- **Las 8 herramientas ejecutadas contra los servicios reales** con un spec temporal (borrado al terminar): las 8 en `ok=true`. Y el aislamiento del `ORG_ADMIN` verificado contra identity real: grupo de otra organización → rechazado, grupo propio → contexto.
+- **El Gateway rutea `/api/ai`** (pendiente #1 de la sesión anterior): `GET /api/ai/configuracion` sin token devuelve el `401 NO_AUTENTICADO` que emite ai-service — o sea proxyó y el servicio contestó, no un 404 del Gateway.
+- **`/api/health` reporta `ai: "up"`** después del fix del health controller.
+- Sin migraciones: esta tanda **no tocó ningún schema Prisma**.
+
+**Fuera del código**: `infra/render.yaml` sumó el **décimo servicio** (bloque `ai-service` completo, sin `RABBITMQ_URL` porque no toca eventos) y `AI_INTERNAL_URL` en el Gateway — no estaban, la tanda 2 no había llegado a ese archivo. `.env.production.example` sumó la sección de `ai-service`, que tampoco existía. `apps/ai-service/.env(.example)` sumaron las cuatro URLs internas.
+
+### Cómo seguir: las cuatro tandas que faltan
 
 Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de la spec).
 
-3. **Clientes internos de lectura + las 8 herramientas** (`listar_actividades`, `listar_conductas`, `listar_participantes`, `listar_umbrales_zona`, `resumen_puntajes`, `listar_recompensas`, `listar_rendimientos_monedas`, `resumen_cumplimiento`). Van en `src/clientes/` y `src/herramientas/`. **Los dos tests estructurales de esta tanda no son opcionales**: (a) ninguna definición de herramienta declara un parámetro que matchee `/organizacionId|grupoId|tenant/`; (b) ninguna ruta de ningún cliente interno usa un método distinto de `GET`. Son la forma ejecutable de las dos defensas estructurales del ítem.
 4. **El loop con OpenAI** (`src/proveedor/`). Primera tanda que **necesita la API key** en `apps/ai-service/.env`. Incluye: tope de 8 iteraciones, `max_output_tokens`, contabilidad en `Mensaje` dentro de un `try/finally` (se escribe aunque la llamada falle: los tokens de entrada se pagan igual), corte por cuota **antes** de llamar al proveedor, y `safety_identifier`/`prompt_cache_key`. Acá se cumple la regla que dejó la tanda 1: el gate es `asistenteIa`, y la cuota se lee después. **El modelo se elige acá**, no está anclado en la spec: se usa el vigente al momento de implementar (`OPENAI_MODEL`).
 5. **Herramientas de propuesta** (`proponer_crear_actividades`, `proponer_editar_actividades`, `proponer_precios_tienda`, `proponer_rendimientos_monedas`) con validación Zod contra los DTOs reales y `Propuesta` con vencimiento a 24 h. Una operación que no valida **no se guarda**: el error vuelve al modelo para que reintente. Las operaciones se persisten con **la forma exacta del request del endpoint destino**, para que aplicar sea un `for` y no una traducción.
 6. **Frontend**: pantalla `/asistente` en el grupo Ajustes del menú (#23 T3), chat con streaming, tarjeta de propuesta con diff, aplicar por operación con resultado por fila. La lógica del diff va en `core/propuesta-ia.ts`, testeable sin montar Angular (mismo criterio que `core/termometro.ts` del #27).
@@ -1656,9 +1703,10 @@ Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de 
 
 ### Qué debería verificar la próxima sesión antes de seguir
 
-1. **Levantar el stack completo y confirmar que el Gateway rutea `/api/ai`.** El proxy hacia `ai-service` está en la tabla pero **nunca se ejercitó a través del Gateway**: la tanda 2 verificó el servicio en su puerto directo (3009). Es justo el tipo de cable que este ítem ya vio fallar dos veces.
+1. ~~Confirmar que el Gateway rutea `/api/ai`.~~ **Hecho en la tanda 3**: `401 NO_AUTENTICADO` emitido por ai-service a través del proxy, y `/api/health` reportando `ai: "up"` tras el fix del health controller que faltaba.
 2. **Que `ai_db` exista en el entorno donde se trabaje.** Se creó a mano con `CREATE DATABASE ai_db` en el contenedor que ya estaba corriendo, porque `infra/docker/init-databases.sh` **solo corre con el volumen vacío**. En una máquina limpia el script ya la incluye; en una con el volumen viejo, hay que crearla a mano.
 3. **La trampa de los puertos vale ahora para diez**, no nueve: 3000–3009. Antes de cualquier E2E, matar procesos `dist/` viejos (el #26 perdió una corrida entera de 6 minutos por esto y la falla no da ningún error al arrancar).
 4. **Que la cuota de 2M tokens/mes de PRO sigue siendo el número que se quiere.** Está en `seed-planes.ts` y todavía no lo validó ningún consumo real.
-5. **Que el `PUT /ai/configuracion` a través del Gateway responda 403 con un JWT de `TUTOR`** y 200 con uno de `ORG_ADMIN`. Está cubierto por unidad en el service, pero el guard de rol recién se ejerce de punta a punta con un token real.
-6. **Que `scripts/e2e-up.mjs` no levanta `ai-service`.** No se tocó en esta sesión: hay que sumarlo antes de la tanda 7, o la suite va a correr con el décimo servicio caído.
+5. **Que el `PUT /ai/configuracion` a través del Gateway responda 403 con un JWT de `TUTOR`** y 200 con uno de `ORG_ADMIN`. Está cubierto por unidad en el service, pero el guard de rol recién se ejerce de punta a punta con un token real. La tanda 3 ejercitó el proxy **sin token** (401), que prueba el ruteo pero no el guard de rol.
+6. **Que `scripts/e2e-up.mjs` no levanta `ai-service`.** Sigue sin tocarse, **y ahora es una decisión y no un olvido**: el criterio de aceptación 9 pide correr la suite completa con `ai-service` abajo. Antes de la tanda 7 hay que sumarlo — con las cuatro `*_INTERNAL_URL` nuevas, que son requeridas.
+7. **Que el `resumen_cumplimiento` no se vuelva caro con un grupo grande.** Hoy trae todos los `RegistroActividad` de la ventana y agrupa en memoria. Con el grupo piloto (18 actividades, 90 días) son 4,7 KB y milisegundos; con un grupo de 40 personas y un año habría que pasarlo a un `groupBy` en SQL. No es un problema todavía y no se optimizó por adelantado — queda anotado para no descubrirlo en producción.

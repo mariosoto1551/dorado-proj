@@ -42,12 +42,35 @@ export class EnvSchema {
   GATEWAY_INTERNAL_SECRET!: string;
 
   // REST interno (ADR-00 §4): billing resuelve si el plan habilita el
-  // asistente y con qué cuota de tokens (fase-14-29 Parte A). Es el único
-  // cliente interno de la tanda 2; los de lectura del catálogo entran en la 3.
+  // asistente y con qué cuota de tokens (fase-14-29 Parte A).
   @Matches(/^https?:\/\/.+/, {
     message: 'BILLING_INTERNAL_URL debe ser una URL http(s)://',
   })
   BILLING_INTERNAL_URL!: string;
+
+  // Los cuatro orígenes de las herramientas de lectura (fase-14-29 tanda 3).
+  // Son REQUERIDOS y no opcionales a propósito: un servicio que arranca sin
+  // saber a quién preguntarle deja herramientas que fallan de a una en medio
+  // de una conversación, que es mucho peor de diagnosticar que no levantar.
+  @Matches(/^https?:\/\/.+/, {
+    message: 'ACTIVITY_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  ACTIVITY_INTERNAL_URL!: string;
+
+  @Matches(/^https?:\/\/.+/, {
+    message: 'IDENTITY_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  IDENTITY_INTERNAL_URL!: string;
+
+  @Matches(/^https?:\/\/.+/, {
+    message: 'SCORING_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  SCORING_INTERNAL_URL!: string;
+
+  @Matches(/^https?:\/\/.+/, {
+    message: 'REWARDS_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  REWARDS_INTERNAL_URL!: string;
 
   /**
    * Key de un **service account** de un **project** de OpenAI (uno por

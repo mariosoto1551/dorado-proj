@@ -1,13 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { getCorrelationId } from '@dorado/shared-logging';
 import { EntitlementsDto } from '@dorado/shared-types';
 
-/**
- * Timeout de las llamadas síncronas internas (mismo criterio que fase-04: 2s).
- */
-const TIMEOUT_MS = 2000;
+import { ClienteInternoBase } from './cliente-interno.base';
 
 /**
  * Cliente REST interno hacia billing-service (ADR-00 §4): header
@@ -23,49 +19,23 @@ const TIMEOUT_MS = 2000;
  * está en el nombre del método.
  */
 @Injectable()
-export class BillingClientService {
-  private readonly logger = new Logger(BillingClientService.name);
-
-  private readonly baseUrl: string;
-
-  private readonly secreto: string;
-
+export class BillingClientService extends ClienteInternoBase {
   constructor(config: ConfigService) {
-    this.baseUrl = config.getOrThrow<string>('BILLING_INTERNAL_URL').replace(/\/+$/, '');
-    this.secreto = config.getOrThrow<string>('GATEWAY_INTERNAL_SECRET');
+    super(config, 'BILLING_INTERNAL_URL', BillingClientService.name);
   }
 
   /**
    * Entitlements de la organización. Devuelve `null` si billing no está
    * disponible; el llamador trata `null` como "sin feature" (fail-closed),
    * no como "seguí adelante".
+   *
+   * El `null` lo produce la base igual que en los clientes de lectura — lo que
+   * cambia es qué significa acá, y eso lo decide `ConfiguracionService`, no
+   * este archivo.
    */
   async resolveEntitlements(organizacionId: string): Promise<EntitlementsDto | null> {
-    const ruta = `/internal/billing/organizaciones/${organizacionId}/entitlements`;
-    const correlationId = getCorrelationId();
-
-    try {
-      const respuesta = await fetch(`${this.baseUrl}${ruta}`, {
-        headers: {
-          'x-internal-secret': this.secreto,
-          ...(correlationId && { 'x-correlation-id': correlationId }),
-        },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-
-      if (!respuesta.ok) {
-        this.logger.warn(`GET ${ruta} respondió ${respuesta.status} — el asistente queda apagado`);
-
-        return null;
-      }
-
-      return (await respuesta.json()) as EntitlementsDto;
-    } catch (error) {
-      this.logger.warn(
-        `GET ${ruta} falló (${error instanceof Error ? error.message : String(error)}) — el asistente queda apagado`
-      );
-
-      return null;
-    }
+    return await this.get<EntitlementsDto>(
+      `/internal/billing/organizaciones/${organizacionId}/entitlements`
+    );
   }
 }

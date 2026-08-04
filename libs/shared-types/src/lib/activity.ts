@@ -723,3 +723,39 @@ export interface CatalogoRendibleDto {
   /** Solo conductas BUENA: una MALA no tiene nada que configurar (decisión 17). */
   conductas: AccionRendibleDto[];
 }
+
+/**
+ * Una fila del resumen de cumplimiento (fase-14-29 tanda 3, herramienta
+ * `resumen_cumplimiento`). Responde «¿qué actividad nadie hace nunca?», que es
+ * la pregunta que el Tutor no puede contestar mirando el catálogo: ahí todas
+ * las actividades se ven igual de vivas.
+ *
+ * Los contadores se derivan del ledger de registro (`RegistroActividad`),
+ * excluyendo lo eliminado y no revertido — una marca que el Tutor quitó no
+ * cuenta como cumplida, igual que no cuenta para el puntaje.
+ */
+export interface CumplimientoActividadDto {
+  actividadId: string;
+  nombre: string;
+  /** Mismo par que el resto de los DTOs del catálogo — no hay un tipo con nombre. */
+  estado: 'ACTIVA' | 'ARCHIVADA';
+  tipoPuntaje: TipoPuntaje;
+  valorPuntos: number;
+  /** Marcas COMPLETADA vigentes en la ventana. */
+  vecesCompletada: number;
+  /** Marcas NO_HIZO vigentes en la ventana (incluye el castigo del cierre). */
+  vecesNoHizo: number;
+  /** Cuántas personas distintas la completaron al menos una vez. */
+  participantesDistintos: number;
+  /** ISO-8601 de la última marca COMPLETADA, o null si nunca. */
+  ultimaVezCompletada: string | null;
+}
+
+/** Resumen de cumplimiento del Grupo sobre una ventana de días. */
+export interface ResumenCumplimientoDto {
+  grupoId: string;
+  /** Ventana observada, en días hacia atrás desde ahora. */
+  dias: number;
+  /** Una fila por actividad del catálogo, incluidas las que tienen 0 marcas. */
+  actividades: CumplimientoActividadDto[];
+}

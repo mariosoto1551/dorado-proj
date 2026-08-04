@@ -1,13 +1,14 @@
 import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
-import { UmbralZonaDto } from '@dorado/shared-types';
+import { PuntajeResumidoDto, ResumenPuntajesGrupoDto, UmbralZonaDto } from '@dorado/shared-types';
 
 import {
   resultadoAResponse,
   umbralADto,
   type ResultadoSeccionResponse,
 } from '../comun/mapeadores';
+import { zonaParaPuntaje } from '../comun/zonas';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -68,5 +69,109 @@ export class InternalController {
     }
 
     return resultadoAResponse(resultado);
+  }
+
+  /**
+   * fase-14-29 (herramienta `resumen_puntajes`): cómo viene el Grupo en la
+   * Sección más reciente que tenga movimiento.
+   *
+   * **La Sección se resuelve acá, desde el propio ledger**, en vez de pedírsela
+   * a session-service: encadenar un tercer servicio para contestar algo que
+   * `EventoPuntos` ya sabe agrega una dependencia y un modo de falla nuevos a
+   * un camino de solo lectura.
+   *
+   * Devuelve el snapshot `ResultadoSeccion` si la Sección ya se evaluó, y el
+   * cálculo en vivo desde el ledger si todavía no — la misma dualidad que
+   * `PuntajesService`, y por el mismo motivo (el histórico no cambia aunque
+   * lleguen correcciones después). Cuál de los dos fue viaja en `origen`: quien
+   * lo consuma tiene que poder decir "provisorio" cuando lo es.
+   *
+   * Sin nombres: scoring no los conoce y no sale a identity por esto. Quien
+   * arma el resumen ya tiene la lista de participantes y compone por ID
+   * (regla 2 de CLAUDE.md).
+   */
+  @Get('grupos/:grupoId/resumen-puntajes')
+  async resumenPuntajes(@Param('grupoId') grupoId: string): Promise<ResumenPuntajesGrupoDto> {
+    const ultimo = await this.prisma.client.eventoPuntos.findFirst({
+      where: { grupoId },
+      orderBy: { createdAt: 'desc' },
+      select: { seccionId: true },
+    });
+
+    // Un Grupo que todavía no registró un solo punto no es un error: es un
+    // Grupo nuevo, que es justo el caso donde más se va a preguntar.
+    if (!ultimo) {
+      return { grupoId, seccionId: null, origen: 'EN_VIVO', puntajes: [] };
+    }
+
+    const seccionId = ultimo.seccionId;
+    const resultados = await this.prisma.client.resultadoSeccion.findMany({
+      where: { seccionId },
+      orderBy: { puntajeTotal: 'desc' },
+    });
+
+    if (resultados.length > 0) {
+      return {
+        grupoId,
+        seccionId,
+        origen: 'SNAPSHOT',
+        puntajes: resultados.map((resultado) => ({
+          usuarioId: resultado.usuarioId,
+          puntajeTotal: resultado.puntajeTotal,
+          nombreZona: resultado.nombreZona,
+          descalificado: resultado.descalificado,
+        })),
+      };
+    }
+
+    return {
+      grupoId,
+      seccionId,
+      origen: 'EN_VIVO',
+      puntajes: await this.puntajesEnVivo(grupoId, seccionId),
+    };
+  }
+
+  /** Suma del ledger + base del grupo, con la zona resuelta contra los umbrales vigentes. */
+  private async puntajesEnVivo(
+    grupoId: string,
+    seccionId: string
+  ): Promise<PuntajeResumidoDto[]> {
+    const [porUsuario, descalificaciones, umbrales, config] = await Promise.all([
+      this.prisma.client.eventoPuntos.groupBy({
+        by: ['usuarioId'],
+        where: { seccionId },
+        _sum: { puntosSnapshot: true },
+      }),
+      this.prisma.client.descalificacionSeccion.findMany({
+        where: { seccionId },
+        select: { usuarioId: true },
+      }),
+      this.prisma.client.umbralZona.findMany({
+        where: { grupoId },
+        orderBy: { orden: 'asc' },
+      }),
+      this.prisma.client.configuracionScoringGrupo.findUnique({ where: { grupoId } }),
+    ]);
+
+    const descalificados = new Set(descalificaciones.map((fila) => fila.usuarioId));
+    // Base configurable por grupo (fase-14): se suma al ledger, igual que en
+    // PuntajesService. Default 0.
+    const base = config?.puntosIniciales ?? 0;
+
+    return porUsuario
+      .map((fila) => {
+        const puntajeTotal = (fila._sum.puntosSnapshot ?? 0) + base;
+        const descalificado = descalificados.has(fila.usuarioId);
+        const zona = descalificado ? null : zonaParaPuntaje(umbrales, puntajeTotal);
+
+        return {
+          usuarioId: fila.usuarioId,
+          puntajeTotal,
+          nombreZona: zona?.nombreZona ?? null,
+          descalificado,
+        };
+      })
+      .sort((a, b) => b.puntajeTotal - a.puntajeTotal);
   }
 }
