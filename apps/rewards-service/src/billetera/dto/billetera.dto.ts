@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -21,6 +22,12 @@ export class AjustarMonedasRequest {
   @IsNotEmpty()
   @MaxLength(200)
   motivo!: string;
+}
+
+/** fase-14-25: para qué producto de la tienda está ahorrando el participante. */
+export class FijarObjetivoRequest {
+  @IsUUID()
+  productoId!: string;
 }
 
 export class ListarMovimientosQuery {

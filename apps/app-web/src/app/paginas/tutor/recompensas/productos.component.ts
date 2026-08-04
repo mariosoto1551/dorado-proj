@@ -15,6 +15,7 @@ import {
   MecanicaProducto,
   TipoItemCatalogo,
   type BolsaPremiosDto,
+  type EtiquetaCatalogoDto,
   type ProductoTiendaDto,
   type RecompensaDto,
   type RendimientoZonaDto,
@@ -24,12 +25,14 @@ import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
+import { particionarParaTienda } from '../../../core/etiquetas-catalogo';
 import {
   ConfirmDialogComponent,
   EstadoVacioComponent,
   CampoComponent,
   ModalComponent,
 } from '@dorado/shared-ui';
+import { EtiquetaChipComponent } from './etiqueta-chip.component';
 
 interface FormProducto {
   nombre: string;
@@ -67,18 +70,26 @@ const FORM_VACIO: FormProducto = {
     EstadoVacioComponent,
     FormsModule,
     IconoComponent,
+    EtiquetaChipComponent,
   ],
   template: `
     <div class="flex items-center justify-between">
       <p class="text-sm text-slate-500 dark:text-slate-400">Lo que los integrantes pueden comprar.</p>
-      <button
-        type="button"
-        (click)="abrirNuevo()"
-        class="boton boton-primario"
-      >
-        <span class="h-4 w-4"><app-icono nombre="plus" /></span>
-        Nuevo producto
-      </button>
+      <div class="flex items-center gap-2">
+        @if (etiquetas().length > 0) {
+          <button type="button" (click)="abrirDesdeEtiqueta()" class="boton boton-neutro">
+            Desde una etiqueta
+          </button>
+        }
+        <button
+          type="button"
+          (click)="abrirNuevo()"
+          class="boton boton-primario"
+        >
+          <span class="h-4 w-4"><app-icono nombre="plus" /></span>
+          Nuevo producto
+        </button>
+      </div>
     </div>
 
     @if (cargando()) {
@@ -254,6 +265,86 @@ const FORM_VACIO: FormProducto = {
       (confirmar)="confirmarArchivar()"
       (cancelar)="aArchivar.set(null)"
     />
+
+    <!--
+      fase-14-26: publicar de a montón. La previsualización se calcula acá con
+      lo que la pantalla YA tiene cargado (catálogo + productos activos), sin
+      endpoint de simulación: el Tutor ve qué se va a crear y qué se saltea
+      ANTES de confirmar, mismo criterio que el atajo de bolsas.
+    -->
+    <ui-modal
+      [abierto]="lotesAbierto()"
+      titulo="Publicar desde una etiqueta"
+      (cerrar)="lotesAbierto.set(false)"
+    >
+      @if (lotesAbierto()) {
+        <form (submit)="publicarLote($event)">
+          <div class="mt-4 space-y-3">
+            <fieldset>
+              <legend class="etiqueta-campo">Etiqueta</legend>
+              <div class="mt-1.5 flex flex-wrap gap-1.5">
+                @for (e of etiquetas(); track e.id) {
+                  <button
+                    type="button"
+                    (click)="etiquetaLote.set(e.id)"
+                    [attr.aria-pressed]="etiquetaLote() === e.id"
+                  >
+                    <app-etiqueta-chip [etiqueta]="e" [activa]="etiquetaLote() === e.id" />
+                  </button>
+                }
+              </div>
+            </fieldset>
+
+            <ui-campo etiqueta="Precio para todos">
+              <input
+                [(ngModel)]="precioLote"
+                name="precioLote"
+                type="number"
+                min="1"
+                required
+                class="campo"
+              />
+            </ui-campo>
+
+            @if (etiquetaLote()) {
+              <div class="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
+                @if (aPublicar().length === 0) {
+                  <p class="text-slate-500 dark:text-slate-400">
+                    No queda ningún ítem de esa etiqueta para publicar.
+                  </p>
+                } @else {
+                  <p class="font-semibold text-slate-700 dark:text-slate-200">
+                    Se crean {{ aPublicar().length }}:
+                  </p>
+                  <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {{ nombresDeLote() }}
+                  </p>
+                }
+
+                @if (salteadosLote().length > 0) {
+                  <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Se saltean {{ salteadosLote().length }}: {{ nombresSalteados() }}
+                  </p>
+                }
+              </div>
+            }
+          </div>
+
+          <div class="botonera">
+            <button type="button" (click)="lotesAbierto.set(false)" class="boton boton-neutro">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              [disabled]="publicando() || aPublicar().length === 0"
+              class="boton boton-primario"
+            >
+              {{ publicando() ? 'Publicando…' : 'Publicar' }}
+            </button>
+          </div>
+        </form>
+      }
+    </ui-modal>
   `,
 })
 export class ProductosComponent {
@@ -283,6 +374,37 @@ export class ProductosComponent {
 
   /** Producto sobre el que pregunta el diálogo de archivado (fase-14-23 T4·2ª). */
   protected readonly aArchivar = signal<ProductoTiendaDto | null>(null);
+
+  // ---- Publicar de a montón desde una etiqueta (fase-14-26) ----
+  protected readonly etiquetas = signal<EtiquetaCatalogoDto[]>([]);
+
+  protected readonly lotesAbierto = signal(false);
+
+  protected readonly publicando = signal(false);
+
+  protected readonly etiquetaLote = signal<string | null>(null);
+
+  protected precioLote = 10;
+
+  /**
+   * Los premios de la etiqueta que TODAVÍA no tienen producto activo de fuente
+   * ITEM. Es la misma regla que aplica el backend (decisión 11) calculada acá
+   * para poder mostrarla antes de confirmar; la del servidor sigue siendo la
+   * que manda — esta solo evita que el Tutor apriete a ciegas.
+   */
+  private readonly particion = computed(() => {
+    const etiquetaId = this.etiquetaLote();
+
+    if (!etiquetaId) {
+      return { aPublicar: [], salteados: [] };
+    }
+
+    return particionarParaTienda(this.premios(), this.productos(), etiquetaId);
+  });
+
+  protected readonly aPublicar = computed(() => this.particion().aPublicar);
+
+  protected readonly salteadosLote = computed(() => this.particion().salteados);
 
   private readonly rendimientos = signal<RendimientoZonaDto[]>([]);
 
@@ -415,6 +537,55 @@ export class ProductosComponent {
     });
   }
 
+  protected abrirDesdeEtiqueta(): void {
+    this.etiquetaLote.set(null);
+    this.precioLote = 10;
+    this.lotesAbierto.set(true);
+  }
+
+  protected nombresDeLote(): string {
+    return this.aPublicar()
+      .map((premio) => premio.nombre)
+      .join(' · ');
+  }
+
+  protected nombresSalteados(): string {
+    return this.salteadosLote()
+      .map((premio) => premio.nombre)
+      .join(' · ');
+  }
+
+  protected publicarLote(evento: Event): void {
+    evento.preventDefault();
+
+    const etiquetaId = this.etiquetaLote();
+
+    if (!etiquetaId || this.aPublicar().length === 0 || this.precioLote < 1) {
+      return;
+    }
+
+    this.publicando.set(true);
+
+    this.api
+      .crearProductosDesdeEtiqueta(this.grupoId(), { etiquetaId, precio: this.precioLote })
+      .subscribe({
+        next: ({ creados, salteados }) => {
+          this.toasts.exito(
+            salteados.length === 0
+              ? `Se publicaron ${creados.length} productos.`
+              : `Se publicaron ${creados.length} · ${salteados.length} salteados.`
+          );
+          this.publicando.set(false);
+          this.lotesAbierto.set(false);
+          this.cargar(this.grupoId());
+        },
+        error: (e) => {
+          this.publicando.set(false);
+          this.toasts.error(mensajeDeError(e));
+        },
+      });
+  }
+
   private cargar(grupoId: string): void {
     this.cargando.set(true);
 
@@ -423,12 +594,14 @@ export class ProductosComponent {
       items: this.api.listarRecompensas(grupoId, 'ACTIVA'),
       bolsas: this.api.listarBolsas(grupoId),
       rendimientos: this.api.rendimientos(grupoId),
+      etiquetas: this.api.listarEtiquetas(grupoId, 'ACTIVA'),
     }).subscribe({
-      next: ({ productos, items, bolsas, rendimientos }) => {
+      next: ({ productos, items, bolsas, rendimientos, etiquetas }) => {
         this.productos.set(productos);
         this.premios.set(items.filter((i) => i.tipo === TipoItemCatalogo.PREMIO));
         this.bolsas.set(bolsas.filter((b) => b.estado === 'ACTIVA'));
         this.rendimientos.set(rendimientos);
+        this.etiquetas.set(etiquetas);
         this.cargando.set(false);
       },
       error: () => this.cargando.set(false),

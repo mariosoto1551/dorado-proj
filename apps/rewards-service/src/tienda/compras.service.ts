@@ -126,6 +126,14 @@ export class ComprasService {
         },
       });
 
+      // fase-14-25: si era su objetivo de ahorro, se cumplió. Dejarlo puesto
+      // convertiría el logro en un cartel viejo (decisión 5). Va en la MISMA
+      // transacción que la compra: el objetivo no puede sobrevivir a la compra
+      // que lo cumplió. `deleteMany` para no fallar si no había objetivo.
+      await tx.objetivoParticipante.deleteMany({
+        where: { usuarioId, grupoId, productoId: producto.id },
+      });
+
       return creada;
     });
 

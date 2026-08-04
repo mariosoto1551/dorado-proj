@@ -9,15 +9,20 @@ import {
 } from '@dorado/shared-types';
 
 import { BilleteraService } from '../billetera/billetera.service';
+import { ObjetivoService } from '../billetera/objetivo.service';
 import type { IdentityClientService } from '../clientes/identity-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
+  configuracionDePrueba,
   crearBdEnMemoria,
+  etiquetaDePrueba,
   movimientoDePrueba,
+  productoDePrueba,
   recompensaDePrueba,
   type BdEnMemoria,
 } from '../comun/testing/bd-en-memoria';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { EtiquetasService } from '../etiquetas/etiquetas.service';
 import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { BolsasService } from './bolsas.service';
 import { ProductosService } from './productos.service';
@@ -61,12 +66,23 @@ function crearServicios(bd: BdEnMemoria) {
     acceso,
     identity,
     configuracion,
-    eventos
+    eventos,
+    new ObjetivoService(bd.prisma, acceso, configuracion)
   );
+
+  const etiquetas = new EtiquetasService(bd.prisma, acceso, eventos);
 
   return {
     bolsas: new BolsasService(bd.prisma, acceso, eventos),
-    productos: new ProductosService(bd.prisma, acceso, billetera, eventos),
+    productos: new ProductosService(
+      bd.prisma,
+      acceso,
+      billetera,
+      eventos,
+      configuracion,
+      etiquetas
+    ),
+    etiquetas,
     bd,
   };
 }
@@ -325,5 +341,153 @@ describe('ProductosService — la vitrina', () => {
 
     expect(archivado.estado).toBe('ARCHIVADA');
     expect(bd.recompensas[0].tipo).toBe(TipoItemCatalogo.PREMIO);
+  });
+});
+
+describe('ProductosService — crear en masa desde una etiqueta (fase-14-26)', () => {
+  function escenario(sobrescribir: { modo?: 'DIRECTO' | 'TIENDA' } = {}) {
+    const etiqueta = etiquetaDePrueba({ nombre: 'Chicos' });
+    const premios = [
+      recompensaDePrueba({ nombre: 'Helado', umbralZonaId: null }),
+      recompensaDePrueba({ nombre: 'Sticker', umbralZonaId: null }),
+    ];
+    const castigo = recompensaDePrueba({
+      nombre: 'Sin postre',
+      tipo: 'CASTIGO',
+      umbralZonaId: null,
+    });
+    const bd = crearBdEnMemoria({
+      configuraciones: [configuracionDePrueba({ modo: sobrescribir.modo ?? 'TIENDA' })],
+      etiquetas: [etiqueta],
+      recompensas: [...premios, castigo],
+      etiquetasEnRecompensa: [...premios, castigo].map((item) => ({
+        id: `asig-${item.id}`,
+        etiquetaId: etiqueta.id,
+        recompensaId: item.id,
+      })),
+    });
+
+    return { etiqueta, premios, castigo, ...crearServicios(bd) };
+  }
+
+  it('crea un producto por premio, copiando nombre y descripción del ítem', async () => {
+    const { productos, etiqueta, bd } = escenario();
+
+    const resultado = await productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+      etiquetaId: etiqueta.id,
+      precio: 10,
+    });
+
+    expect(resultado.creados).toHaveLength(2);
+    expect(resultado.creados.map((p) => p.nombre).sort()).toEqual(['Helado', 'Sticker']);
+    expect(resultado.creados.every((p) => p.precio === 10)).toBe(true);
+    expect(resultado.creados.every((p) => p.fuente === FuenteProducto.ITEM)).toBe(true);
+    expect(bd.productos).toHaveLength(2);
+  });
+
+  it('saltea los castigos, que nunca llegan a la tienda (decisión 20 del #22)', async () => {
+    const { productos, etiqueta, castigo } = escenario();
+
+    const resultado = await productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+      etiquetaId: etiqueta.id,
+      precio: 10,
+    });
+
+    expect(resultado.salteados).toContainEqual({
+      recompensaId: castigo.id,
+      nombre: 'Sin postre',
+      motivo: 'ES_CASTIGO',
+    });
+  });
+
+  it('correrlo dos veces no duplica nada: la segunda es 400 SIN_ITEMS_PARA_CREAR', async () => {
+    const { productos, etiqueta, bd } = escenario();
+
+    await productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+      etiquetaId: etiqueta.id,
+      precio: 10,
+    });
+
+    await expect(
+      productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+        etiquetaId: etiqueta.id,
+        precio: 10,
+      })
+    ).rejects.toMatchObject({ code: 'SIN_ITEMS_PARA_CREAR' });
+    expect(bd.productos).toHaveLength(2);
+  });
+
+  it('saltea SOLO el que ya tiene producto y crea el resto', async () => {
+    const { productos, etiqueta, premios, bd } = escenario();
+
+    bd.productos.push(
+      productoDePrueba({ recompensaId: premios[0].id, fuente: 'ITEM', nombre: 'Helado' })
+    );
+
+    const resultado = await productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+      etiquetaId: etiqueta.id,
+      precio: 10,
+    });
+
+    expect(resultado.creados.map((p) => p.nombre)).toEqual(['Sticker']);
+    expect(resultado.salteados).toContainEqual({
+      recompensaId: premios[0].id,
+      nombre: 'Helado',
+      motivo: 'YA_TIENE_PRODUCTO',
+    });
+  });
+
+  it('un producto archivado NO bloquea: se vuelve a publicar', async () => {
+    const { etiqueta, premios } = escenario();
+
+    // El archivado no cuenta como "ya tiene producto": el Tutor lo sacó de la
+    // vitrina a propósito y volver a publicarlo es una decisión válida.
+    const bdConArchivado = crearBdEnMemoria({
+      configuraciones: [configuracionDePrueba({ modo: 'TIENDA' })],
+      etiquetas: [etiqueta],
+      recompensas: premios,
+      etiquetasEnRecompensa: premios.map((item) => ({
+        id: `asig-${item.id}`,
+        etiquetaId: etiqueta.id,
+        recompensaId: item.id,
+      })),
+      productos: [
+        productoDePrueba({ recompensaId: premios[0].id, fuente: 'ITEM', estado: 'ARCHIVADA' }),
+      ],
+    });
+
+    const resultado = await crearServicios(bdConArchivado).productos.crearDesdeEtiqueta(
+      tenantTutor(),
+      'grupo-1',
+      { etiquetaId: etiqueta.id, precio: 10 }
+    );
+
+    expect(resultado.creados).toHaveLength(2);
+  });
+
+  it('en modo DIRECTO no existe: 400 SOLO_EN_MODO_TIENDA', async () => {
+    const { productos, etiqueta } = escenario({ modo: 'DIRECTO' });
+
+    await expect(
+      productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+        etiquetaId: etiqueta.id,
+        precio: 10,
+      })
+    ).rejects.toMatchObject({ code: 'SOLO_EN_MODO_TIENDA' });
+  });
+
+  it('una etiqueta de otro grupo → 400 ETIQUETA_INVALIDA', async () => {
+    const ajena = etiquetaDePrueba({ grupoId: 'grupo-2' });
+    const bd = crearBdEnMemoria({
+      configuraciones: [configuracionDePrueba({ modo: 'TIENDA' })],
+      etiquetas: [ajena],
+    });
+
+    await expect(
+      crearServicios(bd).productos.crearDesdeEtiqueta(tenantTutor(), 'grupo-1', {
+        etiquetaId: ajena.id,
+        precio: 10,
+      })
+    ).rejects.toMatchObject({ code: 'ETIQUETA_INVALIDA' });
   });
 });

@@ -41,8 +41,22 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
       <ul class="mt-5 space-y-2">
         @for (b of billeteras(); track b.usuarioId) {
           <li class="flex items-center gap-3 tarjeta">
-            <span class="flex-1 truncate font-semibold text-slate-900 dark:text-white">
-              {{ nombreDe(b.usuarioId) }}
+            <span class="min-w-0 flex-1">
+              <span class="block truncate font-semibold text-slate-900 dark:text-white">
+                {{ nombreDe(b.usuarioId) }}
+              </span>
+              <!-- fase-14-25: para qué ahorra. Media razón de ser del objetivo
+                   es que el adulto pueda reforzarlo fuera de la app. -->
+              @if (b.objetivoNombre) {
+                <span class="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+                  🎯 {{ b.objetivoNombre }}
+                  @if (b.objetivoFaltan) {
+                    · le faltan {{ b.objetivoFaltan }}
+                  } @else {
+                    · ya le alcanza
+                  }
+                </span>
+              }
             </span>
             <span class="rounded-full bg-amber-50 px-3 py-1 text-sm font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               {{ b.iconoMoneda }} {{ b.saldo }}

@@ -45,6 +45,19 @@ import type {
   ListarActividadesQuery,
 } from './dto/actividades.dto';
 
+/** Mismo default que `repeticionesMaximasSesion` en el schema Prisma. */
+const REPETICIONES_MAXIMAS_DEFAULT = 1;
+
+/** Parámetros de `resolverMinimoRepeticiones` (regla 2 de estilo: ≤7 sueltos). */
+interface MinimoRepeticiones {
+  tipoPuntaje: TipoPuntaje;
+  comportamiento: ComportamientoAlCierre;
+  /** El máximo **resultante** de la operación, no el guardado antes. */
+  maximo: number;
+  pedido: number | undefined;
+  fallback?: number;
+}
+
 @Injectable()
 export class ActividadesService {
   private readonly logger = new Logger(ActividadesService.name);
@@ -120,6 +133,14 @@ export class ActividadesService {
           repeticionesMaximasSesion: datos.repeticionesMaximasSesion,
         }),
         repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion ?? null,
+        // fase-14-25: el mínimo para no perder puntos, 1 fuera de OBLIGATORIA
+        // confirmable (mismo trato que puntosPorCumplir).
+        repeticionesMinimasSesion: this.resolverMinimoRepeticiones({
+          tipoPuntaje: datos.tipoPuntaje,
+          comportamiento,
+          maximo: datos.repeticionesMaximasSesion ?? REPETICIONES_MAXIMAS_DEFAULT,
+          pedido: datos.repeticionesMinimasSesion,
+        }),
         comportamientoAlCierre: comportamiento,
         // fase-14-20: el premio por cumplirla, 0 fuera de OBLIGATORIA confirmable.
         puntosPorCumplir: this.resolverPuntosPorCumplir(
@@ -286,6 +307,16 @@ export class ActividadesService {
         }),
         ...(datos.repeticionesMaximasSeccion !== undefined && {
           repeticionesMaximasSeccion: datos.repeticionesMaximasSeccion,
+        }),
+        // fase-14-25: se recalcula siempre (igual que el premio del #20) — bajar
+        // el máximo, o dejar de ser obligatoria confirmable, tiene que arrastrar
+        // el mínimo aunque el PATCH no lo mande.
+        repeticionesMinimasSesion: this.resolverMinimoRepeticiones({
+          tipoPuntaje: tipoPuntajeEfectivo,
+          comportamiento: comportamientoEfectivo,
+          maximo: datos.repeticionesMaximasSesion ?? existente.repeticionesMaximasSesion,
+          pedido: datos.repeticionesMinimasSesion,
+          fallback: existente.repeticionesMinimasSesion,
         }),
         comportamientoAlCierre: comportamientoEfectivo,
         // fase-14-20: se recalcula siempre, igual que el comportamiento y el
@@ -665,6 +696,36 @@ export class ActividadesService {
     }
 
     return pedido ?? fallback;
+  }
+
+  /**
+   * Mínimo de confirmaciones efectivo (fase-14-25, decisiones 9-11). Solo
+   * significa algo en una OBLIGATORIA confirmable —es el único par que el
+   * cierre castiga—, así que fuera de ahí se fuerza a 1 en vez de rechazar,
+   * mismo criterio que `puntosPorCumplir`.
+   *
+   * Un mínimo pedido por encima del máximo **sí** es un 400: es un castigo
+   * garantizado por algo que el propio servidor va a rechazar al confirmarlo,
+   * y silenciarlo dejaría al Tutor creyendo que pidió otra cosa. En cambio un
+   * mínimo heredado que quedó por encima del máximo nuevo se **recorta**: ahí
+   * el Tutor no pidió el mínimo, pidió bajar el máximo.
+   */
+  private resolverMinimoRepeticiones(datos: MinimoRepeticiones): number {
+    const castigable =
+      datos.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
+      datos.comportamiento === ComportamientoAlCierre.REQUIERE_CONFIRMACION;
+
+    if (!castigable) {
+      return 1;
+    }
+
+    if (datos.pedido !== undefined && datos.pedido > datos.maximo) {
+      throw new BadRequestException(
+        `El mínimo de repeticiones (${datos.pedido}) no puede superar al máximo por sesión (${datos.maximo})`
+      );
+    }
+
+    return Math.min(datos.pedido ?? datos.fallback ?? 1, datos.maximo);
   }
 
   /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */

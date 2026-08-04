@@ -2,6 +2,7 @@ import type {
   CanjeRecompensaDto,
   CastigoAsignadoDto,
   EstadoCanje,
+  EtiquetaCatalogoDto,
   MecanicaRecompensa,
   RecompensaDto,
   TipoItemCatalogo,
@@ -10,6 +11,7 @@ import type {
 import type {
   CanjeRecompensa,
   CastigoAsignado,
+  EtiquetaCatalogo,
   Recompensa,
 } from '../generated/prisma/client';
 
@@ -17,7 +19,27 @@ import type {
 // Mapeo explícito, no spread: el modelo interno puede tener columnas que no
 // viajan en un DTO (acá: creadaPorTutorId, createdAt/updatedAt).
 
-export function recompensaADto(recompensa: Recompensa): RecompensaDto {
+export function etiquetaADto(etiqueta: EtiquetaCatalogo): EtiquetaCatalogoDto {
+  return {
+    id: etiqueta.id,
+    organizacionId: etiqueta.organizacionId,
+    grupoId: etiqueta.grupoId,
+    nombre: etiqueta.nombre,
+    colorHex: etiqueta.colorHex,
+    estado: etiqueta.estado,
+  };
+}
+
+/**
+ * fase-14-26: las etiquetas llegan **resueltas de afuera** en vez de leerse
+ * acá. Es lo que permite que el mismo mapeador sirva para el Tutor (con chips)
+ * y para el participante (siempre `[]`, decisión 12) sin que el mapeador tenga
+ * que conocer el rol de quien pregunta.
+ */
+export function recompensaADto(
+  recompensa: Recompensa,
+  etiquetas: EtiquetaCatalogoDto[] = []
+): RecompensaDto {
   return {
     id: recompensa.id,
     organizacionId: recompensa.organizacionId,
@@ -31,6 +53,7 @@ export function recompensaADto(recompensa: Recompensa): RecompensaDto {
     permiteSeleccion: recompensa.permiteSeleccion,
     permiteAzar: recompensa.permiteAzar,
     estado: recompensa.estado,
+    etiquetas,
   };
 }
 

@@ -18,6 +18,9 @@ function estado(parcial: Partial<MiEstadoActividadHoyDto> = {}): MiEstadoActivid
     tipoPuntaje: TipoPuntaje.OBLIGATORIA,
     comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
     repeticionesMaximasSesion: 1,
+    // fase-14-25: 1 = con una alcanza, que es el comportamiento de siempre.
+    repeticionesMinimasSesion: 1,
+    minimoEfectivo: 1,
     vecesHechas: 0,
     confirmada: false,
     vecesPerdidas: 0,
@@ -178,5 +181,37 @@ describe('textoDeRepeticiones', () => {
     );
 
     expect(textoDeRepeticiones(fila)).toBe('2 de 3');
+  });
+});
+
+describe('textoDeRepeticiones — el mínimo (fase-14-25)', () => {
+  it('avisa cuántas faltan para no perder puntos', () => {
+    const [fila] = filasDeRegistro(
+      [estado({ repeticionesMaximasSesion: 3, topeEfectivo: 3, minimoEfectivo: 3, vecesHechas: 1 })],
+      CATALOGO,
+      'u1'
+    );
+
+    expect(textoDeRepeticiones(fila)).toBe('1 de 3 · faltan 2');
+  });
+
+  it('alcanzado el mínimo, solo queda el contador', () => {
+    const [fila] = filasDeRegistro(
+      [estado({ repeticionesMaximasSesion: 3, topeEfectivo: 3, minimoEfectivo: 2, vecesHechas: 2 })],
+      CATALOGO,
+      'u1'
+    );
+
+    expect(textoDeRepeticiones(fila)).toBe('2 de 3');
+  });
+
+  it('sin mínimo cargado el texto es el de siempre', () => {
+    const [fila] = filasDeRegistro(
+      [estado({ repeticionesMaximasSesion: 3, topeEfectivo: 3, vecesHechas: 0 })],
+      CATALOGO,
+      'u1'
+    );
+
+    expect(textoDeRepeticiones(fila)).toBe('0 de 3');
   });
 });

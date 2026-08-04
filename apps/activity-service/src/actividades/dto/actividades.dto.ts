@@ -80,6 +80,16 @@ export class CrearActividadRequest {
   @Min(1)
   repeticionesMaximasSesion?: number;
 
+  /**
+   * fase-14-25: cuántas confirmaciones hacen falta para no perder puntos. El
+   * tope contra `repeticionesMaximasSesion` no se puede expresar acá (depende
+   * de otro campo del mismo request) — lo valida el servicio.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  repeticionesMinimasSesion?: number;
+
   // null = sin override (se deriva en Fase 7).
   @IsOptional()
   @IsInt()
@@ -204,6 +214,16 @@ export class EditarActividadRequest {
   @IsInt()
   @Min(1)
   repeticionesMaximasSesion?: number;
+
+  /**
+   * fase-14-25: cuántas confirmaciones hacen falta para no perder puntos. El
+   * tope contra `repeticionesMaximasSesion` no se puede expresar acá (depende
+   * de otro campo del mismo request) — lo valida el servicio.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  repeticionesMinimasSesion?: number;
 
   @IsOptional()
   @IsInt()

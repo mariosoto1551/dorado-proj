@@ -5,13 +5,14 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { forkJoin } from 'rxjs';
+import { forkJoin, type Observable } from 'rxjs';
 
 import {
   FuenteProducto,
   MecanicaProducto,
   TipoItemCatalogo,
   type MiBilleteraResponse,
+  type ObjetivoDto,
   type ProductoTiendaDto,
   type RecompensaDto,
 } from '@dorado/shared-types';
@@ -43,6 +44,25 @@ import { AuthService } from '../../core/auth/auth.service';
         {{ economia.iconoMoneda() }} {{ economia.saldo() }}
       </p>
       <p class="text-sm text-amber-50">{{ economia.nombreMoneda() }}</p>
+
+      <!-- fase-14-25: el objetivo, arriba de todo. Es lo que convierte «tengo
+           14» en «me faltan 11 para la bici» — un número abstracto en una meta. -->
+      @if (objetivo(); as o) {
+        <div class="mt-5 border-t border-white/25 pt-4 text-left animate-fade-in">
+          <div class="flex items-baseline justify-between gap-2">
+            <p class="min-w-0 truncate text-sm font-bold">🎯 {{ o.nombre }}</p>
+            <p class="shrink-0 text-xs font-semibold text-amber-50">
+              {{ o.faltan > 0 ? 'Te faltan ' + o.faltan : '¡Ya te alcanza!' }}
+            </p>
+          </div>
+          <div class="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-white/25">
+            <div
+              class="h-full rounded-full bg-white transition-all duration-500"
+              [style.width.%]="progresoDelObjetivo(o)"
+            ></div>
+          </div>
+        </div>
+      }
     </div>
 
     @if (cargando()) {
@@ -94,9 +114,26 @@ import { AuthService } from '../../core/auth/auth.service';
                       [style.width.%]="progreso(p)"
                     ></div>
                   </div>
-                  <p class="mt-1.5 text-center text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    Te faltan {{ p.faltan }}
-                  </p>
+                  <div class="mt-1.5 flex items-center justify-between gap-2">
+                    <p class="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      Te faltan {{ p.faltan }}
+                    </p>
+                    <!-- fase-14-25: marcar objetivo. Toggle, sin confirmación:
+                         cambiar de meta no destruye nada. -->
+                    <button
+                      type="button"
+                      (click)="alternarObjetivo(p)"
+                      [disabled]="guardandoObjetivo()"
+                      class="rounded-full px-2.5 py-1 text-xs font-semibold transition disabled:opacity-50"
+                      [class]="
+                        esObjetivo(p)
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
+                          : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300'
+                      "
+                    >
+                      {{ esObjetivo(p) ? '🎯 Mi objetivo' : '☆ Marcar objetivo' }}
+                    </button>
+                  </div>
                 </div>
               }
             </li>
@@ -214,6 +251,9 @@ export class MiTiendaComponent {
 
   protected readonly obtenido = signal<string | null>(null);
 
+  /** fase-14-25: evita que dos toques seguidos manden dos PUT. */
+  protected readonly guardandoObjetivo = signal(false);
+
   private readonly items = signal<RecompensaDto[]>([]);
 
   private readonly bolsas = signal<{ id: string; recompensaIds: string[] }[]>([]);
@@ -241,6 +281,57 @@ export class MiTiendaComponent {
     }
 
     return producto.mecanica === MecanicaProducto.AZAR ? 'Sale uno al azar 🎲' : 'Elegís vos ✨';
+  }
+
+  /** fase-14-25: el objetivo vigente, tal como lo resolvió el servidor. */
+  protected objetivo(): ObjetivoDto | null {
+    return this.billetera()?.objetivo ?? null;
+  }
+
+  protected esObjetivo(producto: ProductoTiendaDto): boolean {
+    return this.objetivo()?.productoId === producto.id;
+  }
+
+  protected progresoDelObjetivo(objetivo: ObjetivoDto): number {
+    if (objetivo.precio <= 0) {
+      return 100;
+    }
+
+    return Math.min(100, Math.round((this.economia.saldo() / objetivo.precio) * 100));
+  }
+
+  /**
+   * Marca o desmarca el objetivo. Recarga `mi-billetera` en vez de escribir el
+   * estado local: `faltan` lo calcula el servidor contra el saldo del momento,
+   * y duplicar esa cuenta acá sería una segunda fuente de verdad.
+   */
+  protected alternarObjetivo(producto: ProductoTiendaDto): void {
+    const grupoId = this.auth.grupoUsuario();
+
+    if (!grupoId || this.guardandoObjetivo()) {
+      return;
+    }
+
+    const quitando = this.esObjetivo(producto);
+
+    this.guardandoObjetivo.set(true);
+
+    // `Observable<unknown>`: los dos endpoints devuelven cosas distintas y acá
+    // no se usa ninguna — lo que importa es recargar después.
+    const peticion: Observable<unknown> = quitando
+      ? this.api.quitarObjetivo(grupoId)
+      : this.api.fijarObjetivo(grupoId, producto.id);
+
+    peticion.subscribe({
+      next: () => {
+        this.guardandoObjetivo.set(false);
+        this.cargar();
+      },
+      error: (e: unknown) => {
+        this.guardandoObjetivo.set(false);
+        this.toasts.error(mensajeDeError(e));
+      },
+    });
   }
 
   protected progreso(producto: ProductoTiendaDto): number {

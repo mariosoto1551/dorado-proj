@@ -3,6 +3,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   FuenteProducto,
   MecanicaProducto,
+  ModoRecompensas,
+  ProductosDesdeEtiquetaDto,
   ProductoTiendaDto,
   Rol,
   TenantContext,
@@ -10,10 +12,18 @@ import {
 
 import { BilleteraService } from '../billetera/billetera.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
+import { SinItemsParaCrearException, SoloEnModoTiendaException } from '../comun/excepciones';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
+import type { ProductosDesdeEtiquetaRequest } from '../etiquetas/dto/etiquetas.dto';
+import { EtiquetasService } from '../etiquetas/etiquetas.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
+import type { Recompensa } from '../generated/prisma/client';
 import { EstadoCatalogo } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CrearProductoRequest, EditarProductoRequest } from './dto/tienda.dto';
+
+/** Ítem que la creación masiva dejó afuera, con el porqué (fase-14-26). */
+type ItemSalteado = ProductosDesdeEtiquetaDto['salteados'][number];
 
 /** Producto de Prisma + los dos campos derivados contra el saldo de quien mira. */
 type ProductoFila = {
@@ -43,7 +53,9 @@ export class ProductosService {
     private readonly prisma: PrismaService,
     private readonly acceso: AccesoGrupoService,
     private readonly billetera: BilleteraService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly configuracion: ConfiguracionService,
+    private readonly etiquetas: EtiquetasService
   ) {}
 
   async crear(
@@ -76,6 +88,141 @@ export class ProductosService {
     });
 
     return aDto(producto, 0);
+  }
+
+  /**
+   * Creación masiva desde una etiqueta (fase-14-26 decisión 11). **Saltea en
+   * vez de fallar**: correr el atajo dos veces no puede duplicar la tienda, y
+   * el Tutor se entera de qué quedó afuera y por qué.
+   *
+   * Es la tercera puerta contra los castigos comprables, y la única que no
+   * necesita cerrarse a golpes: acá directamente no se los busca.
+   */
+  async crearDesdeEtiqueta(
+    tenant: TenantContext,
+    grupoId: string,
+    datos: ProductosDesdeEtiquetaRequest
+  ): Promise<ProductosDesdeEtiquetaDto> {
+    await this.acceso.asegurarAccesoEscritura(tenant, grupoId);
+
+    if ((await this.configuracion.obtenerModo(grupoId)) !== ModoRecompensas.TIENDA) {
+      throw new SoloEnModoTiendaException();
+    }
+
+    await this.etiquetas.asegurarEtiquetaDelGrupo(grupoId, datos.etiquetaId);
+
+    const candidatos = await this.candidatosDeEtiqueta(grupoId, datos.etiquetaId);
+    const salteados = await this.salteadosPorProductoPrevio(grupoId, candidatos.premios);
+    const yaSalteados = new Set(salteados.map((fila) => fila.recompensaId));
+    const aCrear = candidatos.premios.filter((premio) => !yaSalteados.has(premio.id));
+
+    if (aCrear.length === 0) {
+      throw new SinItemsParaCrearException();
+    }
+
+    await this.prisma.client.productoTienda.createMany({
+      data: aCrear.map((premio) => ({
+        // organizacionId SIEMPRE del JWT validado, nunca del cliente (regla 3).
+        organizacionId: tenant.organizacionId,
+        grupoId,
+        nombre: premio.nombre,
+        descripcion: premio.descripcion,
+        precio: datos.precio,
+        fuente: FuenteProducto.ITEM,
+        // Se ignora con fuente ITEM; se manda el default explícito igual.
+        mecanica: MecanicaProducto.AZAR,
+        recompensaId: premio.id,
+        creadoPorTutorId: tenant.principalId,
+      })),
+    });
+
+    const creados = await this.prisma.client.productoTienda.findMany({
+      where: {
+        grupoId,
+        estado: EstadoCatalogo.ACTIVA,
+        recompensaId: { in: aCrear.map((premio) => premio.id) },
+      },
+    });
+
+    const todosLosSalteados = [...salteados, ...candidatos.castigos];
+
+    // Un solo registro de auditoría, no uno por producto: la acción del Tutor
+    // fue una sola y el detalle ya dice sobre cuántos ítems cayó.
+    await this.auditar(
+      tenant,
+      grupoId,
+      'PRODUCTOS_CREADOS_DESDE_ETIQUETA',
+      datos.etiquetaId,
+      {
+        despues: {
+          etiquetaId: datos.etiquetaId,
+          precio: datos.precio,
+          creados: aCrear.map((premio) => premio.id),
+          salteados: todosLosSalteados,
+        },
+      }
+    );
+
+    return {
+      creados: creados.map((producto) => aDto(producto, 0)),
+      salteados: todosLosSalteados,
+    };
+  }
+
+  /** Ítems activos con esa etiqueta, partidos en premios publicables y castigos. */
+  private async candidatosDeEtiqueta(
+    grupoId: string,
+    etiquetaId: string
+  ): Promise<{ premios: Recompensa[]; castigos: ItemSalteado[] }> {
+    const ids = await this.etiquetas.recompensasDeEtiqueta(etiquetaId);
+
+    if (ids.length === 0) {
+      return { premios: [], castigos: [] };
+    }
+
+    const items = await this.prisma.client.recompensa.findMany({
+      where: { grupoId, estado: EstadoCatalogo.ACTIVA, id: { in: ids } },
+    });
+
+    return {
+      premios: items.filter((item) => item.tipo !== 'CASTIGO'),
+      castigos: items
+        .filter((item) => item.tipo === 'CASTIGO')
+        .map((item) => ({
+          recompensaId: item.id,
+          nombre: item.nombre,
+          motivo: 'ES_CASTIGO' as const,
+        })),
+    };
+  }
+
+  /** Los que ya tienen un producto ACTIVA de fuente ITEM apuntándolos. */
+  private async salteadosPorProductoPrevio(
+    grupoId: string,
+    premios: Recompensa[]
+  ): Promise<ItemSalteado[]> {
+    if (premios.length === 0) {
+      return [];
+    }
+
+    const existentes = await this.prisma.client.productoTienda.findMany({
+      where: {
+        grupoId,
+        estado: EstadoCatalogo.ACTIVA,
+        fuente: FuenteProducto.ITEM,
+        recompensaId: { in: premios.map((premio) => premio.id) },
+      },
+    });
+
+    const conProducto = new Set(existentes.map((producto) => producto.recompensaId));
+
+    return premios
+      .filter((premio) => conProducto.has(premio.id))
+      .map((premio) => ({
+        recompensaId: premio.id,
+        nombre: premio.nombre,
+        motivo: 'YA_TIENE_PRODUCTO' as const,
+      }));
   }
 
   /**

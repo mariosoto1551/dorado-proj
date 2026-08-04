@@ -106,6 +106,12 @@ model Actividad {
   // solo si tipoLimiteTiempo = CRONOMETRO
   duracionCronometroMinutos  Int?
   repeticionesMaximasSesion  Int              @default(1)
+  // fase-14-25: cuántas confirmaciones hacen falta para NO perder puntos al
+  // cerrar la Sesión. Default 1 ⇒ toda actividad preexistente conserva el
+  // comportamiento del ítem 8 (con una confirmación alcanzaba). Se fuerza a 1
+  // fuera de OBLIGATORIA + REQUIERE_CONFIRMACION y nunca supera a
+  // repeticionesMaximasSesion (spec fase-14-25, decisiones 9-11).
+  repeticionesMinimasSesion  Int              @default(1)
   // null = sin override; se calcula en Fase 7 como
   // repeticionesMaximasSesion * cantidad de Sesiones de la Sección
   repeticionesMaximasSeccion Int?

@@ -62,6 +62,8 @@ export interface CrearActividadRequest {
   deadlineHora?: string | null;
   duracionCronometroMinutos?: number | null;
   repeticionesMaximasSesion?: number;
+  /** fase-14-25: cuántas confirmaciones hacen falta para no perder puntos. */
+  repeticionesMinimasSesion?: number;
   repeticionesMaximasSeccion?: number | null;
   comportamientoAlCierre?: ComportamientoAlCierre;
   alcance?: AlcanceActividad;
@@ -160,6 +162,21 @@ export interface CrearRecompensaRequest {
   imagenUrl?: string | null;
   permiteSeleccion?: boolean;
   permiteAzar?: boolean;
+}
+
+// ---- Rewards · etiquetas del catálogo (fase-14-26) ----
+export interface GuardarEtiquetaRequest {
+  nombre: string;
+  colorHex: string;
+}
+
+export interface AsignarEtiquetasRequest {
+  etiquetaIds: string[];
+}
+
+export interface ProductosDesdeEtiquetaRequest {
+  etiquetaId: string;
+  precio: number;
 }
 
 // ---- Rewards · tienda de monedas (fase-14-22) ----

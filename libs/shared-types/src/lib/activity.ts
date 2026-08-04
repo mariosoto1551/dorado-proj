@@ -68,6 +68,12 @@ export interface ActividadDto {
   deadlineHora: string | null;
   duracionCronometroMinutos: number | null;
   repeticionesMaximasSesion: number;
+  /**
+   * fase-14-25: cuántas confirmaciones hacen falta para NO perder puntos al
+   * cerrar la Sesión. 1 fuera de OBLIGATORIA + REQUIERE_CONFIRMACION, y 1 en
+   * toda actividad anterior al ítem — con 1, el castigo es el binario del #8.
+   */
+  repeticionesMinimasSesion: number;
   repeticionesMaximasSeccion: number | null;
   comportamientoAlCierre: ComportamientoAlCierre;
   alcance: AlcanceActividad;
@@ -178,6 +184,16 @@ export interface MiEstadoActividadHoyDto {
   tipoPuntaje: TipoPuntaje;
   comportamientoAlCierre: ComportamientoAlCierre;
   repeticionesMaximasSesion: number;
+  /** fase-14-25: el mínimo nominal configurado por el Tutor (1 = como siempre). */
+  repeticionesMinimasSesion: number;
+  /**
+   * fase-14-25: el mínimo que de verdad se le va a exigir hoy —
+   * `min(repeticionesMinimasSesion, topeEfectivo)`—, ya resuelto por el
+   * servidor. Es contra ESTE que la pantalla dibuja el umbral de la barrita,
+   * por el mismo motivo por el que existe `topeEfectivo`: que el cliente no
+   * re-derive una regla que decide el servidor.
+   */
+  minimoEfectivo: number;
   /** count RegistroActividad tipo=COMPLETADA del usuario+actividad+sesión actual. */
   vecesHechas: number;
   /** Obligatoria confirmable: vecesHechas > 0. Para OPCIONAL/ASUME_HECHA: false. */

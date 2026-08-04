@@ -14,6 +14,7 @@ import {
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { BilleteraService } from './billetera.service';
+import { ObjetivoService } from './objetivo.service';
 
 function tenantTutor(): TenantContext {
   return {
@@ -59,7 +60,14 @@ function crearServicio(
   const configuracion = new ConfiguracionService(bd.prisma, acceso, eventos);
 
   return {
-    servicio: new BilleteraService(bd.prisma, acceso, identity, configuracion, eventos),
+    servicio: new BilleteraService(
+      bd.prisma,
+      acceso,
+      identity,
+      configuracion,
+      eventos,
+      new ObjetivoService(bd.prisma, acceso, configuracion)
+    ),
     bd,
     eventos,
   };

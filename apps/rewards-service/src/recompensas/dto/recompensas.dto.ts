@@ -87,7 +87,7 @@ export class EditarRecompensaRequest {
   permiteAzar?: boolean;
 }
 
-// GET /rewards/grupos/:grupoId/recompensas?umbralZonaId=&estado=
+// GET /rewards/grupos/:grupoId/recompensas?umbralZonaId=&estado=&etiquetaId=
 export class ListarRecompensasQuery {
   @IsOptional()
   @IsUUID()
@@ -96,4 +96,13 @@ export class ListarRecompensasQuery {
   @IsOptional()
   @IsIn(Object.values(EstadoCatalogo))
   estado?: EstadoCatalogo;
+
+  /**
+   * fase-14-26 decisión 9: UNA etiqueta por vez. Multi-etiqueta obligaría a
+   * fijar si el cruce es unión o intersección, semántica imposible de
+   * comunicar en una fila de chips. Se ignora para `USUARIO`, igual que `estado`.
+   */
+  @IsOptional()
+  @IsUUID()
+  etiquetaId?: string;
 }

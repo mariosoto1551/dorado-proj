@@ -53,6 +53,8 @@ const ACTIVIDAD_BASE: Actividad = {
   deadlineHora: null,
   duracionCronometroMinutos: null,
   repeticionesMaximasSesion: 1,
+  // fase-14-25: 1 = el castigo binario de siempre.
+  repeticionesMinimasSesion: 1,
   repeticionesMaximasSeccion: null,
   comportamientoAlCierre: 'ASUME_HECHA',
   alcance: 'INDIVIDUAL',
@@ -875,5 +877,102 @@ describe('ActividadesService — vigencia (fase-14-24)', () => {
     );
 
     expect(crear).toHaveBeenCalled();
+  });
+});
+
+describe('ActividadesService — mínimo de repeticiones (fase-14-25)', () => {
+  const CONFIRMABLE: Partial<CrearActividadRequest> = {
+    tipoPuntaje: 'OBLIGATORIA',
+    comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+  };
+
+  it('guarda el mínimo pedido en una OBLIGATORIA con confirmación', async () => {
+    const { servicio, crear } = crearServicio();
+
+    await servicio.crear(
+      tenantDePrueba(),
+      'grupo-1',
+      requestDePrueba({
+        ...CONFIRMABLE,
+        repeticionesMaximasSesion: 3,
+        repeticionesMinimasSesion: 3,
+      })
+    );
+
+    expect(crear.mock.calls[0][0].data).toMatchObject({
+      repeticionesMaximasSesion: 3,
+      repeticionesMinimasSesion: 3,
+    });
+  });
+
+  it('rechaza un mínimo mayor que el máximo', async () => {
+    const { servicio } = crearServicio();
+
+    await expect(
+      servicio.crear(
+        tenantDePrueba(),
+        'grupo-1',
+        requestDePrueba({
+          ...CONFIRMABLE,
+          repeticionesMaximasSesion: 2,
+          repeticionesMinimasSesion: 3,
+        })
+      )
+    ).rejects.toThrow(/mínimo/i);
+  });
+
+  it('lo fuerza a 1 donde el cierre no castiga (opcional, ASUME_HECHA)', async () => {
+    const casos: Array<Partial<CrearActividadRequest>> = [
+      { tipoPuntaje: 'OPCIONAL', repeticionesMaximasSesion: 5, repeticionesMinimasSesion: 5 },
+      {
+        tipoPuntaje: 'OBLIGATORIA',
+        comportamientoAlCierre: 'ASUME_HECHA',
+        repeticionesMaximasSesion: 5,
+        repeticionesMinimasSesion: 5,
+      },
+    ];
+
+    for (const caso of casos) {
+      const { servicio, crear } = crearServicio();
+
+      await servicio.crear(tenantDePrueba(), 'grupo-1', requestDePrueba(caso));
+
+      expect(crear.mock.calls[0][0].data).toMatchObject({ repeticionesMinimasSesion: 1 });
+    }
+  });
+
+  it('bajar el máximo arrastra el mínimo heredado, sin fallar', async () => {
+    const existente = {
+      ...ACTIVIDAD_BASE,
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      repeticionesMaximasSesion: 3,
+      repeticionesMinimasSesion: 3,
+    } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', { repeticionesMaximasSesion: 2 });
+
+    expect(actualizar.mock.calls[0][0].data).toMatchObject({
+      repeticionesMaximasSesion: 2,
+      repeticionesMinimasSesion: 2,
+    });
+  });
+
+  it('un PATCH a ASUME_HECHA apaga el mínimo aunque el request no lo mande', async () => {
+    const existente = {
+      ...ACTIVIDAD_BASE,
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      repeticionesMaximasSesion: 3,
+      repeticionesMinimasSesion: 3,
+    } as Actividad;
+    const { servicio, actualizar } = crearServicio({ existente });
+
+    await servicio.editar(tenantDePrueba(), 'act-1', {
+      comportamientoAlCierre: 'ASUME_HECHA',
+    });
+
+    expect(actualizar.mock.calls[0][0].data).toMatchObject({ repeticionesMinimasSesion: 1 });
   });
 });

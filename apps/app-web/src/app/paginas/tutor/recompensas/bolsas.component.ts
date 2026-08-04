@@ -9,18 +9,25 @@ import {
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 
-import { TipoItemCatalogo, type BolsaPremiosDto, type RecompensaDto } from '@dorado/shared-types';
+import {
+  TipoItemCatalogo,
+  type BolsaPremiosDto,
+  type EtiquetaCatalogoDto,
+  type RecompensaDto,
+} from '@dorado/shared-types';
 
 import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
+import { premiosParaBolsa } from '../../../core/etiquetas-catalogo';
 import {
   ConfirmDialogComponent,
   EstadoVacioComponent,
   CampoComponent,
   ModalComponent,
 } from '@dorado/shared-ui';
+import { EtiquetaChipComponent } from './etiqueta-chip.component';
 
 /**
  * Bolsas de premios (fase-14-22 decisiones 19 y 20). Son SIEMPRE de premios:
@@ -38,6 +45,7 @@ import {
     EstadoVacioComponent,
     FormsModule,
     IconoComponent,
+    EtiquetaChipComponent,
   ],
   template: `
     <div class="flex items-center justify-between">
@@ -134,7 +142,29 @@ import {
                 Agregar todos
               </button>
             </div>
-  
+
+            <!--
+              fase-14-26: el atajo por etiqueta. PRECARGA la selección y la deja
+              editable — lo que se guarda sigue siendo la lista explícita de
+              ítems (decisión 19 del #22, intacta): un premio que se etiquete
+              mañana NO entra solo a esta bolsa.
+            -->
+            @if (etiquetas().length > 0) {
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="text-xs text-slate-500 dark:text-slate-400">Agregar los de:</span>
+                @for (e of etiquetas(); track e.id) {
+                  <button type="button" (click)="agregarDeEtiqueta(e.id)">
+                    <app-etiqueta-chip [etiqueta]="e" />
+                  </button>
+                }
+              </div>
+              @if (avisoEtiqueta()) {
+                <p class="mt-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {{ avisoEtiqueta() }}
+                </p>
+              }
+            }
+
             <ul class="mt-2 flex-1 space-y-1.5 overflow-y-auto">
               @for (p of premios(); track p.id) {
                 <li>
@@ -206,10 +236,39 @@ export class BolsasComponent {
 
   protected readonly elegidos = signal<string[]>([]);
 
+  /** fase-14-26: etiquetas activas del grupo, para el atajo de precarga. */
+  protected readonly etiquetas = signal<EtiquetaCatalogoDto[]>([]);
+
+  /** Resultado del último atajo: cuántos entraron y cuántos se saltearon. */
+  protected readonly avisoEtiqueta = signal<string | null>(null);
+
+  /** Ítems del catálogo COMPLETO, para saber qué castigos lleva una etiqueta. */
+  private readonly todos = signal<RecompensaDto[]>([]);
+
   protected nombre = '';
 
   constructor() {
     effect(() => this.cargar(this.grupoId()));
+  }
+
+  /**
+   * Precarga los premios de una etiqueta. Los castigos se **saltean en
+   * silencio** y se cuentan en el aviso: mandarlos sería un 400
+   * `CASTIGO_NO_VA_EN_BOLSA` del backend, y una bolsa nunca los lleva.
+   */
+  protected agregarDeEtiqueta(etiquetaId: string): void {
+    const { premios, castigosSalteados } = premiosParaBolsa(this.todos(), etiquetaId);
+
+    this.elegidos.update((actual) => [
+      ...actual,
+      ...premios.map((premio) => premio.id).filter((id) => !actual.includes(id)),
+    ]);
+
+    this.avisoEtiqueta.set(
+      castigosSalteados === 0
+        ? `Se agregaron ${premios.length} premios.`
+        : `Se agregaron ${premios.length} premios · ${castigosSalteados} castigos no van en bolsa.`
+    );
   }
 
   protected nombresDe(bolsa: BolsaPremiosDto): string {
@@ -222,6 +281,7 @@ export class BolsasComponent {
     this.editando.set(null);
     this.nombre = '';
     this.elegidos.set([]);
+    this.avisoEtiqueta.set(null);
     this.formAbierto.set(true);
   }
 
@@ -229,6 +289,7 @@ export class BolsasComponent {
     this.editando.set(bolsa);
     this.nombre = bolsa.nombre;
     this.elegidos.set([...bolsa.recompensaIds]);
+    this.avisoEtiqueta.set(null);
     this.formAbierto.set(true);
   }
 
@@ -300,10 +361,13 @@ export class BolsasComponent {
     forkJoin({
       bolsas: this.api.listarBolsas(grupoId),
       items: this.api.listarRecompensas(grupoId, 'ACTIVA'),
+      etiquetas: this.api.listarEtiquetas(grupoId, 'ACTIVA'),
     }).subscribe({
-      next: ({ bolsas, items }) => {
+      next: ({ bolsas, items, etiquetas }) => {
         this.bolsas.set(bolsas.filter((b) => b.estado === 'ACTIVA'));
+        this.todos.set(items);
         this.premios.set(items.filter((i) => i.tipo === TipoItemCatalogo.PREMIO));
+        this.etiquetas.set(etiquetas);
         this.cargando.set(false);
       },
       error: () => this.cargando.set(false),

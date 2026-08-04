@@ -15,6 +15,7 @@ import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AjustarMonedasRequest, ListarMovimientosQuery } from './dto/billetera.dto';
+import { ObjetivoService } from './objetivo.service';
 
 /** Página por defecto del historial de la billetera. */
 const MOVIMIENTOS_POR_PAGINA = 25;
@@ -54,7 +55,8 @@ export class BilleteraService {
     private readonly acceso: AccesoGrupoService,
     private readonly identity: IdentityClientService,
     private readonly configuracion: ConfiguracionService,
-    private readonly eventos: EventosPublisherService
+    private readonly eventos: EventosPublisherService,
+    private readonly objetivos: ObjetivoService
   ) {}
 
   /** Saldo derivado. Sin contexto de tenant: lo usan también los consumidores. */
@@ -112,6 +114,11 @@ export class BilleteraService {
       this.prisma.client.eventoMoneda.count({ where: { grupoId, usuarioId } }),
     ]);
 
+    // fase-14-25: para qué está ahorrando. Va acá y no en un endpoint aparte
+    // porque la pantalla lo dibuja sobre la misma tarjeta que el saldo — dos
+    // llamadas para pintar una sola tarjeta serían dos estados de carga.
+    const objetivo = await this.objetivos.resolver(grupoId, usuarioId, saldo);
+
     return {
       usuarioId,
       grupoId,
@@ -120,6 +127,7 @@ export class BilleteraService {
       iconoMoneda: config.iconoMoneda,
       movimientos: movimientos.map(movimientoADto),
       total,
+      objetivo,
     };
   }
 
@@ -136,26 +144,37 @@ export class BilleteraService {
 
     const config = await this.configuracion.obtener(tenant, grupoId);
 
-    const [saldos, usuarios] = await Promise.all([
+    const [saldos, usuarios, objetivos] = await Promise.all([
       this.prisma.client.eventoMoneda.groupBy({
         by: ['usuarioId'],
         where: { grupoId },
         _sum: { monto: true },
       }),
       this.identity.usuariosDelGrupo(grupoId),
+      // fase-14-25: dos consultas para todo el grupo, no dos por participante.
+      this.objetivos.resolverParaGrupo(grupoId),
     ]);
 
     const porUsuario = new Map(
       saldos.map((fila) => [fila.usuarioId, fila._sum.monto ?? 0])
     );
 
-    return usuarios.map((usuario) => ({
-      usuarioId: usuario.id,
-      grupoId,
-      saldo: porUsuario.get(usuario.id) ?? 0,
-      nombreMoneda: config.nombreMoneda,
-      iconoMoneda: config.iconoMoneda,
-    }));
+    return usuarios.map((usuario) => {
+      const saldo = porUsuario.get(usuario.id) ?? 0;
+      const objetivo = objetivos.get(usuario.id) ?? null;
+
+      return {
+        usuarioId: usuario.id,
+        grupoId,
+        saldo,
+        nombreMoneda: config.nombreMoneda,
+        iconoMoneda: config.iconoMoneda,
+        // fase-14-25: el Tutor ve para qué ahorra cada uno (decisión 4) — la
+        // mitad del valor del objetivo pasa fuera de la app.
+        objetivoNombre: objetivo?.nombre ?? null,
+        objetivoFaltan: objetivo ? Math.max(0, objetivo.precio - saldo) : null,
+      };
+    });
   }
 
   /**

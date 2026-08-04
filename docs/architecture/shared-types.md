@@ -74,7 +74,7 @@ export interface SuscripcionDto { id: string; organizacionId: string; planId: st
 export interface EntitlementsDto { plan: CodigoPlan; limites: { tutores: number | null; usuarios: number | null; grupos: number | null; actividadesPorGrupo: number | null; }; features: { whiteLabel: boolean; reportesAvanzados: boolean; }; }
 
 // ---------- Activity Catalog ----------
-export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; puntosPorCumplir: number; /* fase-14-20: lo que suma cumplir una obligatoria confirmable; 0 en el resto */ tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; rolesPermitidos: string[]; /* fase-14-19: ids de RolGrupo que la ven; vacío = todos */ estado: 'ACTIVA' | 'ARCHIVADA'; }
+export interface ActividadDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; tipoPuntaje: TipoPuntaje; valorPuntos: number; puntosPorCumplir: number; /* fase-14-20: lo que suma cumplir una obligatoria confirmable; 0 en el resto */ tipoLimiteTiempo: TipoLimiteTiempo; deadlineHora: string | null; duracionCronometroMinutos: number | null; repeticionesMaximasSesion: number; repeticionesMinimasSesion: number; /* fase-14-25: confirmaciones necesarias para no perder puntos; 1 = como antes del ítem */ repeticionesMaximasSeccion: number | null; comportamientoAlCierre: ComportamientoAlCierre; alcance: AlcanceActividad; bonoJefePuntos: number; rolesPermitidos: string[]; /* fase-14-19: ids de RolGrupo que la ven; vacío = todos */ usuariosPermitidos: string[]; equiposPermitidos: string[]; /* fase-14-24: destinatario nominal; los tres arrays son excluyentes */ vigenteDesde: string | null; vigenteHasta: string | null; /* fase-14-24: fechas civiles "YYYY-MM-DD" del calendario del Grupo */ estado: 'ACTIVA' | 'ARCHIVADA'; }
 // Turnos rotativos (fase-14-21). La secuencia es una LISTA ORDENADA de posiciones y admite repetidos:
 // con [José, Luciana, José, Alejandra] a José le tocan 2 de cada 4 turnos. No cuelga de ActividadDto.
 export enum ModoTurno { ORDEN_FIJO = 'ORDEN_FIJO', AZAR = 'AZAR' }
@@ -120,6 +120,10 @@ export interface DescalificacionDto { id: string; organizacionId: string; grupoI
 // ---------- Rewards ----------
 export interface RecompensaDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; imagenUrl: string | null; umbralZonaId: string; nombreZonaSnapshot: string; permiteSeleccion: boolean; permiteAzar: boolean; estado: 'ACTIVA' | 'ARCHIVADA'; }
 export interface CanjeRecompensaDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; seccionId: string; recompensaId: string; mecanica: MecanicaRecompensa; estado: EstadoCanje; entregadaPorTutorId: string | null; entregadaEn: string | null; }
+// Etiquetas del catálogo (fase-14-26). Organizan la pantalla del Tutor y NO tienen efecto de negocio.
+// `RecompensaDto.etiquetas` viaja denormalizado (nombre + color) y es SIEMPRE [] para Rol.USUARIO.
+export interface EtiquetaCatalogoDto { id: string; organizacionId: string; grupoId: string; nombre: string; colorHex: string; estado: 'ACTIVA' | 'ARCHIVADA'; }
+export interface ProductosDesdeEtiquetaDto { creados: ProductoTiendaDto[]; salteados: Array<{ recompensaId: string; nombre: string; motivo: 'YA_TIENE_PRODUCTO' | 'ES_CASTIGO' }>; }
 
 // ---------- Notification / Audit ----------
 export interface NotificacionDto { id: string; organizacionId: string; grupoId: string; destinatarioId: string; destinatarioTipo: PrincipalType; tipo: string; mensaje: string; leida: boolean; createdAt: string; }

@@ -8,8 +8,11 @@ import type {
   CanjeRecompensaDto,
   CompraDto,
   ConfiguracionRecompensasGrupoDto,
+  EtiquetaCatalogoDto,
   MiBilleteraResponse,
+  ObjetivoDto,
   PendienteEntregaDto,
+  ProductosDesdeEtiquetaDto,
   ProductoTiendaDto,
   RecompensaDto,
   RendimientoZonaDto,
@@ -19,6 +22,7 @@ import { environment } from '../../../environments/environment';
 import type {
   AjustarMonedasRequest,
   AnularCastigoRequest,
+  AsignarEtiquetasRequest,
   CambiarModoRecompensasRequest,
   ComprarRequest,
   ConfigurarRendimientosRequest,
@@ -28,6 +32,8 @@ import type {
   EditarRecompensaRequest,
   ElegiblesResponse,
   GuardarBolsaRequest,
+  GuardarEtiquetaRequest,
+  ProductosDesdeEtiquetaRequest,
   SeleccionarRecompensaRequest,
 } from './api.types';
 
@@ -39,14 +45,80 @@ export class RewardsApiService {
   private readonly base = `${environment.apiBaseUrl}/rewards`;
 
   // ---- Catálogo ----
-  listarRecompensas(grupoId: string, estado?: 'ACTIVA' | 'ARCHIVADA'): Observable<RecompensaDto[]> {
+  listarRecompensas(
+    grupoId: string,
+    estado?: 'ACTIVA' | 'ARCHIVADA',
+    etiquetaId?: string
+  ): Observable<RecompensaDto[]> {
     let params = new HttpParams();
 
     if (estado) {
       params = params.set('estado', estado);
     }
 
+    // fase-14-26: el filtro del catálogo. Una etiqueta por vez (decisión 9).
+    if (etiquetaId) {
+      params = params.set('etiquetaId', etiquetaId);
+    }
+
     return this.http.get<RecompensaDto[]>(`${this.base}/grupos/${grupoId}/recompensas`, { params });
+  }
+
+  // ---- Etiquetas del catálogo (fase-14-26) ----
+  listarEtiquetas(grupoId: string, estado?: 'ACTIVA' | 'ARCHIVADA'): Observable<EtiquetaCatalogoDto[]> {
+    let params = new HttpParams();
+
+    if (estado) {
+      params = params.set('estado', estado);
+    }
+
+    return this.http.get<EtiquetaCatalogoDto[]>(`${this.base}/grupos/${grupoId}/etiquetas`, {
+      params,
+    });
+  }
+
+  crearEtiqueta(grupoId: string, datos: GuardarEtiquetaRequest): Observable<EtiquetaCatalogoDto> {
+    return this.http.post<EtiquetaCatalogoDto>(`${this.base}/grupos/${grupoId}/etiquetas`, datos);
+  }
+
+  editarEtiqueta(
+    etiquetaId: string,
+    datos: Partial<GuardarEtiquetaRequest>
+  ): Observable<EtiquetaCatalogoDto> {
+    return this.http.patch<EtiquetaCatalogoDto>(`${this.base}/etiquetas/${etiquetaId}`, datos);
+  }
+
+  archivarEtiqueta(etiquetaId: string): Observable<EtiquetaCatalogoDto> {
+    return this.http.delete<EtiquetaCatalogoDto>(`${this.base}/etiquetas/${etiquetaId}`);
+  }
+
+  /** Reversible a propósito: archivar una etiqueta no rompe nada (decisión 6). */
+  desarchivarEtiqueta(etiquetaId: string): Observable<EtiquetaCatalogoDto> {
+    return this.http.patch<EtiquetaCatalogoDto>(
+      `${this.base}/etiquetas/${etiquetaId}/desarchivar`,
+      {}
+    );
+  }
+
+  /** Reemplazo completo: lo que viaja es lo que queda. */
+  asignarEtiquetas(
+    recompensaId: string,
+    datos: AsignarEtiquetasRequest
+  ): Observable<EtiquetaCatalogoDto[]> {
+    return this.http.put<EtiquetaCatalogoDto[]>(
+      `${this.base}/recompensas/${recompensaId}/etiquetas`,
+      datos
+    );
+  }
+
+  crearProductosDesdeEtiqueta(
+    grupoId: string,
+    datos: ProductosDesdeEtiquetaRequest
+  ): Observable<ProductosDesdeEtiquetaDto> {
+    return this.http.post<ProductosDesdeEtiquetaDto>(
+      `${this.base}/grupos/${grupoId}/productos/desde-etiqueta`,
+      datos
+    );
   }
 
   crearRecompensa(grupoId: string, datos: CrearRecompensaRequest): Observable<RecompensaDto> {
@@ -176,6 +248,17 @@ export class RewardsApiService {
 
   miBilletera(grupoId: string): Observable<MiBilleteraResponse> {
     return this.http.get<MiBilleteraResponse>(`${this.base}/grupos/${grupoId}/mi-billetera`);
+  }
+
+  /** fase-14-25: fija el objetivo de ahorro del participante. */
+  fijarObjetivo(grupoId: string, productoId: string): Observable<ObjetivoDto> {
+    return this.http.put<ObjetivoDto>(`${this.base}/grupos/${grupoId}/mi-objetivo`, {
+      productoId,
+    });
+  }
+
+  quitarObjetivo(grupoId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/grupos/${grupoId}/mi-objetivo`);
   }
 
   billeteras(grupoId: string): Observable<BilleteraDto[]> {

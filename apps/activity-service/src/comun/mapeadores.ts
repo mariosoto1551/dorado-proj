@@ -45,6 +45,8 @@ export function actividadADto(actividad: Actividad): ActividadDto {
     deadlineHora: actividad.deadlineHora,
     duracionCronometroMinutos: actividad.duracionCronometroMinutos,
     repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
+    // fase-14-25: 1 salvo en una OBLIGATORIA confirmable con mínimo cargado.
+    repeticionesMinimasSesion: actividad.repeticionesMinimasSesion,
     repeticionesMaximasSeccion: actividad.repeticionesMaximasSeccion,
     comportamientoAlCierre: actividad.comportamientoAlCierre as ComportamientoAlCierre,
     alcance: actividad.alcance as AlcanceActividad,

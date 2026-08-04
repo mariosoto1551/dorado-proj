@@ -46,7 +46,7 @@ interface CronometroActivo {
  * Estado de un segmento de la barrita de repeticiones. `perdido` es fase-14-12:
  * un intento que el tutor quemó y que el integrante no recupera.
  */
-type EstadoSegmento = 'hecho' | 'libre' | 'perdido';
+type EstadoSegmento = 'hecho' | 'requerido' | 'libre' | 'perdido';
 
 /** Un bloque de la lista de hoy, ya ordenado y partido en tramos (fase-14-14). */
 interface BloqueLista {
@@ -219,8 +219,9 @@ const MINUTOS_URGENTE = 60;
                     }
                   }
 
-                  <!-- Barrita de repeticiones: solo opcional repetible (fase-14-08).
-                       Las que el tutor quemó van en rojo y NO vuelven (fase-14-12). -->
+                  <!-- Barrita de repeticiones: opcional repetible (fase-14-08) y
+                       obligatoria confirmable con mínimo (fase-14-25). Las que el
+                       tutor quemó van en rojo y NO vuelven (fase-14-12). -->
                   @if (esRepetible(a)) {
                     <div class="mt-2 flex items-center gap-2">
                       <div class="flex gap-1">
@@ -240,6 +241,14 @@ const MINUTOS_URGENTE = 60;
                         }
                       </span>
                     </div>
+
+                    <!-- fase-14-25: el umbral, dicho. Un castigo que no se
+                         anuncia es la peor clase de castigo. -->
+                    @if (faltanParaElMinimo(a); as faltan) {
+                      <p class="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        Te falta{{ faltan === 1 ? '' : 'n' }} {{ faltan }} para no perder puntos
+                      </p>
+                    }
                   }
 
                   <!-- fase-14-12: la nota que dejó el tutor, si dejó alguna -->
@@ -767,6 +776,10 @@ export class HomeUsuarioPage {
     switch (segmento) {
       case 'hecho':
         return 'bg-marca-500';
+      case 'requerido':
+        // fase-14-25: todavía hace falta para no perder puntos. Ámbar y no
+        // gris: es lo que separa «me falta» de «puedo, si quiero».
+        return 'bg-amber-400 dark:bg-amber-500';
       case 'perdido':
         // Rayado además de rojo (ver `.segmento-perdido` en theme.css).
         return 'segmento-perdido';
@@ -802,15 +815,33 @@ export class HomeUsuarioPage {
   }
 
   protected esRepetible(a: ActividadDto): boolean {
-    // Solo tiene sentido pintar la barrita para opcionales repetibles. Las de
-    // equipo quedan afuera (fase-14-15): sus completadas viven en
+    // Las de equipo quedan afuera (fase-14-15): sus completadas viven en
     // RegistroTareaEquipo, así que `vecesHechas` es siempre 0 acá y la barrita
     // se vería vacía aunque el jefe ya la haya marcado — se ve en «Mi equipo».
+    //
+    // fase-14-25: la obligatoria confirmable repetible también lleva barrita.
+    // Antes no la tenía porque solo se podía confirmar una vez en la pantalla;
+    // ahora el mínimo puede pedir tres, y sin barrita el integrante no tendría
+    // forma de saber cuántas le faltan para no perder puntos.
     return (
-      a.tipoPuntaje === 'OPCIONAL' &&
+      (a.tipoPuntaje === 'OPCIONAL' || this.esConfirmable(a)) &&
       a.repeticionesMaximasSesion > 1 &&
       !this.esDeEquipo(a)
     );
+  }
+
+  /** fase-14-25: cuántas confirmaciones se le exigen hoy (ya recortado por el servidor). */
+  protected minimoEfectivo(a: ActividadDto): number {
+    return this.estadoPorActividad().get(a.id)?.minimoEfectivo ?? 1;
+  }
+
+  /** Las que todavía le faltan para no perder puntos. 0 = ya no arriesga nada. */
+  protected faltanParaElMinimo(a: ActividadDto): number {
+    if (!this.esConfirmable(a)) {
+      return 0;
+    }
+
+    return Math.max(0, this.minimoEfectivo(a) - this.vecesHechas(a));
   }
 
   /**
@@ -821,11 +852,16 @@ export class HomeUsuarioPage {
    */
   protected segmentos(a: ActividadDto): EstadoSegmento[] {
     const hechas = this.vecesHechas(a);
-    const libres = Math.max(0, this.topeEfectivo(a) - hechas);
+    const disponibles = Math.max(0, this.topeEfectivo(a) - hechas);
+    // fase-14-25: de las que quedan, las primeras N son las que todavía le
+    // exigen. El umbral se ve en la barra y no solo en el texto: es la
+    // diferencia entre «me falta» y «puedo, si quiero».
+    const requeridas = Math.min(disponibles, this.faltanParaElMinimo(a));
 
     return [
       ...Array<EstadoSegmento>(hechas).fill('hecho'),
-      ...Array<EstadoSegmento>(libres).fill('libre'),
+      ...Array<EstadoSegmento>(requeridas).fill('requerido'),
+      ...Array<EstadoSegmento>(disponibles - requeridas).fill('libre'),
       ...Array<EstadoSegmento>(this.vecesPerdidas(a)).fill('perdido'),
     ];
   }
@@ -837,7 +873,12 @@ export class HomeUsuarioPage {
     }
 
     if (this.esConfirmable(a)) {
-      return this.estadoPorActividad().get(a.id)?.confirmada ?? false;
+      // fase-14-25: con más de una repetición, confirmar una vez ya no la
+      // termina — el servidor acepta hasta el tope efectivo, así que la
+      // pantalla tiene que dejar seguir (si no, el mínimo sería inalcanzable).
+      return a.repeticionesMaximasSesion > 1
+        ? this.vecesHechas(a) >= this.topeEfectivo(a)
+        : (this.estadoPorActividad().get(a.id)?.confirmada ?? false);
     }
 
     // Contra el tope EFECTIVO (fase-14-12): con una repetición quemada el

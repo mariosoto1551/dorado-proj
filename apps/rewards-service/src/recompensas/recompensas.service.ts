@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import {
+  EtiquetaCatalogoDto,
   ModoRecompensas,
   RecompensaDto,
   Rol,
@@ -11,6 +12,7 @@ import { ScoringClientService } from '../clientes/scoring-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { recompensaADto } from '../comun/mapeadores';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { EtiquetasService } from '../etiquetas/etiquetas.service';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Recompensa } from '../generated/prisma/client';
 import { EstadoCatalogo } from '../generated/prisma/enums';
@@ -38,7 +40,8 @@ export class RecompensasService {
     private readonly scoring: ScoringClientService,
     private readonly acceso: AccesoGrupoService,
     private readonly eventos: EventosPublisherService,
-    private readonly configuracion: ConfiguracionService
+    private readonly configuracion: ConfiguracionService,
+    private readonly etiquetas: EtiquetasService
   ) {}
 
   async crear(
@@ -83,8 +86,8 @@ export class RecompensasService {
     this.acceso.asegurarAccesoLectura(tenant, grupoId);
 
     // USUARIO solo ve ACTIVA y su query param se ignora (criterio fase-05).
-    const estado =
-      tenant.rol === Rol.USUARIO ? EstadoCatalogo.ACTIVA : query.estado;
+    const esParticipante = tenant.rol === Rol.USUARIO;
+    const estado = esParticipante ? EstadoCatalogo.ACTIVA : query.estado;
 
     const recompensas = await this.prisma.client.recompensa.findMany({
       // El filtro organizacionId (+ grupoId IN grupoIds) lo agrega la tenant
@@ -97,7 +100,29 @@ export class RecompensasService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return recompensas.map(recompensaADto);
+    // fase-14-26 decisión 12: el participante no ve etiquetas por ningún
+    // camino, y este es el mismo DTO que recibe en los elegibles del modo
+    // DIRECTO. Cortar acá también le ahorra las dos consultas del mapa.
+    if (esParticipante) {
+      return recompensas.map((recompensa) => recompensaADto(recompensa));
+    }
+
+    const porRecompensa = await this.etiquetas.mapaPorRecompensa(grupoId);
+    const conEtiquetas = recompensas.map((recompensa) =>
+      recompensaADto(recompensa, porRecompensa.get(recompensa.id) ?? [])
+    );
+
+    // El filtro por etiqueta se resuelve sobre el mapa ya cargado en vez de con
+    // un `where` anidado: la alternativa era una consulta más para traer los
+    // ids, y acá el grupo entero ya está en memoria (decisión 9: una etiqueta
+    // por vez, así que no hay que decidir entre unión e intersección).
+    if (!query.etiquetaId) {
+      return conEtiquetas;
+    }
+
+    return conEtiquetas.filter((recompensa) =>
+      recompensa.etiquetas.some((etiqueta) => etiqueta.id === query.etiquetaId)
+    );
   }
 
   async editar(
@@ -140,7 +165,7 @@ export class RecompensasService {
       despues: recompensaADto(actualizada),
     });
 
-    return recompensaADto(actualizada);
+    return recompensaADto(actualizada, await this.etiquetasDe(actualizada));
   }
 
   /** Soft delete (spec): ARCHIVADA. No hay reactivación por endpoint. */
@@ -156,7 +181,21 @@ export class RecompensasService {
       antes: recompensaADto(existente),
     });
 
-    return recompensaADto({ ...existente, estado: EstadoCatalogo.ARCHIVADA });
+    return recompensaADto(
+      { ...existente, estado: EstadoCatalogo.ARCHIVADA },
+      await this.etiquetasDe(existente)
+    );
+  }
+
+  /**
+   * Etiquetas de UN ítem, para que la respuesta de una escritura no diga «sin
+   * etiquetas» cuando las tiene. Solo en escrituras: en la lista se usa el mapa
+   * del grupo, que resuelve todo el catálogo con las mismas dos consultas.
+   */
+  private async etiquetasDe(recompensa: Recompensa): Promise<EtiquetaCatalogoDto[]> {
+    const porRecompensa = await this.etiquetas.mapaPorRecompensa(recompensa.grupoId);
+
+    return porRecompensa.get(recompensa.id) ?? [];
   }
 
   /** Retrofit fase-09: evento genérico de auditoría (consumido por Audit). */

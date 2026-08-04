@@ -6,6 +6,7 @@ import type {
   CastigoAsignado,
   Compra,
   ConfiguracionRecompensasGrupo,
+  EtiquetaCatalogo,
   EventoMoneda,
   ItemBolsa,
   ProductoTienda,
@@ -67,6 +68,16 @@ function crearDelegado<T extends Fila>(
       filas.push(fila);
 
       return fila;
+    },
+    // fase-14-26: la creación masiva de productos desde una etiqueta inserta
+    // en lote. No valida duplicados a propósito — `createMany` de Prisma
+    // tampoco los reporta fila por fila.
+    createMany: async (args: { data: Partial<T>[] }) => {
+      for (const dato of args.data) {
+        filas.push({ ...defaults(), ...dato } as T);
+      }
+
+      return { count: args.data.length };
     },
     updateMany: async (args: { where: Where; data: Partial<T> }) => {
       const afectadas = filas.filter((fila) => matchea(fila, args.where));
@@ -300,6 +311,81 @@ function crearDelegadoBolsas(bolsas: BolsaPremios[], items: ItemBolsa[]) {
   };
 }
 
+/**
+ * Delegado del objetivo de ahorro (fase-14-25). No usa `crearDelegado` porque
+ * es el único modelo con clave compuesta `usuarioId_grupoId` y con `upsert`.
+ */
+function crearDelegadoObjetivos(filas: Fila[]) {
+  const buscar = (where: { usuarioId_grupoId: { usuarioId: string; grupoId: string } }) =>
+    filas.find(
+      (fila) =>
+        fila['usuarioId'] === where.usuarioId_grupoId.usuarioId &&
+        fila['grupoId'] === where.usuarioId_grupoId.grupoId
+    );
+
+  return {
+    findUnique: async (args: {
+      where: { usuarioId_grupoId: { usuarioId: string; grupoId: string } };
+    }) => buscar(args.where) ?? null,
+    findMany: async (args: { where?: Where } = {}) =>
+      filas.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+    upsert: async (args: {
+      where: { usuarioId_grupoId: { usuarioId: string; grupoId: string } };
+      create: Fila;
+      update: Fila;
+    }) => {
+      const existente = buscar(args.where);
+
+      if (existente) {
+        Object.assign(existente, args.update);
+
+        return existente;
+      }
+
+      const fila = { id: randomUUID(), ...args.create };
+
+      filas.push(fila);
+
+      return fila;
+    },
+    deleteMany: async (args: { where: Where }) => {
+      const sobreviven = filas.filter((fila) => !matchea(fila, args.where));
+      const borradas = filas.length - sobreviven.length;
+
+      filas.splice(0, filas.length, ...sobreviven);
+
+      return { count: borradas };
+    },
+  };
+}
+
+/**
+ * Delegado de la tabla de unión de etiquetas (fase-14-26). Misma forma que
+ * `itemBolsa`: no lleva organizacionId/grupoId, cuelga por FK de dos tablas
+ * que sí están filtradas.
+ */
+function crearDelegadoUnion(filas: Fila[]) {
+  return {
+    findMany: async (args: { where?: Where } = {}) =>
+      filas.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+    deleteMany: async (args: { where: Where }) => {
+      const sobreviven = filas.filter((fila) => !matchea(fila, args.where));
+      const borradas = filas.length - sobreviven.length;
+
+      filas.splice(0, filas.length, ...sobreviven);
+
+      return { count: borradas };
+    },
+    createMany: async (args: { data: Fila[] }) => {
+      for (const fila of args.data) {
+        filas.push({ id: randomUUID(), ...fila });
+      }
+
+      return { count: args.data.length };
+    },
+  };
+}
+
 export interface BdEnMemoria {
   recompensas: Recompensa[];
   canjes: CanjeRecompensa[];
@@ -311,6 +397,11 @@ export interface BdEnMemoria {
   itemsBolsa: ItemBolsa[];
   productos: ProductoTienda[];
   compras: Compra[];
+  /** fase-14-25: objetivos de ahorro (config, no ledger). */
+  objetivos: Fila[];
+  /** fase-14-26: catálogo de etiquetas y sus asignaciones. */
+  etiquetas: EtiquetaCatalogo[];
+  etiquetasEnRecompensa: Fila[];
   procesados: FilaEventoProcesado[];
   prisma: PrismaService;
 }
@@ -326,6 +417,9 @@ export function crearBdEnMemoria(datos: {
   itemsBolsa?: ItemBolsa[];
   productos?: ProductoTienda[];
   compras?: Compra[];
+  objetivos?: Fila[];
+  etiquetas?: EtiquetaCatalogo[];
+  etiquetasEnRecompensa?: Fila[];
 } = {}): BdEnMemoria {
   const recompensas: Recompensa[] = [...(datos.recompensas ?? [])];
   const canjes: CanjeRecompensa[] = [...(datos.canjes ?? [])];
@@ -339,6 +433,9 @@ export function crearBdEnMemoria(datos: {
   const itemsBolsa: ItemBolsa[] = [...(datos.itemsBolsa ?? [])];
   const productos: ProductoTienda[] = [...(datos.productos ?? [])];
   const compras: Compra[] = [...(datos.compras ?? [])];
+  const objetivos: Fila[] = [...(datos.objetivos ?? [])];
+  const etiquetas: EtiquetaCatalogo[] = [...(datos.etiquetas ?? [])];
+  const etiquetasEnRecompensa: Fila[] = [...(datos.etiquetasEnRecompensa ?? [])];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -366,6 +463,19 @@ export function crearBdEnMemoria(datos: {
         nueva['usuarioId'] === existente['usuarioId'] &&
         nueva['seccionId'] === existente['seccionId']
     ),
+    // fase-14-26: catálogo de etiquetas, con el @@unique([grupoId, nombre]).
+    etiquetaCatalogo: crearDelegado<EtiquetaCatalogo>(
+      etiquetas,
+      () => ({
+        id: randomUUID(),
+        estado: 'ACTIVA',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+      (nueva, existente) =>
+        nueva['grupoId'] === existente['grupoId'] && nueva['nombre'] === existente['nombre']
+    ),
+    etiquetaEnRecompensa: crearDelegadoUnion(etiquetasEnRecompensa),
     bolsaPremios: crearDelegadoBolsas(bolsas, itemsBolsa),
     itemBolsa: {
       findMany: async (args: { where?: Where } = {}) =>
@@ -397,6 +507,9 @@ export function crearBdEnMemoria(datos: {
       createdAt: new Date(),
       updatedAt: new Date(),
     })),
+    // fase-14-25: el objetivo de ahorro. Es el único delegado con `upsert` —
+    // el objetivo se pisa, no se versiona (decisión 3).
+    objetivoParticipante: crearDelegadoObjetivos(objetivos),
     compra: crearDelegado<Compra>(compras, () => ({
       id: randomUUID(),
       estado: 'PENDIENTE_ENTREGA',
@@ -488,9 +601,28 @@ export function crearBdEnMemoria(datos: {
     itemsBolsa,
     productos,
     compras,
+    objetivos,
+    etiquetas,
+    etiquetasEnRecompensa,
     procesados,
     prisma: { client: clienteConTransaccion } as unknown as PrismaService,
   };
+}
+
+export function etiquetaDePrueba(
+  sobrescribir: Partial<EtiquetaCatalogo> = {}
+): EtiquetaCatalogo {
+  return {
+    id: randomUUID(),
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    nombre: 'Pantalla',
+    colorHex: '#8B5CF6',
+    estado: 'ACTIVA',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...sobrescribir,
+  } as EtiquetaCatalogo;
 }
 
 export function productoDePrueba(

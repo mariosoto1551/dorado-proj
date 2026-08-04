@@ -652,3 +652,124 @@ describe('CierreService — vigencia y archivado automatico (fase-14-24)', () =>
     expect(vencida.estado).toBe('ACTIVA');
   });
 });
+
+describe('CierreService — mínimo de repeticiones (fase-14-25)', () => {
+  /** Obligatoria confirmable de castigo 10 que hay que hacer 3 veces por día. */
+  const TRES_POR_DIA = () =>
+    actividadDePrueba({
+      id: 'obl-1',
+      tipoPuntaje: 'OBLIGATORIA',
+      comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+      valorPuntos: 10,
+      repeticionesMaximasSesion: 3,
+      repeticionesMinimasSesion: 3,
+    });
+
+  /** Una confirmación viva de `ana` sobre la obligatoria de esta sesión. */
+  function confirmacion(extra: Partial<RegistroActividad> = {}): Partial<RegistroActividad> {
+    return {
+      organizacionId: 'org-1',
+      grupoId: 'grupo-1',
+      usuarioId: 'ana',
+      actividadId: 'obl-1',
+      sesionId: 'sesion-1',
+      tipo: 'COMPLETADA',
+      eliminado: false,
+      ...extra,
+    };
+  }
+
+  it('castiga por cada repetición que faltó, no una sola vez', async () => {
+    const bd = crearBd({
+      actividades: [TRES_POR_DIA()],
+      registros: [confirmacion()],
+    });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    const noHizo = bd.registros.filter((fila) => fila['tipo'] === 'NO_HIZO');
+    // 1 de 3: faltaron 2 → −20. UNA sola fila con el total (decisión 13).
+    expect(noHizo).toHaveLength(1);
+    expect(noHizo[0]).toMatchObject({ valorPuntosSnapshot: -20, usuarioId: 'ana' });
+  });
+
+  it('sin ninguna confirmación castiga el mínimo entero', async () => {
+    const bd = crearBd({ actividades: [TRES_POR_DIA()] });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros[0]).toMatchObject({ valorPuntosSnapshot: -30 });
+  });
+
+  it('llegar al mínimo no castiga, aunque queden repeticiones sin usar', async () => {
+    const bd = crearBd({
+      actividades: [
+        actividadDePrueba({
+          id: 'obl-1',
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+          valorPuntos: 10,
+          repeticionesMaximasSesion: 3,
+          repeticionesMinimasSesion: 2,
+        }),
+      ],
+      registros: [confirmacion(), confirmacion()],
+    });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros.filter((fila) => fila['tipo'] === 'NO_HIZO')).toHaveLength(0);
+  });
+
+  it('las repeticiones que el tutor quemó bajan el mínimo (no hay doble castigo)', async () => {
+    // Máximo 3, mínimo 3, el tutor quitó 2: solo quedaba una posible, y la hizo.
+    const bd = crearBd({
+      actividades: [TRES_POR_DIA()],
+      registros: [
+        confirmacion(),
+        confirmacion({ eliminado: true }),
+        confirmacion({ eliminado: true }),
+      ],
+    });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros.filter((fila) => fila['tipo'] === 'NO_HIZO')).toHaveLength(0);
+  });
+
+  it('con el mínimo por default el castigo es el binario de siempre', async () => {
+    // Máximo 3 pero mínimo 1: es el comportamiento previo al ítem — una sola
+    // confirmación alcanza para no perder puntos.
+    const bd = crearBd({
+      actividades: [
+        actividadDePrueba({
+          id: 'obl-1',
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+          valorPuntos: 10,
+          repeticionesMaximasSesion: 3,
+        }),
+      ],
+      registros: [confirmacion()],
+    });
+    const { servicio } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(bd.registros.filter((fila) => fila['tipo'] === 'NO_HIZO')).toHaveLength(0);
+  });
+
+  it('el monto del castigo viaja en el evento hacia scoring', async () => {
+    const bd = crearBd({ actividades: [TRES_POR_DIA()] });
+    const { servicio, publicados } = crearServicio(bd, [usuario('ana')]);
+
+    await servicio.procesarSesionCerrada(envelopeCierre());
+
+    expect(publicados).toHaveLength(1);
+    expect(publicados[0].payload).toMatchObject({ valorPuntosSnapshot: -30 });
+  });
+});

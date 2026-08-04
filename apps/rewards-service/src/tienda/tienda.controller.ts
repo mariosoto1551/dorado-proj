@@ -22,11 +22,13 @@ import {
   BolsaPremiosDto,
   CompraDto,
   PendienteEntregaDto,
+  ProductosDesdeEtiquetaDto,
   ProductoTiendaDto,
   Rol,
   TenantContext,
 } from '@dorado/shared-types';
 
+import { ProductosDesdeEtiquetaRequest } from '../etiquetas/dto/etiquetas.dto';
 import { BolsasService } from './bolsas.service';
 import { ComprasService } from './compras.service';
 import {
@@ -103,6 +105,20 @@ export class TiendaController {
     @Body() datos: CrearProductoRequest
   ): Promise<ProductoTiendaDto> {
     return await this.productos.crear(tenant, grupoId, datos);
+  }
+
+  /**
+   * Creación masiva desde una etiqueta (fase-14-26). Saltea los ítems que ya
+   * tienen producto en vez de fallar, así correrlo dos veces no duplica nada.
+   */
+  @Post('grupos/:grupoId/productos/desde-etiqueta')
+  @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
+  async crearProductosDesdeEtiqueta(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('grupoId') grupoId: string,
+    @Body() datos: ProductosDesdeEtiquetaRequest
+  ): Promise<ProductosDesdeEtiquetaDto> {
+    return await this.productos.crearDesdeEtiqueta(tenant, grupoId, datos);
   }
 
   /** La vitrina: `puedeComprar` y `faltan` van contra el saldo de quien mira. */

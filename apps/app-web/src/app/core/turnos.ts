@@ -4,7 +4,14 @@
  * reparto que armó, y eso se testea.
  */
 
-import type { FrecuenciaTurno, ModoTurno, TurnoActividadDto } from '@dorado/shared-types';
+import type {
+  FrecuenciaTurno,
+  ModoTurno,
+  TurnoActividadDto,
+  UsuarioDto,
+} from '@dorado/shared-types';
+
+import { soloActivos } from './usuarios';
 
 /**
  * Lo que el armador de turnos tiene en pantalla, sin persistir (fase-14-23).
@@ -68,6 +75,59 @@ function hayCambios(original: TurnoActividadDto | null, actual: EstadoTurnoForm)
     secuenciaOriginal.length !== actual.secuencia.length ||
     secuenciaOriginal.some((usuarioId, i) => usuarioId !== actual.secuencia[i])
   );
+}
+
+/**
+ * A quiénes se puede sumar al pozo de la rotación (fase-14-24, decisión 6).
+ *
+ * Dos filtros encadenados, por dos motivos distintos:
+ *
+ * - **activos**: un dado de baja no recibe turnos (el interno que sella solo
+ *   trae ACTIVO), así que ofrecerlo solo sirve para armar una vuelta con
+ *   agujeros. Ver `core/usuarios.ts`.
+ * - **destinatarios**: si la actividad es de ciertas personas, el pozo sale de
+ *   ahí — una sola verdad sobre quién participa. El servidor ya lo exige
+ *   (400 `TURNO_FUERA_DEL_DESTINATARIO`); acá es para que el Tutor no pueda
+ *   armar una secuencia que recién se rechaza al guardar.
+ *
+ * `destinatarios` vacío = sin restricción, mismo criterio que el servidor
+ * (`usuariosPermitidos.length > 0`): la actividad es de todo el grupo, o
+ * todavía no se eligió a nadie.
+ */
+export function elegiblesParaTurno(
+  usuarios: readonly UsuarioDto[],
+  destinatarios: readonly string[]
+): UsuarioDto[] {
+  const activos = soloActivos(usuarios);
+
+  if (destinatarios.length === 0) {
+    return activos;
+  }
+
+  return activos.filter((usuario) => destinatarios.includes(usuario.id));
+}
+
+/**
+ * Saca de la secuencia a quien dejó de ser destinatario.
+ *
+ * Es el espejo en pantalla de lo que el servidor hace al guardar (poda las
+ * `PosicionTurno` que quedan fuera): sin esto, acotar la actividad a dos
+ * personas y tocar la secuencia en la misma edición manda al servidor una
+ * posición inválida y el guardado muere en un 400 con la actividad ya escrita.
+ *
+ * Devuelve la **misma referencia** si no hay nada que sacar — el llamador es un
+ * `effect` sobre un input que se recalcula en cada detección de cambios, y
+ * devolver un array nuevo cada vez lo haría emitir en loop.
+ */
+export function podarSecuencia(
+  secuencia: string[],
+  destinatarios: readonly string[]
+): string[] {
+  if (destinatarios.length === 0 || secuencia.every((id) => destinatarios.includes(id))) {
+    return secuencia;
+  }
+
+  return secuencia.filter((id) => destinatarios.includes(id));
 }
 
 /**

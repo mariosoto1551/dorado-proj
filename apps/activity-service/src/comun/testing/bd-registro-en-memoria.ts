@@ -310,6 +310,8 @@ export function actividadDePrueba(sobrescribir: Partial<Actividad> = {}): Activi
     deadlineHora: null,
     duracionCronometroMinutos: null,
     repeticionesMaximasSesion: 1,
+    // fase-14-25: default 1 = el castigo binario del ítem 8.
+    repeticionesMinimasSesion: 1,
     repeticionesMaximasSeccion: null,
     comportamientoAlCierre: 'ASUME_HECHA',
     alcance: 'INDIVIDUAL',

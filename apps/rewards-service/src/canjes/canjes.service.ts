@@ -73,14 +73,18 @@ export class CanjesService {
 
     const recompensas = await this.recompensasDeZona(usuario.grupoId, resultado.umbralZonaId);
 
+    // fase-14-26 decisión 12: los elegibles son lo que ve el PARTICIPANTE, así
+    // que van sin etiquetas — el mapeador se llama con lambda y no por
+    // referencia a propósito: `.map(recompensaADto)` le pasaría el índice del
+    // array como segundo argumento (lo atajó el compilador al sumarlo).
     return {
       motivo: null,
       disponiblesSeleccion: recompensas
         .filter((recompensa) => recompensa.permiteSeleccion)
-        .map(recompensaADto),
+        .map((recompensa) => recompensaADto(recompensa)),
       disponiblesAzar: recompensas
         .filter((recompensa) => recompensa.permiteAzar)
-        .map(recompensaADto),
+        .map((recompensa) => recompensaADto(recompensa)),
     };
   }
 

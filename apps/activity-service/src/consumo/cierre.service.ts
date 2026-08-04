@@ -35,6 +35,29 @@ interface NoHizoCreado {
 }
 
 /**
+ * Un castigo a escribir: a quién, por qué actividad y **por cuántas
+ * repeticiones** (fase-14-25). Con el default de siempre (`mínimo = 1`) el
+ * campo vale 1 y el monto es el de toda la vida.
+ */
+interface CastigoPendiente {
+  usuarioId: string;
+  actividad: Actividad;
+  faltantes: number;
+}
+
+/** Lo que ya pasó con un par (usuario, actividad) en la Sesión que cierra. */
+interface ConteoDelPar {
+  /** COMPLETADAS vivas: las que de verdad confirmó. */
+  hechas: number;
+  /** COMPLETADAS que el Tutor quitó (#12): intentos gastados, no devueltos. */
+  perdidas: number;
+  /** Hay una marca NO_HIZO del Tutor — el cierre no agrega nada encima. */
+  marcadoPorTutor: boolean;
+}
+
+const SIN_REGISTROS: ConteoDelPar = { hechas: 0, perdidas: 0, marcadoPorTutor: false };
+
+/**
  * Castigo automático al cerrar la Sesión (spec fase-14-08, Parte C). Por cada
  * obligatoria `REQUIERE_CONFIRMACION` que el Usuario NO confirmó durante el
  * día, crea un `RegistroActividad(NO_HIZO)` de sistema y publica
@@ -77,9 +100,10 @@ export class CierreService {
     // hacer — bug de puntaje, no cosmético.
     const obligatorias = await this.filtrarProgramadasDelDia(todas, grupoId, fechaInicio);
 
-    // Pares (usuario × obligatoria) que faltan penalizar. Se salta cualquiera
-    // que ya tenga un registro de ESTA sesión: COMPLETADA (el usuario confirmó)
-    // o NO_HIZO (un tutor ya lo marcó a mano — no duplicar).
+    // Pares (usuario × obligatoria) que faltan penalizar, con cuántas
+    // repeticiones les faltaron. Se salta el que llegó al mínimo de la actividad
+    // (fase-14-25; con el default de 1, "el que confirmó al menos una vez") y el
+    // que ya tiene un NO_HIZO del tutor a mano — ese no se duplica.
     const pendientes = await this.paresPendientes(obligatorias, {
       organizacionId,
       grupoId,
@@ -94,7 +118,7 @@ export class CierreService {
       creados = await this.prisma.client.$transaction(async (tx) => {
         const filas: NoHizoCreado[] = [];
 
-        for (const { usuarioId, actividad } of pendientes) {
+        for (const { usuarioId, actividad, faltantes } of pendientes) {
           const registro = await tx.registroActividad.create({
             data: {
               organizacionId,
@@ -105,7 +129,10 @@ export class CierreService {
               seccionId,
               tipo: TipoRegistroActividad.NO_HIZO,
               // Snapshot al cierre: vale el valorPuntos vigente al cerrar.
-              valorPuntosSnapshot: -actividad.valorPuntos,
+              // fase-14-25: por cada repetición que faltó para llegar al mínimo
+              // (decisión 12). Con el mínimo por default, `faltantes` es 1 y el
+              // monto es exactamente el de antes del ítem.
+              valorPuntosSnapshot: -actividad.valorPuntos * faltantes,
               registradoPorId: 'SYSTEM',
               registradoPorTipo: 'SYSTEM',
             },
@@ -234,7 +261,12 @@ export class CierreService {
     );
   }
 
-  /** Pares (usuarioId, actividad) sin registro de esta sesión — a penalizar. */
+  /**
+   * Pares (usuarioId, actividad) que no llegaron al mínimo de esta sesión, con
+   * cuántas repeticiones les faltaron (fase-14-25). Con el mínimo por default
+   * —1, el de toda actividad anterior al ítem— esto es exactamente lo de antes:
+   * "sin ninguna confirmación, castigo de 1".
+   */
   private async paresPendientes(
     obligatorias: Actividad[],
     scope: {
@@ -243,7 +275,7 @@ export class CierreService {
       sesionId: string;
       seccionId?: string;
     }
-  ): Promise<{ usuarioId: string; actividad: Actividad }[]> {
+  ): Promise<CastigoPendiente[]> {
     if (obligatorias.length === 0) {
       return [];
     }
@@ -259,13 +291,18 @@ export class CierreService {
           sesionId: scope.sesionId,
           actividadId: { in: actividadIds },
         },
-        select: { usuarioId: true, actividadId: true },
+        select: {
+          usuarioId: true,
+          actividadId: true,
+          // fase-14-25: ya no alcanza con saber que HAY un registro — hay que
+          // contar cuántas confirmaciones vivas hubo contra el mínimo.
+          tipo: true,
+          eliminado: true,
+        },
       }),
     ]);
 
-    const yaResuelto = new Set(
-      registros.map((registro) => `${registro.usuarioId}::${registro.actividadId}`)
-    );
+    const conteos = agruparPorPar(registros);
 
     // fase-14-19: una obligatoria restringida por rol solo castiga a quien tiene
     // ese rol. Es el punto de aplicación que NO se ve en ninguna pantalla — si
@@ -290,7 +327,7 @@ export class CierreService {
     // personas reciben −10 por algo que su pantalla mostró sin botón.
     const asignadoPorActividad = await this.asignadosDelAmbito(obligatorias, scope);
 
-    const pendientes: { usuarioId: string; actividad: Actividad }[] = [];
+    const pendientes: CastigoPendiente[] = [];
 
     for (const actividad of obligatorias) {
       const conTurno = asignadoPorActividad.has(actividad.id);
@@ -309,17 +346,48 @@ export class CierreService {
       for (const usuario of candidatos) {
         const contexto = contextoPorUsuario.get(usuario.id);
 
-        if (
-          contexto &&
-          !yaResuelto.has(`${usuario.id}::${actividad.id}`) &&
-          esDestinatario(actividad, contexto)
-        ) {
-          pendientes.push({ usuarioId: usuario.id, actividad });
+        if (!contexto || !esDestinatario(actividad, contexto)) {
+          continue;
+        }
+
+        const faltantes = this.repeticionesFaltantes(
+          actividad,
+          conteos.get(`${usuario.id}::${actividad.id}`) ?? SIN_REGISTROS
+        );
+
+        if (faltantes > 0) {
+          pendientes.push({ usuarioId: usuario.id, actividad, faltantes });
         }
       }
     }
 
     return pendientes;
+  }
+
+  /**
+   * Cuántas confirmaciones le faltaron a este par para no perder puntos
+   * (fase-14-25). 0 = no se castiga.
+   *
+   * Dos cosas que NO son obvias:
+   *
+   * - **Una marca del Tutor cancela el castigo automático entero**, esté viva o
+   *   deshecha. Viva porque ya castigó (decisión 15); deshecha porque es el
+   *   comportamiento que este ítem encontró y no le toca cambiarlo — el
+   *   automático se saltaba cualquier par con registro, sin mirar el estado.
+   * - **Las repeticiones quemadas bajan el mínimo** (decisión 14): exigir 3
+   *   cuando el Tutor dejó cupo para 1 sería castigar por no llegar a un número
+   *   al que el servidor ya no dejaba llegar, encima del castigo que la marca
+   *   roja aplicó. Doble castigo por un solo hecho.
+   */
+  private repeticionesFaltantes(actividad: Actividad, conteo: ConteoDelPar): number {
+    if (conteo.marcadoPorTutor) {
+      return 0;
+    }
+
+    const topeEfectivo = Math.max(0, actividad.repeticionesMaximasSesion - conteo.perdidas);
+    const minimoEfectivo = Math.min(actividad.repeticionesMinimasSesion, topeEfectivo);
+
+    return Math.max(0, minimoEfectivo - conteo.hechas);
   }
 
   /**
@@ -424,4 +492,32 @@ export class CierreService {
 
     return fila !== null;
   }
+}
+
+/**
+ * Agrupa los registros de la Sesión por par (usuario, actividad), contando
+ * confirmaciones vivas y quemadas por separado (fase-14-25). Antes del ítem
+ * alcanzaba con un `Set` de pares con algún registro: el castigo era binario.
+ */
+function agruparPorPar(
+  registros: { usuarioId: string; actividadId: string; tipo: string; eliminado: boolean }[]
+): Map<string, ConteoDelPar> {
+  const conteos = new Map<string, ConteoDelPar>();
+
+  for (const registro of registros) {
+    const clave = `${registro.usuarioId}::${registro.actividadId}`;
+    const conteo = conteos.get(clave) ?? { ...SIN_REGISTROS };
+
+    if (registro.tipo === TipoRegistroActividad.NO_HIZO) {
+      conteo.marcadoPorTutor = true;
+    } else if (registro.eliminado) {
+      conteo.perdidas += 1;
+    } else {
+      conteo.hechas += 1;
+    }
+
+    conteos.set(clave, conteo);
+  }
+
+  return conteos;
 }

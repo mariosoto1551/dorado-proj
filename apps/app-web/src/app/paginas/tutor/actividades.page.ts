@@ -48,6 +48,7 @@ import {
 } from '../../core/destinatario-actividad';
 import { sinIntegrantesConEsosRoles } from '../../core/roles-grupo';
 import { accionDeTurno, type EstadoTurnoForm, textoDelChipDeTurno } from '../../core/turnos';
+import { soloActivos } from '../../core/usuarios';
 
 /** Las 3 opciones del ítem 10, con el texto que ve el tutor. */
 const OPCIONES_MODO: ReadonlyArray<{
@@ -94,6 +95,8 @@ interface FormActividad {
   deadlineHora: string;
   duracionCronometroMinutos: number;
   repeticionesMaximasSesion: number;
+  /** fase-14-25: cuántas hacen falta para no perder puntos; solo con confirmación. */
+  repeticionesMinimasSesion: number;
   /** Solo aplica a OBLIGATORIA (fase-14-08); se mapea a comportamientoAlCierre. */
   requiereConfirmacion: boolean;
   /** fase-14-20: lo que SUMA cumplirla; solo con requiereConfirmacion. */
@@ -127,6 +130,7 @@ const FORM_VACIO: FormActividad = {
   deadlineHora: '20:00',
   duracionCronometroMinutos: 15,
   repeticionesMaximasSesion: 1,
+  repeticionesMinimasSesion: 1,
   requiereConfirmacion: false,
   puntosPorCumplir: 0,
   alcance: AlcanceActividad.INDIVIDUAL,
@@ -140,6 +144,12 @@ const FORM_VACIO: FormActividad = {
   vigenteDesde: '',
   vigenteHasta: '',
 };
+
+/**
+ * «Sin restricción de destinatario», con identidad estable. Ver `pozoDeTurnos`:
+ * un `[]` literal en cada llamada sería un array nuevo por detección de cambios.
+ */
+const SIN_DESTINATARIO: string[] = [];
 
 /** CRUD de Actividades (fase-10). Form con campos condicionales por tipoLimiteTiempo. */
 @Component({
@@ -745,6 +755,32 @@ const FORM_VACIO: FormActividad = {
                             />
                           </ui-campo>
 
+                          <!-- fase-14-25: el mínimo solo se muestra donde puede
+                               significar algo — obligatoria confirmable con más
+                               de una repetición. Con máximo 1 el mínimo solo
+                               puede ser 1, y mostrarlo sería ruido. -->
+                          @if (minimoAplica()) {
+                            <ui-campo
+                              etiqueta="Mínimo para no perder puntos"
+                              class="animate-fade-in"
+                            >
+                              <input
+                                [(ngModel)]="form.repeticionesMinimasSesion"
+                                name="repeticionesMinimasSesion"
+                                type="number"
+                                min="1"
+                                [max]="form.repeticionesMaximasSesion"
+                                class="campo"
+                              />
+                              <span class="block text-xs text-slate-500 dark:text-slate-400">
+                                Cuántas veces tiene que confirmarla en el día.
+                                <strong class="text-slate-600 dark:text-slate-300">
+                                  {{ textoDelMinimo() }}
+                                </strong>
+                              </span>
+                            </ui-campo>
+                          }
+
                           <ui-campo etiqueta="Límite de tiempo">
                             <select
                               [(ngModel)]="form.tipoLimiteTiempo"
@@ -788,16 +824,6 @@ const FORM_VACIO: FormActividad = {
                               <option [ngValue]="AA.EQUIPO">Equipo</option>
                             </select>
                           </ui-campo>
-
-                          <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA individual. -->
-                          @if (turnosAplican()) {
-                            <app-turnos-actividad
-                              [usuarios]="usuariosDelGrupo()"
-                              [roles]="roles()"
-                              [turno]="turnoDeLaActividad()"
-                              (cambio)="estadoTurno.set($event)"
-                            />
-                          }
 
                           <!-- fase-14-24: los cuatro modos de destinatario son
                                EXCLUYENTES (decisión 1). Antes «restringir a
@@ -938,6 +964,27 @@ const FORM_VACIO: FormActividad = {
                             }
                           </div>
 
+                          <!-- fase-14-21: turnos rotativos. Solo OBLIGATORIA
+                               individual. Va DESPUÉS del destinatario a
+                               propósito: el pozo de la rotación sale de quién
+                               hace la actividad, así que preguntarlo antes
+                               invitaba a armar una secuencia que el paso
+                               siguiente podía invalidar.
+
+                               El padrón entero, con las bajas: el componente
+                               ofrece solo a los elegibles, pero necesita los
+                               nombres de los dados de baja que ya estén en una
+                               secuencia guardada. -->
+                          @if (turnosAplican()) {
+                            <app-turnos-actividad
+                              [usuarios]="padronDelGrupo()"
+                              [roles]="roles()"
+                              [destinatarios]="pozoDeTurnos()"
+                              [turno]="turnoDeLaActividad()"
+                              (cambio)="estadoTurno.set($event)"
+                            />
+                          }
+
                           <!-- fase-14-17: solo tiene efecto con el plan del día activo -->
                           @if (form.alcance === AA.INDIVIDUAL && form.tipoPuntaje === TP.OPCIONAL) {
                             <label class="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
@@ -1031,8 +1078,22 @@ export class ActividadesPage {
   protected readonly roles = signal<RolGrupoDto[]>([]);
 
   // ---- fase-14-21: turnos ----
-  /** Integrantes del grupo, para armar la secuencia de turnos. */
-  protected readonly usuariosDelGrupo = signal<UsuarioDto[]>([]);
+  /**
+   * El padrón COMPLETO del grupo, incluidos los dados de baja. No se usa para
+   * elegir a nadie —para eso está `usuariosDelGrupo()`— sino para poder ponerle
+   * nombre a un id que ya estaba guardado: una actividad asignada a alguien que
+   * después se desactivó tiene que seguir diciendo de quién es.
+   */
+  protected readonly padronDelGrupo = signal<UsuarioDto[]>([]);
+
+  /**
+   * Los integrantes ofrecibles: el padrón sin los dados de baja (ver
+   * `core/usuarios.ts`). Es la lista que alimenta el selector de «ciertas
+   * personas», el armador de turnos y los dos atajos de precarga — en las tres
+   * el resultado se GUARDA, y guardar a un desactivado no hace nada salvo
+   * ensuciar el formulario.
+   */
+  protected readonly usuariosDelGrupo = computed(() => soloActivos(this.padronDelGrupo()));
 
   /** fase-14-24: equipos del grupo, para el modo «ciertos equipos». */
   protected readonly equipos = signal<EquipoDto[]>([]);
@@ -1216,6 +1277,7 @@ export class ActividadesPage {
       deadlineHora: a.deadlineHora ?? '20:00',
       duracionCronometroMinutos: a.duracionCronometroMinutos ?? 15,
       repeticionesMaximasSesion: a.repeticionesMaximasSesion,
+      repeticionesMinimasSesion: a.repeticionesMinimasSesion,
       requiereConfirmacion:
         a.comportamientoAlCierre === ComportamientoAlCierre.REQUIERE_CONFIRMACION,
       puntosPorCumplir: a.puntosPorCumplir,
@@ -1279,10 +1341,15 @@ export class ActividadesPage {
     this.gruposPlegados.set(plegados);
   }
 
-  /** Los diccionarios de nombres que arman los chips de destinatario. */
+  /**
+   * Los diccionarios de nombres que arman los chips de destinatario. Van con el
+   * PADRÓN completo: si la actividad quedó asignada a alguien que después se
+   * dio de baja, el chip tiene que seguir diciendo su nombre — si no, el Tutor
+   * ve «De personas» sin ninguna persona y no entiende de qué se trata.
+   */
   protected nombresParaChips(): Nombres {
     return {
-      usuarios: new Map(this.usuariosDelGrupo().map((u) => [u.id, u.nombre])),
+      usuarios: new Map(this.padronDelGrupo().map((u) => [u.id, u.nombre])),
       roles: new Map(this.roles().map((rol) => [rol.id, rol.nombre])),
       equipos: new Map(this.equipos().map((e) => [e.id, e.nombre])),
     };
@@ -1405,6 +1472,31 @@ export class ActividadesPage {
       : `Se puede hacer ${texto}.`;
   }
 
+  /**
+   * fase-14-25: el mínimo solo existe donde el cierre castiga —obligatoria
+   * individual con confirmación— y solo se muestra si hay más de una repetición
+   * posible: con máximo 1, el mínimo solo puede ser 1.
+   */
+  protected minimoAplica(): boolean {
+    return (
+      this.form.alcance === AlcanceActividad.INDIVIDUAL &&
+      this.form.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
+      this.form.requiereConfirmacion &&
+      Number(this.form.repeticionesMaximasSesion) > 1
+    );
+  }
+
+  /** El cálculo del castigo, dicho en palabras antes de guardarlo. */
+  protected textoDelMinimo(): string {
+    const minimo = this.minimoAMandar(this.form);
+
+    if (minimo <= 1) {
+      return 'Con una alcanza para no perder puntos.';
+    }
+
+    return `Si confirma menos de ${minimo}, pierde ${this.form.valorPuntos} por cada vez que faltó.`;
+  }
+
   /** fase-14-19: restringida a roles que hoy no tiene nadie (ver core/roles-grupo). */
   protected sinNadieConEsosRoles(actividad: ActividadDto): boolean {
     return sinIntegrantesConEsosRoles(actividad.rolesPermitidos, this.roles());
@@ -1461,7 +1553,15 @@ export class ActividadesPage {
       const partes: string[] = [describirDias(this.form.diasSemana)];
 
       if (this.form.repeticionesMaximasSesion > 1) {
-        partes.push(`hasta ${this.form.repeticionesMaximasSesion}×`);
+        // fase-14-25: el mínimo viaja pegado al máximo — «hasta 3× (mín. 2)».
+        // Sin esto, plegar la sección escondería una regla que resta puntos.
+        const minimo = this.minimoAMandar(this.form);
+
+        partes.push(
+          minimo > 1
+            ? `hasta ${this.form.repeticionesMaximasSesion}× (mín. ${minimo})`
+            : `hasta ${this.form.repeticionesMaximasSesion}×`
+        );
       }
 
       if (this.form.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE) {
@@ -1566,6 +1666,24 @@ export class ActividadesPage {
 
   protected cerrarForm(): void {
     this.formAbierto.set(false);
+  }
+
+  /**
+   * El pozo del que puede salir la rotación (fase-14-24, decisión 6): si la
+   * actividad es de ciertas personas, los turnos se reparten entre esas y nadie
+   * más — es lo que el servidor exige con 400 `TURNO_FUERA_DEL_DESTINATARIO`.
+   *
+   * Devuelve la referencia viva de `form.usuariosPermitidos`, no una copia, y
+   * la MISMA constante vacía cuando no hay restricción. Es a propósito: el
+   * método se evalúa en cada detección de cambios, y un array nuevo por vuelta
+   * dispararía el `effect` del armador sin que hubiera cambiado nada. Los
+   * handlers que tocan el destinatario **reasignan** el array en vez de
+   * mutarlo, así que la identidad cambia exactamente cuando cambia la lista.
+   */
+  protected pozoDeTurnos(): string[] {
+    return this.form.modoDestinatario === 'USUARIOS'
+      ? this.form.usuariosPermitidos
+      : SIN_DESTINATARIO;
   }
 
   /** El bloque de turnos solo tiene sentido en una obligatoria individual. */
@@ -1675,6 +1793,26 @@ export class ActividadesPage {
     });
   }
 
+  /**
+   * fase-14-25: el mínimo que corresponde mandar. 1 donde el cierre no castiga,
+   * y nunca por encima del máximo — bajar el máximo con un mínimo viejo más
+   * alto es un 400 del servidor, y el tutor no tocó el campo del mínimo.
+   */
+  private minimoAMandar(f: FormActividad): number {
+    if (
+      f.alcance === AlcanceActividad.EQUIPO ||
+      f.tipoPuntaje !== TipoPuntaje.OBLIGATORIA ||
+      !f.requiereConfirmacion
+    ) {
+      return 1;
+    }
+
+    return Math.max(
+      1,
+      Math.min(Number(f.repeticionesMinimasSesion), Number(f.repeticionesMaximasSesion))
+    );
+  }
+
   private armarPayload(): CrearActividadRequest {
     const f = this.form;
     const esEquipo = f.alcance === AlcanceActividad.EQUIPO;
@@ -1694,6 +1832,11 @@ export class ActividadesPage {
           ? Number(f.duracionCronometroMinutos)
           : null,
       repeticionesMaximasSesion: Number(f.repeticionesMaximasSesion),
+      // fase-14-25: el mínimo solo significa algo en una obligatoria con
+      // confirmación; el backend lo fuerza a 1 fuera de ahí igual, pero se manda
+      // coherente para no mostrar un número que el servidor va a descartar.
+      // Nunca por encima del máximo: eso sería un 400.
+      repeticionesMinimasSesion: this.minimoAMandar(f),
       // fase-14-11: vacío = todos los días (el backend normaliza igual).
       diasSemana: [...f.diasSemana],
       // fase-14-17: solo significa algo en una OPCIONAL individual; en cualquier
@@ -1759,8 +1902,10 @@ export class ActividadesPage {
           Object.fromEntries(usuarios.map((u) => [u.id, u.nombre]))
         );
         // fase-14-21: el armador de turnos necesita los DTO completos (el chip
-        // de rol del atajo «todos los del rol X» sale de ahí).
-        this.usuariosDelGrupo.set(usuarios);
+        // de rol del atajo «todos los del rol X» sale de ahí). Se guarda el
+        // padrón entero —bajas incluidas— y son los consumidores los que
+        // deciden si quieren elegir (activos) o nombrar (todos).
+        this.padronDelGrupo.set(usuarios);
       },
       error: () => undefined,
     });

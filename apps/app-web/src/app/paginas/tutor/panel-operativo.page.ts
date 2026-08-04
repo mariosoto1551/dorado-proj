@@ -39,6 +39,7 @@ import {
   textoDeRepeticiones,
   type FilaRegistro,
 } from '../../core/registro-tutor';
+import { soloActivos } from '../../core/usuarios';
 import { HistorialSesionComponent } from './historial-sesion.component';
 
 type AccionConfirmable =
@@ -145,7 +146,7 @@ type VistaPanel = 'registrar' | 'historial';
         @if (seccion()!.estado === 'ABIERTA') {
           @if (sesionAbierta()) {
             <div class="mt-4 flex flex-wrap gap-2">
-              @for (u of usuarios(); track u.id) {
+              @for (u of usuariosActivos(); track u.id) {
                 <button
                   type="button"
                   (click)="elegirUsuario(u.id)"
@@ -399,7 +400,15 @@ export class PanelOperativoPage {
 
   protected readonly seccion = signal<SeccionConSesionesResponse | null>(null);
 
+  /** El padrón entero: el historial de la Sesión nombra a quien haya sido. */
   protected readonly usuarios = signal<UsuarioDto[]>([]);
+
+  /**
+   * A quién se le puede registrar algo hoy: los que siguen de alta (ver
+   * `core/usuarios.ts`). Un dado de baja no tiene actividades a la vista ni
+   * suma puntos, así que su botón solo lleva a una lista vacía.
+   */
+  protected readonly usuariosActivos = computed(() => soloActivos(this.usuarios()));
 
   protected readonly actividades = signal<ActividadDto[]>([]);
 

@@ -31,9 +31,12 @@ const MODELOS_TENANT = {
   BolsaPremios: { conGrupoId: true },
   ProductoTienda: { conGrupoId: true },
   Compra: { conGrupoId: true },
+  // fase-14-26: el catálogo de etiquetas se filtra como el resto.
+  EtiquetaCatalogo: { conGrupoId: true },
   // ItemBolsa NO va: no lleva organizacionId/grupoId (cuelga de la bolsa por
   // FK dentro de la misma base). Se accede siempre a través de su bolsa, que
-  // sí está filtrada.
+  // sí está filtrada. `EtiquetaEnRecompensa` queda afuera por lo mismo: cuelga
+  // de la etiqueta y de la recompensa, las dos filtradas.
 };
 
 export function crearClientePrisma(databaseUrl: string) {

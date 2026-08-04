@@ -13,10 +13,12 @@ import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
   configuracionDePrueba,
   crearBdEnMemoria,
+  etiquetaDePrueba,
   recompensaDePrueba,
   type BdEnMemoria,
 } from '../comun/testing/bd-en-memoria';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
+import { EtiquetasService } from '../etiquetas/etiquetas.service';
 import type { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import { RecompensasService } from './recompensas.service';
 
@@ -72,8 +74,18 @@ function crearServicio(opciones: { bd?: BdEnMemoria; umbral?: UmbralZonaDto | nu
   // tests tienen que seguir viendo después de fase-14-22.
   const configuracion = new ConfiguracionService(bd.prisma, acceso, eventos);
 
+  const etiquetas = new EtiquetasService(bd.prisma, acceso, eventos);
+
   return {
-    servicio: new RecompensasService(bd.prisma, scoring, acceso, eventos, configuracion),
+    servicio: new RecompensasService(
+      bd.prisma,
+      scoring,
+      acceso,
+      eventos,
+      configuracion,
+      etiquetas
+    ),
+    etiquetas,
     bd,
   };
 }
@@ -230,5 +242,70 @@ describe('RecompensasService — editar', () => {
 
     expect(editada.nombre).toBe('Nuevo nombre');
     expect(editada.nombreZonaSnapshot).toBe('Dorado');
+  });
+});
+
+describe('RecompensasService — etiquetas en la lista (fase-14-26)', () => {
+  function bdConEtiqueta() {
+    const etiqueta = etiquetaDePrueba({ nombre: 'Pantalla' });
+    const conEtiqueta = recompensaDePrueba({ id: 'r-1', nombre: 'Consola' });
+    const sinEtiqueta = recompensaDePrueba({ id: 'r-2', nombre: 'Helado' });
+
+    return {
+      etiqueta,
+      bd: crearBdEnMemoria({
+        etiquetas: [etiqueta],
+        recompensas: [conEtiqueta, sinEtiqueta],
+        etiquetasEnRecompensa: [
+          { id: 'asig-1', etiquetaId: etiqueta.id, recompensaId: 'r-1' },
+        ],
+      }),
+    };
+  }
+
+  it('el Tutor recibe los chips denormalizados con nombre y color', async () => {
+    const { bd } = bdConEtiqueta();
+    const { servicio } = crearServicio({ bd });
+
+    const lista = await servicio.listar(tenantTutor(), 'grupo-1', {});
+
+    expect(lista.find((r) => r.id === 'r-1')?.etiquetas).toEqual([
+      expect.objectContaining({ nombre: 'Pantalla', colorHex: '#8B5CF6' }),
+    ]);
+    expect(lista.find((r) => r.id === 'r-2')?.etiquetas).toEqual([]);
+  });
+
+  it('filtra por UNA etiqueta (decisión 9)', async () => {
+    const { bd, etiqueta } = bdConEtiqueta();
+    const { servicio } = crearServicio({ bd });
+
+    const lista = await servicio.listar(tenantTutor(), 'grupo-1', {
+      etiquetaId: etiqueta.id,
+    });
+
+    expect(lista.map((r) => r.id)).toEqual(['r-1']);
+  });
+
+  it('el participante NUNCA ve etiquetas, ni siquiera las asignadas (decisión 12)', async () => {
+    const { bd, etiqueta } = bdConEtiqueta();
+    const { servicio } = crearServicio({ bd });
+
+    const lista = await servicio.listar(tenantUsuario(), 'grupo-1', {
+      etiquetaId: etiqueta.id,
+    } as never);
+
+    // El filtro tampoco le aplica: ve el catálogo activo entero, sin chips.
+    expect(lista.map((r) => r.id)).toEqual(['r-1', 'r-2']);
+    expect(lista.every((r) => r.etiquetas.length === 0)).toBe(true);
+  });
+
+  it('el participante no paga las consultas del mapa de etiquetas', async () => {
+    const { bd } = bdConEtiqueta();
+    const espia = vi.spyOn(bd.prisma.client.etiquetaCatalogo, 'findMany');
+    const { servicio } = crearServicio({ bd });
+
+    await servicio.listar(tenantUsuario(), 'grupo-1', {});
+
+    expect(espia).not.toHaveBeenCalled();
   });
 });

@@ -485,6 +485,16 @@ export class RegistroService {
         comportamientoAlCierre:
           actividad.comportamientoAlCierre as MiEstadoActividadHoyDto['comportamientoAlCierre'],
         repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
+        // fase-14-25: 1 salvo que el Tutor haya pedido más confirmaciones.
+        repeticionesMinimasSesion: actividad.repeticionesMinimasSesion,
+        // fase-14-25: lo que de verdad se le exige hoy. Se recorta contra el
+        // tope efectivo por la decisión 14 (una repetición que el tutor quemó
+        // baja el mínimo — si no, se castigaría por no llegar a un número al que
+        // el servidor ya no deja llegar). Misma cuenta que hace el cierre.
+        minimoEfectivo: Math.min(
+          actividad.repeticionesMinimasSesion,
+          Math.max(0, actividad.repeticionesMaximasSesion - vecesPerdidas)
+        ),
         vecesHechas,
         confirmada: esConfirmable && vecesHechas > 0,
         vecesPerdidas,

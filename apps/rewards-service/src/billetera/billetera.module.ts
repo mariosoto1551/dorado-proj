@@ -5,6 +5,7 @@ import { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import { ConfiguracionModule } from '../configuracion/configuracion.module';
 import { BilleteraController } from './billetera.controller';
 import { BilleteraService } from './billetera.service';
+import { ObjetivoService } from './objetivo.service';
 
 /**
  * Ledger de monedas y billetera (fase-14-22). Exporta el service: el cierre
@@ -13,7 +14,7 @@ import { BilleteraService } from './billetera.service';
 @Module({
   imports: [ClientesModule, ConfiguracionModule],
   controllers: [BilleteraController],
-  providers: [BilleteraService, AccesoGrupoService],
+  providers: [BilleteraService, ObjetivoService, AccesoGrupoService],
   exports: [BilleteraService],
 })
 export class BilleteraModule {}

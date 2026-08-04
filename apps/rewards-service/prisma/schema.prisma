@@ -117,6 +117,30 @@ model ProductoTienda {
   @@index([grupoId, estado])
 }
 
+/**
+ * Para qué está ahorrando un participante (fase-14-25). Es CONFIG, no ledger:
+ * se pisa con `update` y no deja historia (decisión 3) — a diferencia de
+ * `EventoMoneda`, que nunca se edita. Cambiar de idea sobre qué querés
+ * comprarte no tiene nada que auditar.
+ *
+ * Uno solo por participante y por Grupo (decisión 2): dos objetivos simultáneos
+ * son cero objetivos, y la pantalla vuelve a ser N barras compitiendo entre sí
+ * —que es exactamente lo que el ítem viene a resolver—.
+ */
+model ObjetivoParticipante {
+  id             String   @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  usuarioId      String
+  productoId     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([usuarioId, grupoId])
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
 model Compra {
   id             String @id @default(uuid())
   organizacionId String
@@ -291,10 +315,63 @@ model Recompensa {
   creadaPorTutorId String
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
+  // fase-14-26: relación inversa de las etiquetas. No agrega columna acá — el
+  // ítem no cambia ni un campo de esta tabla (decisión 13 de esa spec).
+  etiquetas        EtiquetaEnRecompensa[]
 
   @@index([organizacionId])
   @@index([grupoId])
   @@index([umbralZonaId])
+}
+
+/**
+ * Etiqueta del catálogo de ítems (fase-14-26). Es organización del Tutor y NO
+ * tiene ningún efecto de negocio: no decide precios, no restringe visibilidad y
+ * no entra en ningún sorteo. Esa ausencia de consecuencias es lo que permite
+ * que sea la única entidad archivable de este servicio que se puede desarchivar
+ * (decisión 6) — reactivar una bolsa o un producto vuelve a poner algo
+ * comprable en la tienda; reactivar una etiqueta vuelve a mostrar un chip.
+ *
+ * Se llama `EtiquetaCatalogo` y no `EtiquetaRecompensa` a propósito (decisión
+ * 5): etiqueta ítems del catálogo, que incluyen castigos — y leída junto a la
+ * tabla de unión, aquel nombre se confunde a simple vista con este.
+ */
+model EtiquetaCatalogo {
+  id             String                @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  nombre         String
+  // "#RRGGBB". Mismo criterio que UmbralZona.colorHex (Fase 7) y RolGrupo
+  // (fase-14-19): el frontend NUNCA lo hardcodea, lo lee de la API.
+  colorHex       String
+  estado         EstadoCatalogo        @default(ACTIVA)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  recompensas    EtiquetaEnRecompensa[]
+
+  @@unique([grupoId, nombre])
+  @@index([organizacionId])
+  @@index([grupoId, estado])
+}
+
+/**
+ * Asignación N:M (decisión 2: varias etiquetas por ítem, a diferencia del rol
+ * del #19 que es uno solo — el rol restringe y podía entrar en conflicto, la
+ * etiqueta no hace nada por sí sola).
+ *
+ * `onDelete: Cascade` por simetría con `ItemBolsa`, aunque en la práctica no se
+ * dispara: las etiquetas se archivan, no se borran, y archivar NO desasigna
+ * (decisión 7) — es lo que hace que desarchivar restituya el estado exacto.
+ */
+model EtiquetaEnRecompensa {
+  id           String           @id @default(uuid())
+  etiquetaId   String
+  etiqueta     EtiquetaCatalogo @relation(fields: [etiquetaId], references: [id], onDelete: Cascade)
+  recompensaId String
+  recompensa   Recompensa       @relation(fields: [recompensaId], references: [id], onDelete: Cascade)
+
+  @@unique([etiquetaId, recompensaId])
+  @@index([recompensaId])
 }
 
 model CanjeRecompensa {

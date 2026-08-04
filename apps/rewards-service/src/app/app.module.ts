@@ -10,6 +10,7 @@ import { ClientesModule } from '../clientes/clientes.module';
 import { validarEnv } from '../config/env.schema';
 import { ConfiguracionModule } from '../configuracion/configuracion.module';
 import { ConsumoModule } from '../consumo/consumo.module';
+import { EtiquetasModule } from '../etiquetas/etiquetas.module';
 import { EventosModule } from '../eventos/eventos.module';
 import { InternalModule } from '../internal/internal.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -33,6 +34,7 @@ import { TiendaModule } from '../tienda/tienda.module';
     BilleteraModule,
     CierreModule,
     ConsumoModule,
+    EtiquetasModule,
     RecompensasModule,
     TiendaModule,
     CanjesModule,

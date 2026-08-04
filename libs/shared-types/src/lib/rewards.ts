@@ -58,12 +58,41 @@ export interface BilleteraDto {
   saldo: number;
   nombreMoneda: string;
   iconoMoneda: string;
+  /**
+   * fase-14-25: para qué está ahorrando, para que el Tutor pueda reforzarlo
+   * fuera de la app. `null` si no eligió objetivo o si el producto se archivó.
+   */
+  objetivoNombre?: string | null;
+  /** Monedas que le faltan para el objetivo; `null` si no tiene. */
+  objetivoFaltan?: number | null;
+}
+
+/**
+ * El objetivo de ahorro del participante (fase-14-25). `faltan` se deriva
+ * contra el saldo del momento, igual que en la vitrina — no se guarda.
+ */
+export interface ObjetivoDto {
+  productoId: string;
+  nombre: string;
+  precio: number;
+  faltan: number;
 }
 
 export interface MiBilleteraResponse extends BilleteraDto {
   movimientos: MovimientoMonedaDto[];
   /** Total de movimientos del participante, para paginar. */
   total: number;
+  /**
+   * fase-14-25: `null` si no eligió ninguno, o si el producto que había elegido
+   * quedó archivado — en ese caso la fila NO se borra (decisión 6): si el Tutor
+   * lo desarchiva, el objetivo vuelve solo.
+   */
+  objetivo: ObjetivoDto | null;
+}
+
+/** Body de `PUT /rewards/grupos/:grupoId/mi-objetivo` (fase-14-25). */
+export interface FijarObjetivoRequest {
+  productoId: string;
 }
 
 /** fase-14-22 decisión 7: el catálogo se tipa. Ortogonal al modo. */
@@ -87,6 +116,43 @@ export interface RecompensaDto {
   permiteSeleccion: boolean;
   permiteAzar: boolean;
   estado: 'ACTIVA' | 'ARCHIVADA';
+  /**
+   * fase-14-26. Denormalizado con nombre y color: la grilla del catálogo pinta
+   * los chips sin una segunda llamada por ítem. **Siempre `[]` para
+   * `Rol.USUARIO`** (decisión 12): la etiqueta es organización del Tutor y no
+   * se le muestra al participante por ningún camino, y este DTO es el mismo
+   * que ve en los elegibles del modo DIRECTO.
+   */
+  etiquetas: EtiquetaCatalogoDto[];
+}
+
+/**
+ * Etiqueta del catálogo de ítems (fase-14-26). No tiene ningún efecto de
+ * negocio: organiza la pantalla del Tutor y habilita los atajos «todos los
+ * de X» al armar una bolsa o al crear productos en masa.
+ */
+export interface EtiquetaCatalogoDto {
+  id: string;
+  organizacionId: string;
+  grupoId: string;
+  nombre: string;
+  /** "#RRGGBB" — el frontend nunca lo hardcodea, lo lee de la API. */
+  colorHex: string;
+  estado: 'ACTIVA' | 'ARCHIVADA';
+}
+
+/**
+ * Resultado de la creación masiva de productos desde una etiqueta
+ * (fase-14-26 decisión 11): saltea en vez de fallar, así correr el atajo dos
+ * veces no puede duplicar la tienda.
+ */
+export interface ProductosDesdeEtiquetaDto {
+  creados: ProductoTiendaDto[];
+  salteados: {
+    recompensaId: string;
+    nombre: string;
+    motivo: 'YA_TIENE_PRODUCTO' | 'ES_CASTIGO';
+  }[];
 }
 
 /** Cuántas monedas rinde una zona al cerrar la Sección (decisión 4). */

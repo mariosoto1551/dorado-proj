@@ -21,6 +21,8 @@ export interface FilaRegistro {
   tipoPuntaje: TipoPuntaje;
   vecesHechas: number;
   topeEfectivo: number;
+  /** fase-14-25: cuántas se le exigen hoy para no perder puntos (1 = como siempre). */
+  minimoEfectivo: number;
   puedeCompletar: boolean;
   puedeNoHizo: boolean;
   puedeQuitar: boolean;
@@ -72,6 +74,9 @@ export function filasDeRegistro(
         tipoPuntaje: e.tipoPuntaje,
         vecesHechas: e.vecesHechas,
         topeEfectivo: e.topeEfectivo,
+        // fase-14-25: el Tutor es el que puede hacer algo al respecto durante
+        // el día, así que el umbral tiene que verse también en su lista.
+        minimoEfectivo: e.minimoEfectivo ?? 1,
         puedeCompletar: motivoBloqueo === null,
         // El «no hizo» es solo para obligatorias, y no se apila sobre una marca
         // que ya está viva: para eso está «deshacer» en las marcas de hoy. Las
@@ -116,11 +121,18 @@ function motivoDeBloqueo(
   return null;
 }
 
-/** «2 de 3» para las repetibles; vacío para las de una sola vez. */
+/**
+ * «2 de 3» para las repetibles; vacío para las de una sola vez. Con un mínimo
+ * cargado (fase-14-25) agrega «· faltan N»: es la única pista de que esa fila
+ * va a restar puntos al cerrar si se queda como está.
+ */
 export function textoDeRepeticiones(fila: FilaRegistro): string {
   if (fila.topeEfectivo <= 1 && fila.vecesHechas <= 1) {
     return '';
   }
 
-  return `${fila.vecesHechas} de ${fila.topeEfectivo}`;
+  const base = `${fila.vecesHechas} de ${fila.topeEfectivo}`;
+  const faltan = Math.max(0, fila.minimoEfectivo - fila.vecesHechas);
+
+  return faltan > 0 && fila.minimoEfectivo > 1 ? `${base} · faltan ${faltan}` : base;
 }

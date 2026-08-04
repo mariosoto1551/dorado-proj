@@ -117,6 +117,44 @@ describe('ComprasService — comprar', () => {
     );
   });
 
+  it('comprar el producto que era su objetivo lo limpia (fase-14-25)', async () => {
+    const { bd } = bdBase();
+    const productoId = bd.productos[0].id;
+
+    bd.objetivos.push({
+      id: 'obj-1',
+      organizacionId: 'org-1',
+      grupoId: 'grupo-1',
+      usuarioId: 'usuario-1',
+      productoId,
+    });
+
+    const { servicio } = crearServicio(bd);
+
+    await servicio.comprar(tenantUsuario(), 'grupo-1', { productoId });
+
+    // Se cumplió: dejarlo puesto convertiría el logro en un cartel viejo.
+    expect(bd.objetivos).toHaveLength(0);
+  });
+
+  it('comprar OTRA cosa deja el objetivo intacto (no reserva ni bloquea)', async () => {
+    const { bd } = bdBase();
+
+    bd.objetivos.push({
+      id: 'obj-1',
+      organizacionId: 'org-1',
+      grupoId: 'grupo-1',
+      usuarioId: 'usuario-1',
+      productoId: 'otro-producto',
+    });
+
+    const { servicio } = crearServicio(bd);
+
+    await servicio.comprar(tenantUsuario(), 'grupo-1', { productoId: bd.productos[0].id });
+
+    expect(bd.objetivos).toHaveLength(1);
+  });
+
   it('EL BUG CARO: sin saldo suficiente da 409 y NO escribe nada', async () => {
     const { bd } = bdBase({ monedas: [movimientoDePrueba({ monto: 5 })] });
     const { servicio } = crearServicio(bd);

@@ -1097,7 +1097,7 @@ Se resolvió con un **seam de configuración en el middleware**, no bajando la d
 
 ## Ítem 24: Destinatario y vigencia de una Actividad
 
-- **Estado**: EN_PROGRESO — completo y verificado. 344/344 tests de activity-service (61 nuevos), 104/104 de app-web (22 nuevos), lint y build verdes, **migración aplicada contra `activity_db` real y verificada por `\d "Actividad"`**, y suite E2E nueva.
+- **Estado**: EN_PROGRESO — completo y verificado. 346/346 tests de activity-service (63 nuevos), 104/104 de app-web (22 nuevos), lint y build verdes, **migración aplicada contra `activity_db` real** (columnas verificadas por `\d "Actividad"` y fila `OK` en `_prisma_migrations`), y **suite E2E completa 38/38 en dos corridas seguidas** (8 tests nuevos).
 - **Fecha**: 2026-08-03 / **Spec**: `docs/phases/fase-14-24-destinatario-y-vigencia.md` (escrita en esta sesión) / **Commit**: — (branch `fase-14-tienda-de-monedas`)
 - **Origen**: pedido de José (2026-08-03), tres molestias que aparecieron usando la app. Nace del mismo lugar que el #23 —la experiencia de uso— pero **agrega capacidades**, así que va como ítem propio y no como una tanda de aquel.
 
@@ -1166,3 +1166,193 @@ También hizo falta enseñarle al doble de Prisma de ese spec el operador `{ not
 2. **La lista del participante no se reordenó**: sigue siendo alcance de la segunda vuelta del #23. Lo único que cambió para él sale del servidor (deja de recibir lo que no le corresponde).
 3. **Conductas quedan afuera a propósito** (decisión 15 de la spec), igual que el contenido creado por integrantes (#10, que ya es personal por definición).
 4. **El archivado automático depende de que la Sesión cierre.** Un grupo que no abre sesiones no archiva sus vencidas — correcto por diseño (nada corre), pero conviene tenerlo presente si aparece un reporte de «la actividad vencida sigue ahí».
+
+---
+
+## Corrección posterior al #24: los dados de baja aparecían en los selectores
+
+**Reportado por José al probar el #24**: en «¿Quién la hace? → ciertas personas» figuraban integrantes que él mismo había desactivado.
+
+### Dónde estaba (y dónde NO estaba) el problema
+
+El backend nunca estuvo mal. El endpoint **interno** `GET /internal/identity/grupos/:grupoId/usuarios` filtra por `ACTIVO` desde la fase-02, así que ni el sellado de turnos ni el cierre de Sesión toman en cuenta a un dado de baja — una posición suya en una rotación ya se salteaba con el aviso `YA_NO_ESTA_EN_EL_GRUPO`.
+
+El endpoint **público** `GET /identity/grupos/:grupoId/usuarios` sí devuelve a los `INACTIVO`, y eso también es correcto: la pantalla de Integrantes es la que los da de baja y la que los reactiva. El agujero era del lado del navegador — las pantallas que usan esa lista para **elegir** a alguien no filtraban. `equipos.page.ts` sí lo hacía (`disponibles`), y esa era justamente la señal de que era un olvido y no una decisión.
+
+### La regla, y por qué quedó escrita en un archivo propio
+
+Se agregó **`core/usuarios.ts`** con `soloActivos()` y el criterio explicado: **elegir** a alguien va con los activos; **nombrar** a alguien (chips, historial, ranking, un turno ya guardado) va con el padrón completo. Es el mismo motivo por el que el backend tiene `comun/destinatario.ts`: el filtro hay que aplicarlo en cada selector nuevo, y olvidarse de uno no lo agarra ningún test preexistente. Con una función nombrada y documentada, la próxima pantalla que liste integrantes tiene dónde mirar.
+
+La distinción no es cosmética: si se filtrara también el diccionario de nombres, una actividad que quedó asignada a alguien dado de baja mostraría la sección «De personas» **sin ninguna persona**, que es peor que verlo dado de baja.
+
+### Qué se tocó
+
+- **`actividades.page.ts`**: el signal pasó a llamarse `padronDelGrupo` (todos) y `usuariosDelGrupo` es ahora un `computed` de activos — así el selector de «ciertas personas» y los dos atajos de precarga («todo el grupo», «los de cocina») quedaron filtrados sin tocar cada uso. `nombresParaChips()` se movió explícitamente al padrón.
+- **`turnos-actividad.component.ts`**: recibe el padrón entero y deriva `activos()` adentro. El `<select>` de «Elegir integrante…» y los atajos ofrecen solo activos; `nombreDe()` sigue con la lista completa para poder nombrar a quien ya estaba en una secuencia guardada.
+- **`panel-operativo.page.ts`**: los botones de «a quién le registro algo» ahora salen de `usuariosActivos()`. El filtro del historial de la Sesión **no** se tocó: un dado de baja puede tener registros de esa Sesión y hay que poder filtrarlos.
+
+### Lo que se dejó como está, a propósito
+
+`panel-evaluacion`, `resumen-grupo`, `entregas`, `reportes` y `billeteras` también piden la lista completa, pero **solo para resolver nombres** — las filas salen de scoring/rewards, no de esa lista. Filtrar ahí escondería puntaje o canjes de alguien desactivado a mitad de Sección, que es exactamente lo contrario de lo que se busca.
+
+### Verificación
+
+`nx test app-web` (13 archivos, 108 tests), `nx build app-web` (typecheck de templates) y `nx lint app-web`, los tres en verde. `core/usuarios.spec.ts` cubre el filtro. Falta la vuelta manual: desactivar a alguien en Integrantes y confirmar que desaparece de los tres selectores pero sigue apareciendo con nombre en una actividad que ya lo tenía asignado.
+
+---
+
+## Segunda corrección al #24: el pozo de turnos no salía del destinatario
+
+**Preguntado por José (2026-08-03)**, revisando cómo se combinan las capacidades del #11, el #21 y el #24: *«si la tarea ya tiene limitantes de que solo Lu y Ale pueden hacerlo, entonces la configuración de turnos se debería limitar a ellos, ¿verdad?»*.
+
+Tenía razón, y era **la mitad de un criterio de aceptación que había quedado sin implementar**. La spec del #24 (`A.7`) pedía dos cosas y solo se hizo una:
+
+- ✅ el `PUT` de la secuencia rechaza posiciones fuera de `usuariosPermitidos` (400 `TURNO_FUERA_DEL_DESTINATARIO`) y el `PATCH` de la actividad poda las que quedan fuera;
+- ❌ *«los atajos del armador pasan a ofrecer, cuando hay destinatario nominal, solo a los destinatarios»* — el componente recibía `padronDelGrupo()` sin cruzar con nada.
+
+El síntoma: se acotaba la actividad a Luciana y Alejandra, el selector de turnos seguía ofreciendo a todo el grupo, y armar la secuencia con un tercero terminaba en un toast de error **con la actividad ya guardada** (el turno va segundo y encadenado, ver T1 del #23).
+
+### Por qué vale anotarlo aparte
+
+Es el **tercer caso del mismo modo de falla** que la fase ya tenía identificado por nombre: una regla que existe entera en el servidor y a la que le falta el cable del lado del navegador (la T1 con `turnos-de-hoy`, la T4 con las tareas de equipo, y ahora esta). Con la diferencia de que acá la validación del servidor **sí** existía y funcionaba — el defecto era que se enteraba el usuario, no el sistema. Un 400 correcto sigue siendo una interfaz mala si la pantalla dejó armar lo que va a rechazar.
+
+Ninguna de las tres se agarra con unit tests del servidor: los que existían verificaban que el `PUT` fallara, que es exactamente la mitad de la regla.
+
+### La otra mitad de la pregunta, que ya estaba bien
+
+«Martes/jueves/sábado + rotación diaria» funciona como corresponde desde el #21: un día en que la actividad no corre **no consume turno** (`correHoy` en `sellado-turnos.service.ts`, decisión 9). Con secuencia `[Luciana, Alejandra]` y orden fijo el reparto se cierra cada dos semanas —3 y 3 sobre los 6 días corribles— y ningún lunes le «gasta» el turno a nadie. Está cubierto por `sellado-turnos.service.spec.ts`. No se tocó nada de esto.
+
+### Qué se tocó
+
+- **`core/turnos.ts`**: `elegiblesParaTurno(usuarios, destinatarios)` (los dos filtros —activos y destinatarios— con el porqué de cada uno) y `podarSecuencia(secuencia, destinatarios)`. Mismo criterio de siempre: la regla vive en `core/`, testeada aparte, y el componente no decide.
+- **`turnos-actividad.component.ts`**: input nuevo `destinatarios`, `activos()` pasa por `elegiblesParaTurno`, y un `effect` que poda la secuencia en el acto cuando el destinatario se acota mientras el armador está abierto. El texto del atajo cambia a «los destinatarios» y una nota explica de dónde sale el pozo — la restricción se ve, no sorprende.
+- **`actividades.page.ts`**: `pozoDeTurnos()` y, sobre todo, **el reordenamiento del formulario**: el armador de turnos pasó a ir **después** de «¿Quién la hace?», no antes. Es lo que José señaló como el orden lógico y es la parte que hace que el resto no haga falta explicarlo: el pozo sale del destinatario, así que preguntar el destinatario primero es el orden en que se piensa la actividad.
+
+### El detalle de implementación que no es obvio
+
+`pozoDeTurnos()` devuelve la **referencia viva** de `form.usuariosPermitidos` (y una constante compartida cuando no hay restricción), no una copia. El método se evalúa en cada detección de cambios, y un array nuevo por vuelta dispararía el `effect` del armador sin que hubiera cambiado nada — con la emisión de `cambio` de por medio, en loop. Funciona porque los handlers del destinatario **reasignan** el array en vez de mutarlo, así que la identidad cambia exactamente cuando cambia la lista. Por el mismo motivo `podarSecuencia` devuelve la misma referencia cuando no hay nada que sacar, y hay un test que lo fija (`toBe`, no `toEqual`).
+
+### Verificación
+
+`nx test app-web` (13 archivos, **117 tests**, 9 nuevos), `nx build app-web` (typecheck de templates) y `nx lint app-web`, los tres en verde. Los selectores de `turnos-visibles.e2e.ts` son por `name`/`role`, no por orden, así que el reordenamiento no los toca — pero **la suite E2E no se volvió a correr**: queda para la próxima sesión, junto con la vuelta manual (acotar una actividad a dos personas con la rotación ya armada y confirmar que el tercero desaparece del pozo en el acto).
+
+---
+
+## Ítem 25: Objetivo de ahorro y mínimo de repeticiones
+
+- **Estado**: EJECUTADO (backend + frontend; tests/lint/build verdes, migraciones aplicadas contra Postgres real). **Sin E2E ni vuelta manual todavía.**
+- **Fecha**: 2026-08-03 / **Spec**: `docs/phases/fase-14-25-objetivo-y-minimo-de-repeticiones.md` / **Commit**: — (mismo branch que el #24)
+
+### Origen (dos preguntas de José, 2026-08-03)
+
+Una propuesta y una pregunta, hechas en el mismo mensaje: *«debería haber una opción simple de marcar objetivo dentro de la pantalla del usuario en recompensas»* y *«¿cuál es la lógica de las obligatorias de varias repeticiones? ¿si una obligatoria tiene hasta 3 repeticiones y no hace 2, le quita puntos?»*.
+
+La respuesta a la segunda fue que **no**: el castigo del cierre era binario por par (usuario, actividad) — con **una sola** confirmación no había descuento, y el `repeticionesMaximasSesion` funcionaba como techo del **premio** del #20, no como exigencia. No estaba escrito en ninguna spec: era una consecuencia no enunciada del `Set` de pares del #8. Al quedar a la vista, José pidió que existiera el mínimo.
+
+### Qué se ejecutó
+
+**Mínimo (`activity-service`)**: campo `Actividad.repeticionesMinimasSesion` (default **1** = comportamiento previo exacto), acotado a `1 ≤ mín ≤ máx` y forzado a 1 fuera de `OBLIGATORIA` + `REQUIERE_CONFIRMACION`. El cierre pasó de un `Set` de pares a contar confirmaciones vivas y quemadas por separado, y escribe **una** fila `NO_HIZO` con `−valorPuntos × faltantes`.
+
+**Objetivo (`rewards-service`)**: modelo `ObjetivoParticipante` (`@@unique([usuarioId, grupoId])`), `PUT`/`DELETE mi-objetivo`, `objetivo` dentro de `mi-billetera` y `objetivoNombre`/`objetivoFaltan` en el listado del Tutor. Comprar el producto que era el objetivo lo borra en la misma transacción.
+
+**Frontend**: campo «Mínimo para no perder puntos» en el modal del Tutor (solo donde puede significar algo), barrita del integrante con el umbral en ámbar + «te faltan N para no perder puntos», tarjeta de objetivo sobre la billetera con barra grande, botón «☆ Marcar objetivo» por producto, y la línea «🎯 ahorrando para X» en Billeteras del Tutor.
+
+### Decisiones que se tomaron con José en la sesión
+
+1. **Castigo proporcional** (`−valorPuntos × faltantes`), no un castigo único al no llegar al mínimo: es simétrico con el premio del #20, que ya escala por repetición, y castigar 2 de 3 igual que 0 de 3 enseña a abandonar. Se le mostraron las dos tablas de resultados antes de elegir.
+2. **El objetivo se persiste** en el backend y **el Tutor lo ve**: media razón de ser del objetivo es que el adulto pueda reforzarlo fuera de la app.
+
+### Desviaciones y decisiones de implementación
+
+- **La pantalla del integrante tenía un tope propio que la spec no preveía.** `topeAlcanzado` para una obligatoria confirmable devolvía `confirmada` (= `vecesHechas > 0`), así que **el botón desaparecía después de la primera confirmación** aunque el servidor aceptara hasta el tope efectivo. Con eso, un mínimo de 3 habría sido **inalcanzable desde la interfaz** y el castigo, automático e inevitable. Es el mismo modo de falla que la T1 y la T4 del #23 (la capacidad entera del lado del servidor y el cable faltante del lado de la pantalla), esta vez descubierto antes de que llegara a producción. Corregido: con `repeticionesMaximasSesion > 1` el tope de una confirmable es `vecesHechas >= topeEfectivo`, y la barrita —que era solo para opcionales— ahora también las cubre.
+- **Una marca `NO_HIZO` del Tutor cancela el castigo automático esté viva o deshecha.** Es el comportamiento previo (el `Set` no miraba `eliminado`) y se conservó a propósito para no cambiar de contrabando una regla del #12 dentro de este ítem. Queda anotado: tras «marcar no hizo → deshacer», el integrante que no confirmó **no recibe el castigo del cierre**. Es el mismo hueco que el #20 ya había dejado anotado por el otro lado (no puede re-confirmar), y sigue siendo decisión de producto pendiente.
+- **Las repeticiones quemadas bajan el mínimo** (`min(mínimo, topeEfectivo)`), en el cierre y en `mi-estado-hoy` con la misma cuenta. Sin esto, el Tutor quemando 2 de 3 dejaba un mínimo de 3 imposible **encima** del castigo que la marca roja ya aplicó.
+- **`ObjetivoService` repite el cálculo del saldo** en vez de reusar `BilleteraService.saldoDe`: es `BilleteraService` el que depende de él (arma el objetivo dentro de `mi-billetera`), así que inyectarlo al revés sería un ciclo. Seis líneas de `aggregate` contra un `forwardRef`.
+- **El objetivo es lo único de la economía que no es ledger**: se pisa con `upsert` y no deja historia. Cambiar de idea sobre qué querés comprarte no tiene nada que auditar (decisión 3 de la spec), a diferencia de `EventoMoneda`, que nunca se edita.
+
+### Verificación
+
+`nx test activity-service` **357/357** (11 nuevos: 6 del castigo por mínimo, 5 de la validación) · `nx test rewards-service` **143/143** (13 nuevos: objetivo, lectura, listado del Tutor y las dos de la compra) · `nx test app-web` 117/117 · `nx lint`+`nx build` de los cuatro proyectos tocados, verdes. Migraciones `20260803204402_minimo_repeticiones_fase14` y `20260803205414_objetivo_participante_fase14` **creadas y aplicadas contra Postgres real** con `prisma migrate dev`.
+
+### Segunda vuelta del mismo día: cerrar los pendientes
+
+Con el ítem ya implementado, José pidió corregir lo que quedara pendiente antes de cerrar la sesión. Cuatro cosas:
+
+1. **Se corrió la E2E completa** (`node scripts/e2e-up.mjs`), que la sesión anterior había dejado sin correr: **38/38 verdes**, incluidas las del #24 — ninguna regresión por el mínimo ni por el objetivo. (Las 18 `skipped` son las suites de navegador, gateadas por `E2E_UI=1`.)
+2. **Suite E2E nueva del ítem** (`minimo-de-repeticiones.e2e.ts`, 5 tests): el castigo proporcional **contra el ledger de scoring**, que es lo único que los unit tests no pueden probar — ellos verifican la fila que escribe el cierre, no que scoring reste lo que esa fila dice. Cubre 1 de 3 (`+2 −20`), 0 de 3 (`−30`), 3 de 3 (`+6`), la **retro-compatibilidad** con mínimo 1 y el 400 del mínimo mayor que el máximo.
+3. **El mínimo faltaba en la lista del Tutor.** `textoDeRepeticiones` decía «1 de 3» y nada más, cuando el Tutor es justamente quien puede hacer algo al respecto **durante** el día. Ahora dice «1 de 3 · faltan 2». Es el mismo criterio de la decisión 16 aplicado a la otra pantalla: la regla tiene que verse donde está la acción.
+4. **Dos alineaciones de convención**: `FijarObjetivoBody` → `FijarObjetivoRequest` (regla 5 de estilo de `CLAUDE.md`), y el rechazo a un Tutor pasó de `ConflictException` a `ForbiddenException`, que es lo que ya hacía `miBilletera` con el mismo caso. Además se actualizó `ActividadDto` en `docs/architecture/shared-types.md`, que había quedado sin los campos del #24 (`usuariosPermitidos`, `equiposPermitidos`, `vigenteDesde/Hasta`) además de los de este ítem.
+
+### Qué debería verificar la próxima sesión
+
+1. **Vuelta manual del objetivo**: marcarlo desde la tienda, cerrar sesión, entrar desde otro navegador y confirmar que sigue; después comprarlo y ver que se limpia. Nada de eso está cubierto por E2E (el objetivo no tiene suite propia: es estado de UI sobre endpoints ya testeados en unidad).
+2. **Modo `DIRECTO`**: confirmar en navegador que el botón de objetivo no aparece (la tienda entera no se renderiza en ese modo, así que debería ser gratis).
+3. **El hueco del `NO_HIZO` deshecho** sigue abierto y es decisión de producto, no bug: tras «marcar no hizo → deshacer», el integrante que no confirmó **no** recibe el castigo automático del cierre (y por el #20, tampoco puede re-confirmar). Los dos lados del mismo caso, esperando una decisión.
+
+## Ítem 26: Etiquetas del catálogo de recompensas
+
+- **Estado**: EJECUTADO (backend + frontend; tests/lint/build verdes, migración aplicada contra Postgres real).
+- **Fecha**: 2026-08-03 / **Spec**: `docs/phases/fase-14-26-etiquetas-del-catalogo.md` / **Commit**: — (mismo branch que el #24 y el #25)
+
+### Origen (pedido de José, 2026-08-03)
+
+*«Quiero que sea posible etiquetar las recompensas desde el tutor/admin, solo para marcarlo y quizás seleccionar todos de x etiqueta para la tienda o premios directos.»*
+
+El pedido llegó con la solución adentro y con una duda declarada («quizás»). Lo que faltaba decidir eran cuatro cosas, y se cerraron con él antes de escribir una línea: catálogo de etiquetas vs. texto libre, una o varias por ítem, dónde vale el atajo «todos los de X», y si el participante las ve.
+
+**José delegó explícitamente el tercer uso** («y lo que más me recomiendes aparte de estos 2», sobre filtro y bolsa). Se eligió **crear productos de tienda en masa** y se descartó **asignar zona en masa**, por un motivo que no es de gusto: el select de zona está **deshabilitado al editar** un ítem (`catalogo-items.component.ts`), así que una edición masiva habría permitido por lote exactamente lo que la pantalla prohíbe de a uno. En cambio, en modo `TIENDA` cada premio necesita hoy su producto cargado a mano, uno por uno: ahí sí había trabajo repetitivo real.
+
+### Qué se ejecutó
+
+**Backend (`rewards-service`)**: dos tablas nuevas —`EtiquetaCatalogo` (nombre + `colorHex`, archivable, `@@unique([grupoId, nombre])`) y `EtiquetaEnRecompensa` (N:M)—, módulo `etiquetas/` con CRUD + desarchivar + `PUT /rewards/recompensas/:id/etiquetas`, `?etiquetaId=` en el listado del catálogo, y `POST /rewards/grupos/:grupoId/productos/desde-etiqueta`. **`Recompensa` no cambia ni una columna**: la migración es aditiva pura.
+
+**Frontend (`app-web`)**: gestor de etiquetas como modal desde la pestaña Catálogo (sin pestaña nueva), fila de chips de filtro, chips en cada tarjeta, selector en el modal del ítem, «Agregar los de \<etiqueta\>» al armar una bolsa y «Desde una etiqueta» con previsualización en Productos.
+
+### Decisiones cerradas con José en la sesión
+
+1. **Catálogo de etiquetas por Grupo**, no texto libre: con texto libre «Juguetes»/«juguetes»/«juguete» son tres etiquetas a la semana de uso, y renombrar sería editar ítem por ítem — justo el trabajo manual que el ítem viene a eliminar.
+2. **Varias por ítem**, a diferencia del rol del #19 que es uno solo: allá la cardinalidad 1 evitaba conflictos entre roles porque el rol **restringe**; acá la etiqueta no restringe nada.
+3. **Solo la ve el Tutor.** Es organización del adulto, no una categoría de producto para el participante.
+4. **Tres usos y ninguno más**: filtrar el catálogo, precargar una bolsa, publicar productos en masa.
+
+### Decisiones de implementación y desviaciones
+
+- **`EtiquetaCatalogo`, no `EtiquetaRecompensa`.** Leídas juntas, `EtiquetaRecompensa` y la tabla de unión se confunden a simple vista, y este ítem toca los tres archivos donde conviven. Además dice la verdad: etiqueta **ítems del catálogo**, que incluyen castigos — el propio #22 dejó anotado que llamarle «Recompensa» a un castigo es un nombre heredado, y no hacía falta propagarlo a lo nuevo.
+- **Archivar una etiqueta es reversible, y por eso NO pide confirmación.** Es lo contrario de lo que el #23 T4 (segunda vuelta) decidió para productos y bolsas, y por el mismo criterio: *se confirma lo que no tiene vuelta atrás, no todo lo que es rojo*. Desarchivar un producto vuelve a poner algo **comprable** en la tienda; desarchivar una etiqueta vuelve a mostrar un chip. Es la única entidad archivable de `rewards` cuya reactivación no puede resucitar nada.
+- **Archivar NO desasigna**, al revés que el #19 con los roles. Allá la asignación **ocultaba actividades**, así que dejarla viva escondía cosas por una regla invisible; acá no hace nada por sí sola, y conservarla es lo que hace que desarchivar restituya el estado exacto.
+- **La asignación va por `PUT` sobre un sub-recurso, no como campo del `PATCH` del ítem.** En un PATCH parcial, un array vacío es indistinguible de «no lo mandé» — la misma ambigüedad que el #24 tuvo que resolver a mano en la validación de destinatarios. Un `PUT` no tiene esa duda: lo que viene es lo que queda.
+- **El compilador atajó un bug real al sumar el segundo parámetro del mapeador.** `recompensaADto` pasó a recibir `etiquetas` con default `[]`, y eso rompió los dos `.map(recompensaADto)` de `canjes.service.ts` —donde `Array.prototype.map` habría inyectado **el índice del array** como etiquetas—. Es justo el camino de los elegibles del participante, o sea el lugar donde la decisión 12 se habría filtrado. Quedó anotado en el código: ahí el mapeador se llama con lambda a propósito.
+- **Costo cero para quien no usa el ítem.** `mapaPorRecompensa` corta en la primera consulta si el grupo no tiene ninguna etiqueta activa —mismo gate que el `necesitaTimezone` de activity y el cruce de roles del #19—, y el participante no paga ninguna de las dos consultas. Hay tests con espías para las dos cosas. En pantalla, un grupo sin etiquetas no ve fila de filtros, ni chips, ni el botón «Desde una etiqueta».
+- **El precio de la creación masiva es `>= 1`, no `>= 0`** como decía el primer borrador de la spec. Se corrigió **la spec** antes de escribir el código, porque `ProductosService.validarReferencias` ya rechazaba `< 1` con `PRECIO_INVALIDO` desde el #22: dejar el número mal habría creado dos mínimos distintos para la misma cosa.
+- **La lógica de los tres atajos vive en `core/etiquetas-catalogo.ts`, no en los componentes.** Son decisiones sobre qué subconjunto del catálogo cae bajo una etiqueta, y eso se testea sin montar una pantalla (mismo criterio que `core/turnos.ts` del #21 y `core/destinatario-actividad.ts` del #24).
+- **Un producto archivado no bloquea la republicación.** El Tutor lo sacó de la vitrina a propósito; volver a publicarlo es una decisión válida, y la regla está escrita igual en el backend y en la previsualización del frontend, con test en los dos lados.
+
+### El hallazgo del camino: los `code` de negocio de rewards no llegaban al cliente
+
+La E2E de este ítem falló cuatro veces con el **status correcto y el `code` equivocado**: `409 CONFLICTO` donde el test esperaba `ETIQUETA_DUPLICADA`, y `400 VALIDACION` donde esperaba `ETIQUETA_INVALIDA`, `SIN_ITEMS_PARA_CREAR` y `SOLO_EN_MODO_TIENDA`.
+
+No era el test. `HttpExceptionFilter` (`libs/shared-auth`) **solo conserva el `code` de negocio cuando la excepción extiende `DomainException`**; un `new BadRequestException({ message, code })` deja el code **dentro** del body de la excepción de Nest, que el filtro descarta y reemplaza por el genérico del status. Los tests unitarios no lo ven porque inspeccionan la excepción cruda, donde el code sí está: hace falta mirar el **sobre HTTP real** para que el hueco aparezca.
+
+Se creó `apps/rewards-service/src/comun/excepciones.ts` —el servicio era el único con codes de negocio y **sin** ese archivo, que identity, activity y billing sí tienen desde sus fases— y las cinco excepciones del ítem pasaron a `DomainException`.
+
+**Queda anotado como deuda, no se tocó**: los codes del #22 tienen exactamente el mismo problema y hoy llegan al frontend como `VALIDACION` — `CASTIGO_NO_VA_EN_BOLSA`, `CASTIGO_NO_ES_COMPRABLE`, `REFERENCIA_INVALIDA`, `BOLSA_VACIA`, `PRECIO_INVALIDO`, `ZONA_REQUERIDA` y los de compra. Ninguna pantalla los discrimina hoy (todas muestran `mensajeDeError`), así que no hay bug visible; pero cualquier pantalla futura que quiera ramificar por code va a fallar en silencio. Convertirlos es mecánico y cabe en una pasada corta; se dejó afuera por no meter un refactor transversal de `rewards` dentro de este ítem.
+
+### La corrida que no probó nada: nueve procesos zombis
+
+La primera corrida completa dio **40 passed / 9 failed** y las 9 fallas incluían tres tests del #25 que estaban verdes. La causa no era el código: los **nueve** puertos de servicio (3000-3008) estaban tomados por procesos `node dist/apps/<servicio>/main.js` **arrancados a las 16:23**, antes de esta sesión. `nx serve` levantó los nuevos, no pudo bindear, y la suite entera corrió contra un binario viejo — por eso `POST /rewards/grupos/:id/etiquetas` daba 404 aunque el log del proceso nuevo mostrara la ruta mapeada.
+
+Es la trampa que ya estaba anotada para este entorno (procesos viejos ocupando puertos), pero anotada solo para 3000-3002. **Vale para los nueve**, y el modo de falla es traicionero: no hay error visible en el arranque —el aviso que sí aparece es `Starting inspector on localhost:9229 failed`, que parece benigno—, la suite corre entera y el veredicto es plausible. Después de matarlos, la misma suite pasó de 6.1 min a 57 s.
+
+**Antes de creerle a una corrida E2E de este repo, verificar que los nueve puertos estén libres.**
+
+### Verificación
+
+`nx test rewards-service` **168/168** (25 nuevos: 12 del catálogo/asignación/archivado, 7 de la creación masiva, 4 de los chips y el filtro, 2 de costo cero con espías) · `nx test app-web` **129/129** (9 nuevos, sobre `core/etiquetas-catalogo.ts`) · `nx lint` + `nx build` de `rewards-service`, `app-web` y `shared-types`, verdes. Migración `20260803220144_etiquetas_catalogo_fase14` **creada y aplicada contra Postgres real** con `prisma migrate dev`.
+
+**Suite E2E completa 49/49 en dos corridas seguidas** (53,2 s y 59,2 s), con la suite nueva `etiquetas-catalogo.e2e.ts` (6 tests) adentro. Los 18 `skipped` son las suites de navegador, gateadas por `E2E_UI=1`.
+
+### Qué debería verificar la próxima sesión
+
+1. **Vuelta manual en navegador**: crear dos etiquetas desde el gestor, asignarlas, filtrar la grilla, archivar una y recuperarla. Nada de eso está cubierto por E2E de navegador (la suite del ítem es API-first).
+2. **La deuda de los `code` del #22** (arriba): decidir si se convierten a `DomainException` en una pasada corta. Es mecánico y hoy no rompe nada visible.
+3. **El tope de 5 etiquetas por ítem** es un número de interfaz, no de dominio (decisión 8). Si a José le queda corto, subirlo es cambiar `MAX_ETIQUETAS_POR_ITEM` y su espejo en el frontend.

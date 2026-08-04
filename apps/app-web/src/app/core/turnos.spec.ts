@@ -4,11 +4,14 @@ import {
   FrecuenciaTurno,
   ModoTurno,
   type TurnoActividadDto,
+  type UsuarioDto,
 } from '@dorado/shared-types';
 
 import {
   accionDeTurno,
+  elegiblesParaTurno,
   type EstadoTurnoForm,
+  podarSecuencia,
   resumenDeReparto,
   textoDelChipDeTurno,
 } from './turnos';
@@ -20,6 +23,81 @@ const NOMBRES: Record<string, string> = {
 };
 
 const nombreDe = (id: string) => NOMBRES[id] ?? id;
+
+function usuario(id: string, estado: 'ACTIVO' | 'INACTIVO' = 'ACTIVO'): UsuarioDto {
+  return {
+    id,
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    username: id,
+    nombre: nombreDe(id),
+    avatarId: 'avatar-1',
+    estado,
+    createdAt: '2026-08-03T10:00:00.000Z',
+  };
+}
+
+describe('elegiblesParaTurno (fase-14-24, decisión 6)', () => {
+  const padron = [usuario('jose'), usuario('luciana'), usuario('alejandra')];
+
+  it('sin destinatario el pozo es todo el grupo', () => {
+    expect(elegiblesParaTurno(padron, []).map((u) => u.id)).toEqual([
+      'jose',
+      'luciana',
+      'alejandra',
+    ]);
+  });
+
+  it('con destinatario nominal solo se puede rotar entre los destinatarios', () => {
+    const elegibles = elegiblesParaTurno(padron, ['luciana', 'alejandra']);
+
+    expect(elegibles.map((u) => u.id)).toEqual(['luciana', 'alejandra']);
+  });
+
+  it('los dos filtros se acumulan: un destinatario dado de baja tampoco se ofrece', () => {
+    const conBaja = [usuario('luciana'), usuario('alejandra', 'INACTIVO')];
+
+    const elegibles = elegiblesParaTurno(conBaja, ['luciana', 'alejandra']);
+
+    expect(elegibles.map((u) => u.id)).toEqual(['luciana']);
+  });
+
+  it('conserva el orden del padrón, no el del destinatario', () => {
+    const elegibles = elegiblesParaTurno(padron, ['alejandra', 'jose']);
+
+    expect(elegibles.map((u) => u.id)).toEqual(['jose', 'alejandra']);
+  });
+});
+
+describe('podarSecuencia (fase-14-24, decisión 6)', () => {
+  it('saca de la rotación a quien dejó de ser destinatario', () => {
+    const podada = podarSecuencia(['jose', 'luciana', 'jose'], ['luciana']);
+
+    expect(podada).toEqual(['luciana']);
+  });
+
+  it('sin destinatario no poda nada: la actividad es de todo el grupo', () => {
+    const secuencia = ['jose', 'luciana'];
+
+    expect(podarSecuencia(secuencia, [])).toBe(secuencia);
+  });
+
+  it('devuelve la MISMA referencia si no hay nada que sacar — el efecto no debe reemitir', () => {
+    const secuencia = ['jose', 'luciana'];
+
+    expect(podarSecuencia(secuencia, ['jose', 'luciana', 'alejandra'])).toBe(secuencia);
+  });
+
+  it('conserva los repetidos de quien sigue siendo destinatario', () => {
+    const podada = podarSecuencia(['jose', 'luciana', 'jose'], ['jose']);
+
+    expect(podada).toEqual(['jose', 'jose']);
+  });
+
+  it('quitar a todos los de la secuencia la deja vacía, no la deja inválida', () => {
+    expect(podarSecuencia(['jose'], ['luciana'])).toEqual([]);
+  });
+});
 
 describe('resumenDeReparto (fase-14-21)', () => {
   it('avisa quién tiene turnos de más: el caso José - Luciana - José - Alejandra', () => {

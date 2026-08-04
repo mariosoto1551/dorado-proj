@@ -6,6 +6,7 @@ import {
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
@@ -18,7 +19,12 @@ import {
   type UsuarioDto,
 } from '@dorado/shared-types';
 
-import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
+import {
+  elegiblesParaTurno,
+  type EstadoTurnoForm,
+  podarSecuencia,
+  resumenDeReparto,
+} from '../../core/turnos';
 
 /**
  * Armador de la secuencia de turnos de una obligatoria (fase-14-21).
@@ -153,7 +159,7 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
               class="min-w-0 flex-1 campo"
             >
               <option value="">Elegir integrante…</option>
-              @for (usuario of usuarios(); track usuario.id) {
+              @for (usuario of activos(); track usuario.id) {
                 <option [value]="usuario.id">{{ usuario.nombre }}</option>
               }
             </select>
@@ -167,14 +173,16 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
             </button>
           </div>
 
-          <!-- Atajos que PRECARGAN la lista y la dejan editable (decisión 4) -->
+          <!-- Atajos que PRECARGAN la lista y la dejan editable (decisión 4).
+               Con destinatario nominal precargan solo a los destinatarios: el
+               pozo sale de ahí (fase-14-24, decisión 6). -->
           <div class="mt-2 flex flex-wrap gap-1.5">
             <button
               type="button"
               (click)="precargarTodos()"
               class="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              todo el grupo
+              {{ destinatarios().length > 0 ? 'los destinatarios' : 'todo el grupo' }}
             </button>
             @for (rol of roles(); track rol.id) {
               <button
@@ -191,6 +199,13 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
 
           @if (resumen(); as texto) {
             <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{ texto }}</p>
+          }
+
+          @if (destinatarios().length > 0) {
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Rota solo entre los destinatarios de la actividad. Para sumar a
+              alguien más, agregalo primero en «¿Quién la hace?».
+            </p>
           }
 
           @if (secuencia().length === 0) {
@@ -211,9 +226,21 @@ import { type EstadoTurnoForm, resumenDeReparto } from '../../core/turnos';
   `,
 })
 export class TurnosActividadComponent {
+  /**
+   * El padrón del grupo, con los dados de baja incluidos: hacen falta para que
+   * `nombreDe` pueda nombrar a alguien que ya está en la secuencia guardada y
+   * que después se desactivó. Para OFRECER se usa `activos()`.
+   */
   readonly usuarios = input.required<UsuarioDto[]>();
 
   readonly roles = input<RolGrupoDto[]>([]);
+
+  /**
+   * Los destinatarios de la actividad, cuando es de ciertas personas
+   * (fase-14-24). Vacío = de todo el grupo, sin restricción. Acota a quiénes se
+   * puede sumar al pozo: el pozo sale del destinatario, no al revés.
+   */
+  readonly destinatarios = input<string[]>([]);
 
   /** Configuración ya guardada; null = la actividad todavía no rota. */
   readonly turno = input<TurnoActividadDto | null>(null);
@@ -231,6 +258,15 @@ export class TurnosActividadComponent {
 
   protected readonly aAgregar = signal('');
 
+  /**
+   * A quiénes se puede sumar a la rotación: los de alta que además son
+   * destinatarios de la actividad. La regla vive en `core/turnos.ts` con el
+   * porqué de cada uno de los dos filtros.
+   */
+  protected readonly activos = computed(() =>
+    elegiblesParaTurno(this.usuarios(), this.destinatarios())
+  );
+
   /** «José: 2 de cada 4 días» — la vista previa del reparto que se armó. */
   protected readonly resumen = computed(() =>
     resumenDeReparto(this.secuencia(), (id) => this.nombreDe(id))
@@ -240,6 +276,11 @@ export class TurnosActividadComponent {
     // `turno` llega después del primer render: la config de la actividad en
     // edición se pide aparte, y al crear no existe hasta que se guarda.
     effect(() => this.aplicarTurnoExistente(this.turno()));
+
+    // Acotar el destinatario mientras el armador está abierto tiene que sacar
+    // del pozo a quien quedó afuera, en el acto: dejarlo en la lista mostraría
+    // una rotación que el servidor va a rechazar recién al guardar.
+    effect(() => this.podarPorDestinatario(this.destinatarios()));
 
     // Un solo lugar de emisión: cualquier cambio de los cuatro signals viaja
     // al contenedor, que decide qué hacer con él recién en su submit.
@@ -308,12 +349,12 @@ export class TurnosActividadComponent {
   }
 
   protected precargarTodos(): void {
-    this.secuencia.set(this.usuarios().map((usuario) => usuario.id));
+    this.secuencia.set(this.activos().map((usuario) => usuario.id));
   }
 
   protected precargarPorRol(rolGrupoId: string): void {
     this.secuencia.set(
-      this.usuarios()
+      this.activos()
         .filter((usuario) => usuario.rolGrupo?.id === rolGrupoId)
         .map((usuario) => usuario.id)
     );
@@ -325,6 +366,23 @@ export class TurnosActividadComponent {
    * (y al crear una nueva), y conservar la secuencia anterior la ofrecería
    * como si fuera de esta.
    */
+  /**
+   * Deja en la secuencia solo a los destinatarios. `podarSecuencia` devuelve la
+   * misma referencia cuando no hay nada que sacar, así que el `update` no
+   * escribe y el efecto no se retroalimenta con la emisión de `cambio`.
+   */
+  private podarPorDestinatario(destinatarios: string[]): void {
+    this.secuencia.update((actual) => podarSecuencia(actual, destinatarios));
+
+    // El pendiente del selector puede haber dejado de ser elegible: si no se
+    // limpia, el `<select>` queda con un value que ya no tiene `<option>`.
+    // `untracked` para que el efecto dependa del destinatario y nada más — leer
+    // `aAgregar` como dependencia lo haría correr en cada tecla del selector.
+    if (destinatarios.length > 0 && !destinatarios.includes(untracked(this.aAgregar))) {
+      this.aAgregar.set('');
+    }
+  }
+
   private aplicarTurnoExistente(turno: TurnoActividadDto | null): void {
     this.activo.set(turno?.activo ?? false);
     this.modo.set(turno?.modo ?? ModoTurno.ORDEN_FIJO);
