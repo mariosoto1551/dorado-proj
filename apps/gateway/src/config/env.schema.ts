@@ -78,6 +78,12 @@ export class EnvSchema {
   @Matches(URL_HTTP, { message: `AUDIT_INTERNAL_URL ${MENSAJE_URL}` })
   AUDIT_INTERNAL_URL?: string;
 
+  // fase-14-29: asistente de IA. Opcional como todas: un prefijo sin URL
+  // configurada responde 503 hasta que su servicio se levante.
+  @IsOptional()
+  @Matches(URL_HTTP, { message: `AI_INTERNAL_URL ${MENSAJE_URL}` })
+  AI_INTERNAL_URL?: string;
+
   @IsOptional()
   @IsString()
   LOG_LEVEL?: string;

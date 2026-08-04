@@ -18,6 +18,10 @@ export const PLANES_SEED = [
     limiteActividadesPorGrupo: 15,
     whiteLabel: false,
     reportesAvanzados: false,
+    // fase-14-29: el asistente de IA es feature de PRO. En FREE la cuota es 0
+    // y no null — null significa "sin límite", que es justo lo contrario.
+    asistenteIa: false,
+    cuotaTokensIaMensual: 0,
   },
   {
     codigo: CodigoPlan.PRO,
@@ -28,6 +32,10 @@ export const PLANES_SEED = [
     limiteActividadesPorGrupo: null,
     whiteLabel: true,
     reportesAvanzados: true,
+    asistenteIa: true,
+    // 2.000.000 de tokens/mes por organización. Es un punto de partida, no una
+    // conclusión: es el número a revisar con el consumo real del piloto.
+    cuotaTokensIaMensual: 2_000_000,
   },
 ] as const;
 
@@ -39,6 +47,8 @@ interface DatosPlan {
   limiteActividadesPorGrupo: number | null;
   whiteLabel: boolean;
   reportesAvanzados: boolean;
+  asistenteIa: boolean;
+  cuotaTokensIaMensual: number | null;
 }
 
 /**

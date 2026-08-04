@@ -1,0 +1,157 @@
+// Schema de ai-service (base ai_db) — fuente: docs/phases/fase-14-29-asistente-ia.md.
+// Convenciones no negociables (ADR-00 §6): IDs uuid v4, multi-tenancy por fila
+// (organizacionId indexado en tablas de negocio), timestamps en modelos mutables.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Opt-in por organización (decisión 5). Una fila por organización, creada
+// perezosamente la primera vez que se consulta o se habilita: no hay evento de
+// alta que la cree, y una organización que nunca abre la pantalla no necesita
+// fila.
+//
+// NO es tenant-scoped por la extensión de Prisma: su clave es organizacionId y
+// se accede con findUnique/upsert, que la extensión no puede interceptar —
+// mismo caso que `ConfiguracionRecompensasGrupo` de rewards (fase-14-22). El
+// acceso lo valida el service leyendo el tenant del JWT.
+model ConfiguracionIaOrganizacion {
+  id             String  @id @default(uuid())
+  organizacionId String  @unique
+  habilitada     Boolean @default(false)
+
+  /// Cuándo y quién aceptó el aviso de qué datos salen hacia el proveedor.
+  /// Es el registro de consentimiento: se escribe al habilitar y NO se borra
+  /// al deshabilitar — un consentimiento dado es un hecho, no un estado
+  /// (mismo criterio que el ledger: lo escrito no se pisa).
+  aceptoAvisoEn           DateTime?
+  aceptoAvisoPorUsuarioId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum RolMensaje {
+  USUARIO
+  ASISTENTE
+  HERRAMIENTA
+  SISTEMA
+}
+
+enum EstadoPropuesta {
+  BORRADOR
+  APLICADA
+  APLICADA_PARCIAL
+  DESCARTADA
+  VENCIDA
+}
+
+enum TipoPropuesta {
+  CREAR_ACTIVIDADES
+  EDITAR_ACTIVIDADES
+  PRECIOS_TIENDA
+  RENDIMIENTOS_MONEDAS
+}
+
+model Conversacion {
+  id             String  @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  /// Quién la abrió. Una conversación es de su autor: otro Tutor del mismo
+  /// grupo NO la lee, y el endpoint responde 404 y no 403 (no se confirma la
+  /// existencia de algo que no le corresponde ver).
+  usuarioId      String
+  titulo         String
+  archivada      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mensajes   Mensaje[]
+  propuestas Propuesta[]
+
+  @@index([organizacionId, grupoId, usuarioId])
+}
+
+/// Ledger inmutable: se escribe y no se edita nunca (regla 6 del proyecto).
+/// Es también la fuente de verdad del consumo de tokens (decisión 8): la cuota
+/// se calcula sumando esta tabla, NO con un contador mutable — que sería
+/// justo el campo mutable que este proyecto no usa en ninguna parte, y acá
+/// además el que decide si se le cobra a la plataforma.
+model Mensaje {
+  id             String     @id @default(uuid())
+  conversacionId String
+  organizacionId String
+  rol            RolMensaje
+  contenido      String
+
+  /// Nombre de la herramienta y argumentos serializados, si rol = HERRAMIENTA.
+  herramienta String?
+
+  /// Contabilidad de la llamada que produjo este mensaje. 0 en los mensajes
+  /// del usuario. Se escribe SIEMPRE, incluso si la llamada al proveedor falló
+  /// a mitad: los tokens de entrada se pagan igual, y contabilizar solo los
+  /// éxitos deja un camino para consumir gratis cortando la conexión.
+  tokensEntrada Int @default(0)
+  tokensSalida  Int @default(0)
+
+  /// Costo estimado en millonésimas de dólar, con la tarifa vigente al momento
+  /// de la llamada. Es un snapshot: la tarifa de mañana no reescribe lo que
+  /// costó ayer (mismo criterio que `nombreSnapshot` del fase-14-28).
+  costoMicroUsd Int     @default(0)
+  modelo        String?
+
+  createdAt DateTime @default(now())
+
+  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+
+  @@index([conversacionId, createdAt])
+  /// El índice del que depende el cálculo de cuota (decisión 8).
+  @@index([organizacionId, createdAt])
+}
+
+/// Lo que el modelo quiere cambiar, antes de que exista (decisión 2). El
+/// modelo no tiene ninguna herramienta que escriba: propone acá, un humano lo
+/// ve, y aplicar lo hace el frontend con el JWT del Tutor contra los endpoints
+/// públicos que ya existen (decisión 6).
+model Propuesta {
+  id             String        @id @default(uuid())
+  conversacionId String
+  organizacionId String
+  grupoId        String
+  tipo           TipoPropuesta
+
+  /// Operaciones ya validadas contra el shape real del DTO destino
+  /// (decisión 11), con la forma EXACTA del request de ese endpoint: aplicar
+  /// es un `for` sobre el array, no una traducción. Cada una lleva su `opId`
+  /// para poder reportar por fila.
+  operaciones Json
+
+  /// Qué leyó el modelo para proponer esto (decisión 12): ids + updatedAt de
+  /// lo que va a tocar. Se revalida al aplicar.
+  snapshot Json
+
+  estado  EstadoPropuesta @default(BORRADOR)
+  /// 24 horas desde la creación. Una propuesta vencida se puede leer, no aplicar.
+  venceEn DateTime
+
+  aplicadaEn           DateTime?
+  aplicadaPorUsuarioId String?
+
+  /// Resultado por operación que reporta el frontend al terminar de aplicar
+  /// (decisión 13): [{ opId, ok, entidadId?, error? }]. Una operación que
+  /// falla no aborta el resto.
+  resultado Json?
+
+  createdAt DateTime @default(now())
+
+  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+
+  @@index([organizacionId, grupoId])
+}

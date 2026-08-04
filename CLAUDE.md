@@ -69,6 +69,7 @@ Este proyecto usa **la última versión estable de cada tecnología al momento d
 | `rewards-service` | 3006 |
 | `notification-service` | 3007 |
 | `audit-service` | 3008 |
+| `ai-service` (asistente de IA, fase-14-29) | 3009 |
 | `app-web` (`ng serve` / `nx serve`) | 4200 |
 | `admin-web` (panel PLATFORM_ADMIN, `nx serve`) | 4300 |
 | `public-site` (`astro dev`) | 4321 |

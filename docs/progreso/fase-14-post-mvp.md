@@ -1565,3 +1565,100 @@ cd apps/<servicio> && npx prisma migrate diff --from-config-datasource --to-sche
 
 1. **La vuelta manual en navegador** del ítem completo: cargar precios, completar desde el integrante y ver subir el saldo. Es lo que el #27 dejó pendiente y sigue siendo la verificación que más barato encuentra un problema de forma.
 2. Que **`MonedasPorAccion` no tiene consumidor todavía**: se publica y quedó documentado en el catálogo con Notification y Audit como consumidores previstos, pero **ninguno de los dos lo escucha** — exactamente la misma situación que `MonedasAcreditadas` dejó el #22 (verificado con `grep`: cero resultados en ambos `src/`). No es un bug de este ítem; es deuda heredada del #22 que este ítem repite.
+
+---
+
+## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1 y 2 EJECUTADAS (2026-08-04)
+
+> Spec: `docs/phases/fase-14-29-asistente-ia.md` (escrita en esta misma sesión, antes de tocar código). Índice: entrada #29 de `fase-14-post-mvp.md`.
+> **Estado: 2 de 7 tandas.** Las cinco restantes están enumeradas abajo con su punto de entrada exacto.
+
+### Origen (pedido de José, 2026-08-04)
+
+*«Quiero implementar IA a mi aplicación, que una cuenta de empresa pueda usar la IA dentro de la app, que pueda editar tareas, crear tareas y muchas cosas más. Primero el plan de implementación: qué haría la IA, qué debe hacer el dueño para usarla, y cómo implementarla de forma segura. Usaré la API de OpenAI: ¿debo usar API projects o API users?»*
+
+La respuesta a la pregunta técnica, que gobierna la Parte E de la spec: **projects**. Un project por entorno (`dorado-dev` / `dorado-staging` / `dorado-prod`), cada uno con su límite de gasto, y adentro un **service account** con su key. Nunca una key de usuario (muere con la persona y no se puede acotar) y **nunca un project por tenant** (no escala —habría que crear projects por API en cada alta— y el aislamiento entre organizaciones hay que hacerlo en el JWT igual). La atribución de costo por organización se mide en `ai_db` contando tokens, no en el dashboard de OpenAI. Hacia el proveedor van `safety_identifier` (SHA-256 de `organizacionId:usuarioId`) y `prompt_cache_key`, los dos parámetros que reemplazaron al viejo `user`.
+
+### Las cinco decisiones que José cerró antes de que se escribiera una línea
+
+1. **Los tokens los paga la plataforma**, con la IA como feature de PRO y cuota mensual por organización. Descartado BYOK (cada tenant con su key): exige almacén cifrado de secretos por tenant y sube muchísimo la fricción de alta.
+2. **La IA propone, el humano aplica.** El modelo no tiene ninguna herramienta que escriba.
+3. **Solo `ORG_ADMIN` y `TUTOR`.** El participante no habla con el asistente — eso deja el ítem #4 de la fase (menores) afuera por construcción y no por una regla que haya que mantener.
+4. **Cuatro capacidades**: armar catálogo, editar en lote, explicar/analizar el grupo, calibrar tienda.
+5. **Viene apagada** y la prende el `ORG_ADMIN` aceptando un aviso, con el consentimiento registrado con fecha y usuario.
+
+### La decisión estructural (es lo que hay que entender antes de tocar las tandas 3–7)
+
+**La IA no tiene manos.** `ai-service` no conoce ningún secreto que le permita mutar la base de otro servicio: sus clientes internos son todos `GET`, y **aplicar una propuesta lo hace el frontend con el JWT del Tutor contra los endpoints públicos que ya existen**. Cero superficie de escritura nueva, ninguna autorización nueva que auditar, y el peor caso de un prompt injection exitoso es una propuesta fea que un humano ve antes de aplicar.
+
+La segunda defensa es de la misma clase —estructural, no un chequeo—: **el tenant nunca es un argumento de una herramienta**. Ninguna herramienta de lectura declara `organizacionId` ni `grupoId`; los inyecta el servicio desde el JWT. El modelo no puede pedir datos de otro grupo porque no existe un parámetro donde escribirlos.
+
+Si en una tanda futura aparece la tentación de que `ai-service` escriba «para que sea más cómodo», parar y volver a la spec: eso no es una optimización, es el ítem entero.
+
+### Tanda 1 — billing (feature + cuota)
+
+- `Plan.asistenteIa` (`Boolean @default(false)`) y `Plan.cuotaTokensIaMensual` (`Int?`), migración **aditiva pura**.
+- `seed-planes.ts`: FREE → `false` / `0`; PRO → `true` / `2_000_000`. **El 2M es un punto de partida, no una conclusión** — es el número a revisar con el consumo real del piloto.
+- `EntitlementsDto` sumó `features.asistenteIa` y `limites.tokensIaMensuales`.
+- Verificado contra Postgres real: `FREE → f / 0`, `PRO → t / 2000000`, y `migrate diff` → *«No difference detected»*.
+
+**La trampa que deja anotada**: una columna nullable nueva deja las filas existentes en `NULL`, y en este modelo `NULL` significa **sin límite** — o sea lo contrario de lo seguro. No es un bug porque `asistenteIa` cae en `false` y la cuota no se consulta con la feature apagada. Pero fija una regla para las tandas 4 y siguientes: **el gate es `asistenteIa`, y la cuota nunca se lee sin haber pasado por ahí primero.**
+
+### Tanda 2 — andamio de `ai-service`
+
+Servicio NestJS nuevo, **puerto 3009**, prefijo `/api/ai`, base propia `ai_db`. Molde: `rewards-service`.
+
+- Schema con cuatro modelos: `ConfiguracionIaOrganizacion` (el opt-in), `Conversacion`, `Mensaje` (ledger inmutable, fuente de verdad del consumo) y `Propuesta`.
+- **El consumo se deriva sumando `Mensaje`, no de un contador mutable** (regla 1 del proyecto aplicada a los tokens). Un `tokensUsados` que se incrementa sería justo el campo mutable que este proyecto no usa en ninguna parte, y acá además el que decide si se le cobra a la plataforma.
+- `comun/excepciones.ts` **desde el día uno**, con los 7 `code` de la spec. Se escribió antes que cualquier endpoint a propósito: en rewards, que era el único servicio con codes de negocio sin ese archivo, la E2E del #26 descubrió que **ningún code llegaba al cliente** después de tener el servicio entero escrito del modo equivocado.
+- `configuracion/` completo: `GET`/`PUT /ai/configuracion`, con el `PUT` restringido a `ORG_ADMIN` (prender el asistente saca datos hacia un tercero: es decisión del dueño, no de cada Tutor).
+- `BillingClientService` con **fail-CLOSED**, al revés que el de activity (fase-04) y a propósito, documentado en el propio archivo: allá un billing caído omite un chequeo de límite y el costo es una actividad de más; acá el entitlement decide si se gasta dinero real contra un proveedor externo, así que la duda se resuelve **apagando**.
+- Fuera del servicio: `tabla-ruteo.ts` + `env.schema.ts` del Gateway, `apps/gateway/.env(.example)`, `.env.production.example`, `infra/docker/init-databases.sh` (`ai_db`), `CLAUDE.md` (puerto 3009) y `libs/shared-types/src/lib/ia.ts`.
+
+**Al terminar la tanda 2 el dueño puede prender el switch y no pasa nada.** Eso es el criterio, no un efecto colateral: la superficie de configuración existe y funciona antes de que exista una sola llamada al proveedor.
+
+### Los dos bugs que encontró la verificación, no la escritura
+
+1. **`?? 0` colapsaba «sin límite» a «sin cuota»** en `estadoDelPlan`. Lo agarró un test unitario, y es exactamente la trampa que la tanda 1 había dejado anotada media hora antes: `null` y `0` están a un carácter de distancia y significan lo opuesto.
+2. **El servicio no arrancaba con la API key vacía.** `@IsOptional()` de class-validator solo saltea `undefined` y `null`, no string vacío — y `.env.example` declara `OPENAI_API_KEY=`, así que **quien copiara el ejemplo tal cual se quedaba con un servicio que no levanta**, lo contrario del criterio entero de la tanda. **Tests, lint y build estaban los tres verdes**; lo destapó levantar el proceso de verdad. Es el **quinto caso del mismo modo de falla en la Fase 14** —tras `turnos-de-hoy` (#23 T1), el «✓ hizo» del Tutor (#23 T4), el ocultamiento por vigencia (#24) y el consumidor round-robin (#28)—: *la unidad verifica la pieza y lo que falla es el cable*. Resuelto con `@Transform(value === '' ? undefined : value)` y fijado con `env.schema.spec.ts` (6 tests).
+
+### Desviaciones registradas
+
+- **`EventoProcesado` no se creó.** El árbol que se le mostró a José antes de scaffoldear la incluía, pero la decisión 15 de la spec dice que este servicio no toca RabbitMQ: la tabla habría nacido muerta.
+- **`Mensaje` no está en `MODELOS_TENANT`** aunque lleve `organizacionId`: cuelga de una `Conversacion` que sí está filtrada, no tiene `grupoId`, y el cálculo de cuota necesita agregarlo por organización **fuera** de un contexto de grupo. El service manda `organizacionId` explícito en el `where` — mismo criterio que los services de monedas de rewards.
+- El generador `@nx/nest` **no acepta `--unitTestRunner=vitest`** (solo `jest|none`). Se generó con `none` y se agregaron a mano `vitest.config.mts`, `eslint.config.mjs`, los targets `prisma-generate`/`prisma-migrate` y los flags estrictos de `tsconfig.app.json`, copiados de `rewards-service`.
+- `prisma migrate dev` **no regeneró el cliente** (el seed de billing falló con `Unknown argument asistenteIa` hasta correr `prisma generate` a mano). Misma familia que la nota de flags del #28.
+
+### Verificación
+
+| Proyecto | Antes | Después |
+|---|---|---|
+| `ai-service` | — | **18/18** (nuevo: 12 de configuración + 6 de env) |
+| `billing-service` | 9/9 | **9/9** |
+| `gateway` | 36/36 | **36/36** |
+| El resto del workspace | — | sin cambios (activity 357, app-web 159, rewards 206, identity 48, session 74, scoring 63, notification 22, audit 24, shared-ui 24, shared-auth 20, e2e 17) |
+
+- **`lint` 19/19 proyectos** y **`build` 18/18** verdes.
+- **Dos migraciones aplicadas contra Postgres real** (`billing_db` y `ai_db`), las dos con `migrate diff` → *«No difference detected»*.
+- **Arranque real del proceso verificado**: `Nest application successfully started`, rutas `GET`/`PUT /ai/configuracion` mapeadas, **sin `OPENAI_API_KEY`**, y `401` sin JWT.
+- `admin-web:test` sigue fallando por no tener ningún `.spec.ts` — deuda declarada del #5, **verificada como preexistente**, no una regresión de este ítem.
+- **Sin E2E todavía**: es la tanda 7. Nada de lo hecho hasta acá pasó por el Gateway.
+
+### Cómo seguir: las cinco tandas que faltan
+
+Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de la spec).
+
+3. **Clientes internos de lectura + las 8 herramientas** (`listar_actividades`, `listar_conductas`, `listar_participantes`, `listar_umbrales_zona`, `resumen_puntajes`, `listar_recompensas`, `listar_rendimientos_monedas`, `resumen_cumplimiento`). Van en `src/clientes/` y `src/herramientas/`. **Los dos tests estructurales de esta tanda no son opcionales**: (a) ninguna definición de herramienta declara un parámetro que matchee `/organizacionId|grupoId|tenant/`; (b) ninguna ruta de ningún cliente interno usa un método distinto de `GET`. Son la forma ejecutable de las dos defensas estructurales del ítem.
+4. **El loop con OpenAI** (`src/proveedor/`). Primera tanda que **necesita la API key** en `apps/ai-service/.env`. Incluye: tope de 8 iteraciones, `max_output_tokens`, contabilidad en `Mensaje` dentro de un `try/finally` (se escribe aunque la llamada falle: los tokens de entrada se pagan igual), corte por cuota **antes** de llamar al proveedor, y `safety_identifier`/`prompt_cache_key`. Acá se cumple la regla que dejó la tanda 1: el gate es `asistenteIa`, y la cuota se lee después. **El modelo se elige acá**, no está anclado en la spec: se usa el vigente al momento de implementar (`OPENAI_MODEL`).
+5. **Herramientas de propuesta** (`proponer_crear_actividades`, `proponer_editar_actividades`, `proponer_precios_tienda`, `proponer_rendimientos_monedas`) con validación Zod contra los DTOs reales y `Propuesta` con vencimiento a 24 h. Una operación que no valida **no se guarda**: el error vuelve al modelo para que reintente. Las operaciones se persisten con **la forma exacta del request del endpoint destino**, para que aplicar sea un `for` y no una traducción.
+6. **Frontend**: pantalla `/asistente` en el grupo Ajustes del menú (#23 T3), chat con streaming, tarjeta de propuesta con diff, aplicar por operación con resultado por fila. La lógica del diff va en `core/propuesta-ia.ts`, testeable sin montar Angular (mismo criterio que `core/termometro.ts` del #27).
+7. **E2E** (`asistente-ia.e2e.ts`) con el proveedor **stubbeado**: se testea el ruteo, la validación, la cuota, el aislamiento entre tenants y el aplicado parcial — no que el modelo proponga cosas buenas, que no es determinista ni es lo que se rompe en un deploy. Los dos cables que necesitan E2E de navegador son **el SSE a través del proxy** y **el «Aplicar» del frontend**.
+
+### Qué debería verificar la próxima sesión antes de seguir
+
+1. **Levantar el stack completo y confirmar que el Gateway rutea `/api/ai`.** El proxy hacia `ai-service` está en la tabla pero **nunca se ejercitó a través del Gateway**: la tanda 2 verificó el servicio en su puerto directo (3009). Es justo el tipo de cable que este ítem ya vio fallar dos veces.
+2. **Que `ai_db` exista en el entorno donde se trabaje.** Se creó a mano con `CREATE DATABASE ai_db` en el contenedor que ya estaba corriendo, porque `infra/docker/init-databases.sh` **solo corre con el volumen vacío**. En una máquina limpia el script ya la incluye; en una con el volumen viejo, hay que crearla a mano.
+3. **La trampa de los puertos vale ahora para diez**, no nueve: 3000–3009. Antes de cualquier E2E, matar procesos `dist/` viejos (el #26 perdió una corrida entera de 6 minutos por esto y la falla no da ningún error al arrancar).
+4. **Que la cuota de 2M tokens/mes de PRO sigue siendo el número que se quiere.** Está en `seed-planes.ts` y todavía no lo validó ningún consumo real.
+5. **Que el `PUT /ai/configuracion` a través del Gateway responda 403 con un JWT de `TUTOR`** y 200 con uno de `ORG_ADMIN`. Está cubierto por unidad en el service, pero el guard de rol recién se ejerce de punta a punta con un token real.
+6. **Que `scripts/e2e-up.mjs` no levanta `ai-service`.** No se tocó en esta sesión: hay que sumarlo antes de la tanda 7, o la suite va a correr con el décimo servicio caído.

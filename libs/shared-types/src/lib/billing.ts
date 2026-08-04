@@ -13,6 +13,10 @@ export interface PlanDto {
   limiteActividadesPorGrupo: number | null;
   whiteLabel: boolean;
   reportesAvanzados: boolean;
+  /** fase-14-29: si el plan habilita el asistente de IA del área del Tutor. */
+  asistenteIa: boolean;
+  /** fase-14-29: techo mensual de tokens por organización. null = sin límite. */
+  cuotaTokensIaMensual: number | null;
 }
 
 export interface SuscripcionDto {
@@ -33,9 +37,18 @@ export interface EntitlementsDto {
     usuarios: number | null;
     grupos: number | null;
     actividadesPorGrupo: number | null;
+    /**
+     * fase-14-29: tokens de IA por mes y por organización. null = sin límite.
+     * A diferencia de los otros cuatro límites, este se consume contra un
+     * recurso que paga la plataforma, así que `ai-service` lo corta ANTES de
+     * llamar al proveedor, no después.
+     */
+    tokensIaMensuales: number | null;
   };
   features: {
     whiteLabel: boolean;
     reportesAvanzados: boolean;
+    /** fase-14-29: el asistente de IA del área del Tutor. */
+    asistenteIa: boolean;
   };
 }

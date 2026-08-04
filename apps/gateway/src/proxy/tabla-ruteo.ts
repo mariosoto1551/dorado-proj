@@ -26,6 +26,8 @@ const SCORING: ServicioInterno = { nombre: 'scoring', envVar: 'SCORING_INTERNAL_
 const REWARDS: ServicioInterno = { nombre: 'rewards', envVar: 'REWARDS_INTERNAL_URL' };
 const NOTIFICATION: ServicioInterno = { nombre: 'notification', envVar: 'NOTIFICATION_INTERNAL_URL' };
 const AUDIT: ServicioInterno = { nombre: 'audit', envVar: 'AUDIT_INTERNAL_URL' };
+// fase-14-29: asistente de IA del área del Tutor. Décimo servicio del stack.
+const AI: ServicioInterno = { nombre: 'ai', envVar: 'AI_INTERNAL_URL' };
 
 /** Servicios únicos (identity atiende dos prefijos) — para GET /api/health. */
 export const SERVICIOS_INTERNOS: readonly ServicioInterno[] = [
@@ -37,6 +39,7 @@ export const SERVICIOS_INTERNOS: readonly ServicioInterno[] = [
   REWARDS,
   NOTIFICATION,
   AUDIT,
+  AI,
 ];
 
 export const TABLA_RUTEO: readonly RutaProxy[] = [
@@ -51,4 +54,5 @@ export const TABLA_RUTEO: readonly RutaProxy[] = [
   { prefijo: '/api/rewards', servicio: REWARDS },
   { prefijo: '/api/notification', servicio: NOTIFICATION },
   { prefijo: '/api/audit', servicio: AUDIT },
+  { prefijo: '/api/ai', servicio: AI },
 ];

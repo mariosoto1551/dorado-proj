@@ -18,6 +18,8 @@ const PLAN_FREE: Plan = {
   limiteActividadesPorGrupo: 15,
   whiteLabel: false,
   reportesAvanzados: false,
+  asistenteIa: false,
+  cuotaTokensIaMensual: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 } as Plan;
@@ -33,6 +35,8 @@ const PLAN_PRO: Plan = {
   limiteActividadesPorGrupo: null,
   whiteLabel: true,
   reportesAvanzados: true,
+  asistenteIa: true,
+  cuotaTokensIaMensual: 2_000_000,
 } as Plan;
 
 function envelopeDePrueba(
@@ -173,8 +177,14 @@ describe('SuscripcionesService — resolución de plan y entitlements (spec fase
     await expect(servicio.planDeOrganizacion('org-1')).resolves.toEqual({ codigo: 'PRO' });
     await expect(servicio.entitlementsDeOrganizacion('org-1')).resolves.toEqual({
       plan: 'PRO',
-      limites: { tutores: null, usuarios: null, grupos: null, actividadesPorGrupo: null },
-      features: { whiteLabel: true, reportesAvanzados: true },
+      limites: {
+        tutores: null,
+        usuarios: null,
+        grupos: null,
+        actividadesPorGrupo: null,
+        tokensIaMensuales: 2_000_000,
+      },
+      features: { whiteLabel: true, reportesAvanzados: true, asistenteIa: true },
     });
   });
 
@@ -184,8 +194,16 @@ describe('SuscripcionesService — resolución de plan y entitlements (spec fase
 
     await expect(servicio.entitlementsDeOrganizacion('org-nueva')).resolves.toEqual({
       plan: 'FREE',
-      limites: { tutores: 2, usuarios: 5, grupos: 1, actividadesPorGrupo: 15 },
-      features: { whiteLabel: false, reportesAvanzados: false },
+      limites: {
+        tutores: 2,
+        usuarios: 5,
+        grupos: 1,
+        actividadesPorGrupo: 15,
+        // fase-14-29: 0 y no null. null significa "sin límite", que es lo
+        // contrario de lo que FREE tiene que decir.
+        tokensIaMensuales: 0,
+      },
+      features: { whiteLabel: false, reportesAvanzados: false, asistenteIa: false },
     });
   });
 });
@@ -231,6 +249,8 @@ describe('SuscripcionesService — GET /billing/mi-organizacion', () => {
         limiteActividadesPorGrupo: 15,
         whiteLabel: false,
         reportesAvanzados: false,
+        asistenteIa: false,
+        cuotaTokensIaMensual: 0,
       },
     });
   });

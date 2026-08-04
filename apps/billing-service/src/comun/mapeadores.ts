@@ -18,6 +18,8 @@ export function planADto(plan: Plan): PlanDto {
     limiteActividadesPorGrupo: plan.limiteActividadesPorGrupo,
     whiteLabel: plan.whiteLabel,
     reportesAvanzados: plan.reportesAvanzados,
+    asistenteIa: plan.asistenteIa,
+    cuotaTokensIaMensual: plan.cuotaTokensIaMensual,
   };
 }
 
@@ -40,10 +42,12 @@ export function entitlementsDePlan(plan: Plan): EntitlementsDto {
       usuarios: plan.limiteUsuarios,
       grupos: plan.limiteGrupos,
       actividadesPorGrupo: plan.limiteActividadesPorGrupo,
+      tokensIaMensuales: plan.cuotaTokensIaMensual,
     },
     features: {
       whiteLabel: plan.whiteLabel,
       reportesAvanzados: plan.reportesAvanzados,
+      asistenteIa: plan.asistenteIa,
     },
   };
 }
