@@ -18,6 +18,7 @@ import { BilleterasComponent } from './recompensas/billeteras.component';
 import { BolsasComponent } from './recompensas/bolsas.component';
 import { CatalogoItemsComponent } from './recompensas/catalogo-items.component';
 import { ProductosComponent } from './recompensas/productos.component';
+import { RendimientosAccionesComponent } from './recompensas/rendimientos-acciones.component';
 import { RendimientosComponent } from './recompensas/rendimientos.component';
 
 type Pestana = 'CATALOGO' | 'RENDIMIENTO' | 'BOLSAS' | 'TIENDA' | 'BILLETERAS';
@@ -41,6 +42,7 @@ type Pestana = 'CATALOGO' | 'RENDIMIENTO' | 'BOLSAS' | 'TIENDA' | 'BILLETERAS';
     IconoComponent,
     CatalogoItemsComponent,
     RendimientosComponent,
+    RendimientosAccionesComponent,
     BolsasComponent,
     ProductosComponent,
     BilleterasComponent,
@@ -104,7 +106,41 @@ type Pestana = 'CATALOGO' | 'RENDIMIENTO' | 'BOLSAS' | 'TIENDA' | 'BILLETERAS';
               <app-catalogo-items [grupoId]="grupoId()" [modo]="c.modo" />
             }
             @case ('RENDIMIENTO') {
-              <app-rendimientos-zona [grupoId]="grupoId()" />
+              <!-- fase-14-28: las DOS fuentes de la economía, una al lado de la
+                   otra. Por zona paga al cerrar la semana; por actividad paga
+                   al instante. Calibrarlas por separado es lo que lleva a
+                   devaluar la tienda sin darse cuenta. -->
+              <div
+                class="mb-4 flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/60"
+                role="tablist"
+                aria-label="Fuentes del rendimiento"
+              >
+                @for (f of FUENTES; track f.clave) {
+                  <button
+                    type="button"
+                    role="tab"
+                    [attr.aria-selected]="fuente() === f.clave"
+                    (click)="fuente.set(f.clave)"
+                    class="flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition"
+                    [class]="
+                      fuente() === f.clave
+                        ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                    "
+                  >
+                    {{ f.etiqueta }}
+                  </button>
+                }
+              </div>
+
+              @if (fuente() === 'ZONA') {
+                <app-rendimientos-zona [grupoId]="grupoId()" />
+              } @else {
+                <app-rendimientos-acciones
+                  [grupoId]="grupoId()"
+                  [icono]="c.iconoMoneda"
+                />
+              }
             }
             @case ('BOLSAS') {
               <app-bolsas [grupoId]="grupoId()" />
@@ -131,6 +167,14 @@ export class RecompensasPage {
   protected readonly config = signal<ConfiguracionRecompensasGrupoDto | null>(null);
 
   protected readonly pestana = signal<Pestana>('CATALOGO');
+
+  /** fase-14-28: las dos fuentes dentro de la pestaña «Rendimiento». */
+  protected readonly fuente = signal<'ZONA' | 'ACCION'>('ZONA');
+
+  protected readonly FUENTES = [
+    { clave: 'ZONA' as const, etiqueta: 'Por zona' },
+    { clave: 'ACCION' as const, etiqueta: 'Por actividad' },
+  ];
 
   protected readonly pestanas = computed<{ clave: Pestana; etiqueta: string }[]>(() => {
     const base: { clave: Pestana; etiqueta: string }[] = [

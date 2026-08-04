@@ -191,6 +191,8 @@ services:
         sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
       - key: SCORING_INTERNAL_URL
         sync: false # URL interna: http://<servicio>:<puerto> (ver runbook)
+      - key: ACTIVITY_INTERNAL_URL
+        sync: false # fase-14-28: catálogo rendible (rendimientos por acción)
       - key: LOG_LEVEL
         value: info
 

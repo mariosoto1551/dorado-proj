@@ -15,6 +15,7 @@ por sección, entrega. Base propia `rewards_db`.
 | `JWT_PUBLIC_KEY` | no | Clave pública RS256 (base64). |
 | `IDENTITY_INTERNAL_URL` | no | REST interno a identity (usuarios/nombres). |
 | `SCORING_INTERNAL_URL` | no | REST interno a scoring (resultado de sección). |
+| `ACTIVITY_INTERNAL_URL` | no | REST interno a activity (catálogo rendible, fase-14-28). |
 | `LOG_LEVEL` | no | Nivel de log pino. |
 
 ## Build / start / migraciones

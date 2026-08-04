@@ -688,3 +688,38 @@ export interface TurnoDeHoyDelGrupoDto {
   frecuencia: FrecuenciaTurno;
   asignacion: AsignacionTurnoDto | null;
 }
+
+/**
+ * Una fila del catálogo que PUEDE rendir monedas (fase-14-28 D.3): lo que
+ * devuelve el interno `GET /internal/activity/grupos/:grupoId/catalogo-rendible`
+ * y lo que alimenta la pantalla de rendimientos por acción de rewards.
+ *
+ * Vive en activity y no en rewards porque el dato es de activity — rewards solo
+ * lo referencia por ID (regla 2). Trae los campos que la pantalla necesita para
+ * avisar sin una segunda llamada: si una obligatoria `ASUME_HECHA` nunca puede
+ * pagar (decisión 15) y si corresponde el bono del jefe (decisión 8).
+ */
+export interface AccionRendibleDto {
+  id: string;
+  nombre: string;
+  valorPuntos: number;
+  /** null en una conducta: el tipo de puntaje es propio de las actividades. */
+  tipoPuntaje: TipoPuntaje | null;
+  alcance: AlcanceActividad | null;
+  comportamientoAlCierre: ComportamientoAlCierre | null;
+  /** Para poder mostrar el bono en monedas al lado del bono en puntos. */
+  bonoJefePuntos: number | null;
+  /**
+   * Cada repetición paga (decisión 16), así que el techo de una actividad es
+   * `monedas × repeticiones`. Es lo que hace calculable el aviso de calibración
+   * de la Parte F. `null` en una conducta: no tiene tope por sesión.
+   */
+  repeticionesMaximasSesion: number | null;
+}
+
+/** Catálogo rendible del Grupo, partido por lo que discrimina el rendimiento. */
+export interface CatalogoRendibleDto {
+  actividades: AccionRendibleDto[];
+  /** Solo conductas BUENA: una MALA no tiene nada que configurar (decisión 17). */
+  conductas: AccionRendibleDto[];
+}

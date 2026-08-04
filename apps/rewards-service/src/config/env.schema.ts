@@ -61,6 +61,13 @@ export class EnvSchema {
   })
   SCORING_INTERNAL_URL!: string;
 
+  // REST interno (ADR-00 §4), fase-14-28 D.3: catálogo rendible del Grupo, para
+  // listar y validar los rendimientos por acción.
+  @Matches(/^https?:\/\/.+/, {
+    message: 'ACTIVITY_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  ACTIVITY_INTERNAL_URL!: string;
+
   @IsOptional()
   @IsString()
   LOG_LEVEL?: string;

@@ -306,28 +306,31 @@ export class RegistroService {
       return fila;
     });
 
-    // fase-14-20: la condición es el SNAPSHOT, no "si es una confirmación". Una
-    // confirmación que vale 0 sigue sin publicar nada —vive solo en activity y
-    // la lee el consumidor de cierre para saltear el castigo (fase-14-08 Parte
-    // B)—, pero una que vale puntos es un asiento del ledger como cualquier otro.
-    if (registro.valorPuntosSnapshot !== 0) {
-      await this.eventos.publicar({
-        eventType: 'ActividadCompletada',
-        routingKey: ROUTING_KEYS.ACTIVIDAD_COMPLETADA,
-        organizacionId: tenant.organizacionId,
-        grupoId: actividad.grupoId,
-        payload: {
-          registroId: registro.id,
-          usuarioId,
-          actividadId,
-          sesionId: sesion.sesionId,
-          seccionId: sesion.seccionId,
-          valorPuntosSnapshot: registro.valorPuntosSnapshot,
-          registradoPorId: tenant.principalId,
-          registradoPorTipo: tenant.principalType,
-        },
-      });
-    }
+    // fase-14-28 (D.1): SIEMPRE se publica, valga 0 puntos o 100. El fase-14-20
+    // había puesto acá un guard por `valorPuntosSnapshot !== 0` porque el único
+    // consumidor era scoring y un asiento de 0 no aporta nada al ledger. Ahora
+    // rewards también escucha, y una actividad de 0 puntos + N monedas es una
+    // configuración válida y explícita (decisión 1): con el guard, esa actividad
+    // no le llegaría nunca. El evento pasa a significar «esto pasó», no «esto
+    // valió puntos» — que es lo correcto para un fan-out por topic exchange: el
+    // productor no decide quién necesita enterarse. El descarte del 0 vive ahora
+    // en scoring (`ProyeccionService.proyectarRegistro`), que es quien lo usa.
+    await this.eventos.publicar({
+      eventType: 'ActividadCompletada',
+      routingKey: ROUTING_KEYS.ACTIVIDAD_COMPLETADA,
+      organizacionId: tenant.organizacionId,
+      grupoId: actividad.grupoId,
+      payload: {
+        registroId: registro.id,
+        usuarioId,
+        actividadId,
+        sesionId: sesion.sesionId,
+        seccionId: sesion.seccionId,
+        valorPuntosSnapshot: registro.valorPuntosSnapshot,
+        registradoPorId: tenant.principalId,
+        registradoPorTipo: tenant.principalType,
+      },
+    });
 
     // fase-14-17: una actividad completada NO puede desaparecer de la lista —
     // tiene que quedar en el tramo "Ya está". Va después del commit y no lanza:
@@ -626,11 +629,11 @@ export class RegistroService {
         },
       });
 
+      // fase-14-28 (D.1): sin guard por snapshot — la confirmación que se da de
+      // baja pudo haber pagado monedas aunque valiera 0 puntos, y rewards tiene
+      // que poder revertirlas. El snapshot viaja en el payload para que scoring
+      // sepa si hay asiento que compensar (ver `ActividadRegistroEliminado`).
       for (const confirmacion of confirmaciones) {
-        if (confirmacion.valorPuntosSnapshot === 0) {
-          continue;
-        }
-
         await this.eventos.publicar<ActividadRegistroEliminadoPayload>({
           eventType: 'ActividadRegistroEliminado',
           routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
@@ -640,6 +643,7 @@ export class RegistroService {
             registroId: confirmacion.id,
             usuarioId: confirmacion.usuarioId,
             eliminadoPorTutorId: tenant.principalId,
+            valorPuntosSnapshot: confirmacion.valorPuntosSnapshot,
           },
         });
       }
@@ -760,22 +764,22 @@ export class RegistroService {
       data: cambios,
     });
 
-    // Una confirmación vale 0 pts y no tiene asiento en el ledger: nada que
-    // compensar (mismo criterio que `eliminarRegistroActividad`).
-    if (registro.valorPuntosSnapshot !== 0) {
-      await this.eventos.publicar<ActividadRegistroRevertidoPayload>({
-        eventType: 'ActividadRegistroRevertido',
-        routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_REVERTIDO,
-        organizacionId: registro.organizacionId,
-        grupoId: registro.grupoId,
-        payload: {
-          registroId,
-          usuarioId: registro.usuarioId,
-          revertidoPorTutorId: tenant.principalId,
-          tipoRegistro: registro.tipo,
-        },
-      });
-    }
+    // fase-14-28 (D.1): siempre. Ver el comentario largo en `completar` — una
+    // confirmación de 0 puntos puede haber pagado monedas, y restituirlas es
+    // justamente lo que rewards escucha acá (decisión 7 de fase-14-28).
+    await this.eventos.publicar<ActividadRegistroRevertidoPayload>({
+      eventType: 'ActividadRegistroRevertido',
+      routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_REVERTIDO,
+      organizacionId: registro.organizacionId,
+      grupoId: registro.grupoId,
+      payload: {
+        registroId,
+        usuarioId: registro.usuarioId,
+        revertidoPorTutorId: tenant.principalId,
+        tipoRegistro: registro.tipo,
+        valorPuntosSnapshot: registro.valorPuntosSnapshot,
+      },
+    });
 
     return registroActividadADto({ ...registro, ...cambios });
   }
@@ -891,19 +895,19 @@ export class RegistroService {
       data: cambios,
     });
 
-    if (registro.valorPuntosSnapshot !== 0) {
-      await this.eventos.publicar<ActividadRegistroEliminadoPayload>({
-        eventType: 'ActividadRegistroEliminado',
-        routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
-        organizacionId: registro.organizacionId,
-        grupoId: registro.grupoId,
-        payload: {
-          registroId,
-          usuarioId: registro.usuarioId,
-          eliminadoPorTutorId: tenant.principalId,
-        },
-      });
-    }
+    // fase-14-28 (D.1): siempre. Ver el comentario largo en `completar`.
+    await this.eventos.publicar<ActividadRegistroEliminadoPayload>({
+      eventType: 'ActividadRegistroEliminado',
+      routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_ELIMINADO,
+      organizacionId: registro.organizacionId,
+      grupoId: registro.grupoId,
+      payload: {
+        registroId,
+        usuarioId: registro.usuarioId,
+        eliminadoPorTutorId: tenant.principalId,
+        valorPuntosSnapshot: registro.valorPuntosSnapshot,
+      },
+    });
 
     return registroActividadADto({ ...registro, ...cambios });
   }

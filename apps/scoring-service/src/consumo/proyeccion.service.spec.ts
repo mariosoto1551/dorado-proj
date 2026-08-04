@@ -308,6 +308,110 @@ describe('ProyeccionService — marcas rojas del tutor (fase-14-12)', () => {
   });
 });
 
+/**
+ * El guard que se mudó de activity a scoring (fase-14-28 D.2). El invariante es
+ * explícito y estos tests son los que lo sostienen: **el contenido de
+ * `EventoPuntos` no cambia ni una fila** respecto de antes del ítem, aunque
+ * activity ahora publique eventos que antes se guardaba.
+ */
+describe('ProyeccionService — el descarte del 0 (fase-14-28 D.2)', () => {
+  it('una ActividadCompletada de 0 puntos NO escribe asiento, pero queda procesada', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await servicio.procesarActividadCompletada(
+      envelopeDePrueba({ ...PAYLOAD_COMPLETADA, valorPuntosSnapshot: 0 })
+    );
+
+    // Sin fila: un asiento de 0 no mueve ningún puntaje y ensucia el ledger.
+    expect(bd.eventosPuntos).toHaveLength(0);
+    // Pero marcado: si no, cada reentrega volvería a evaluarlo para siempre.
+    expect(bd.procesados).toHaveLength(1);
+  });
+
+  it('la reentrega de un evento de 0 puntos tampoco escribe nada', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+    const envelope = envelopeDePrueba({ ...PAYLOAD_COMPLETADA, valorPuntosSnapshot: 0 });
+
+    await servicio.procesarActividadCompletada(envelope);
+    await servicio.procesarActividadCompletada(envelope);
+
+    expect(bd.eventosPuntos).toHaveLength(0);
+    expect(bd.procesados).toHaveLength(1);
+  });
+
+  it('quitar un registro que valía 0 no compensa nada y NO va a la DLQ', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await servicio.procesarActividadRegistroEliminado(
+      envelopeDePrueba(
+        {
+          registroId: 'registro-1',
+          usuarioId: 'usuario-1',
+          eliminadoPorTutorId: 'tutor-1',
+          valorPuntosSnapshot: 0,
+        },
+        { eventType: 'ActividadRegistroEliminado' }
+      )
+    );
+
+    expect(bd.eventosPuntos).toHaveLength(0);
+    expect(bd.procesados).toHaveLength(1);
+  });
+
+  it('restituir un registro que valía 0 tampoco compensa nada', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await servicio.procesarActividadRegistroRevertido(
+      envelopeDePrueba(
+        {
+          registroId: 'registro-1',
+          usuarioId: 'usuario-1',
+          revertidoPorTutorId: 'tutor-1',
+          tipoRegistro: 'COMPLETADA' as const,
+          valorPuntosSnapshot: 0,
+        },
+        { eventType: 'ActividadRegistroRevertido' }
+      )
+    );
+
+    expect(bd.eventosPuntos).toHaveLength(0);
+    expect(bd.procesados).toHaveLength(1);
+  });
+
+  it('SIN el snapshot en el payload sigue lanzando: la ausencia de asiento no se interpreta sola', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    // Este es el punto de la decisión: "no encontré el original" es AMBIGUO —
+    // puede ser un registro de 0 o un evento llegado desordenado. Solo el
+    // snapshot explícito distingue; sin él se falla ruidosamente, como siempre.
+    await expect(
+      servicio.procesarActividadRegistroEliminado(
+        envelopeDePrueba(
+          { registroId: 'registro-1', usuarioId: 'usuario-1', eliminadoPorTutorId: 'tutor-1' },
+          { eventType: 'ActividadRegistroEliminado' }
+        )
+      )
+    ).rejects.toThrow(/compensar/);
+  });
+
+  it('un snapshot distinto de 0 se proyecta igual que siempre (el invariante)', async () => {
+    const bd = crearBdEnMemoria();
+    const servicio = new ProyeccionService(bd.prisma);
+
+    await servicio.procesarActividadCompletada(
+      envelopeDePrueba({ ...PAYLOAD_COMPLETADA, valorPuntosSnapshot: 2 })
+    );
+
+    expect(bd.eventosPuntos).toHaveLength(1);
+    expect(bd.eventosPuntos[0]).toMatchObject({ puntosSnapshot: 2 });
+  });
+});
+
 describe('ProyeccionService — anular una tarea de equipo (fase-14-13)', () => {
   /**
    * El reparto tal como lo deja `procesarTareaEquipoCompletada`: N asientos con

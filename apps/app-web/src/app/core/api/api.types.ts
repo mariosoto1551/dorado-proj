@@ -15,6 +15,7 @@ import type {
   SeccionDto,
   SesionDto,
   TipoConducta,
+  TipoAccionRendimiento,
   TipoInvitado,
   TipoLimiteTiempo,
   TipoPuntaje,
@@ -189,6 +190,16 @@ export interface CambiarModoRecompensasRequest {
 
 export interface ConfigurarRendimientosRequest {
   rendimientos: { umbralZonaId: string; monedas: number }[];
+}
+
+/** fase-14-28: cuánto paga cada acción del catálogo. Un solo `PUT` con todo. */
+export interface ConfigurarRendimientosAccionesRequest {
+  rendimientos: {
+    tipoAccion: TipoAccionRendimiento;
+    origenId: string;
+    monedas: number;
+    monedasBonoJefe?: number;
+  }[];
 }
 
 export interface GuardarBolsaRequest {

@@ -113,6 +113,7 @@ services:
       DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/rewards_db
       IDENTITY_INTERNAL_URL: http://identity-service:3001
       SCORING_INTERNAL_URL: http://scoring-service:3005
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }

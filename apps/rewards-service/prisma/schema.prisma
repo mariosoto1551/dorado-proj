@@ -222,6 +222,55 @@ model CastigoAsignado {
   @@index([grupoId, estado])
 }
 
+/** Qué clase de registro de activity_db paga monedas (fase-14-28 decisión 11). */
+enum TipoAccionRendimiento {
+  ACTIVIDAD
+  CONDUCTA
+}
+
+/**
+ * Cuántas monedas paga completar una Actividad o registrar una Conducta BUENA
+ * (fase-14-28, decisiones 2 y 3). Es el hermano de `RendimientoZona` para la
+ * segunda fuente de la economía, y vive acá por el mismo motivo: activity es un
+ * motor de registro y no tiene por qué saber que existe una economía (decisión
+ * 11 de fase-14-22 aplicada igual). Referencia a activity_db solo por ID
+ * (regla 2), validada por REST interno.
+ *
+ * Se llama `Accion` y no `Item` porque en este servicio "ítem del catálogo" ya
+ * significa `Recompensa`, y no `RendimientoActividad` porque también cubre
+ * conductas (decisión 12).
+ *
+ * UNA sola tabla con discriminador y no una por origen (decisión 11): la forma
+ * es idéntica —un número por ítem del catálogo— y el precedente es
+ * `NotaRegistro` de fase-14-18, que resuelve tres orígenes igual y valida la
+ * integridad en el endpoint porque una FK polimórfica no se expresa en Prisma.
+ *
+ * Es CONFIG mutable, no ledger: se pisa con upsert, igual que `RendimientoZona`.
+ */
+model RendimientoAccion {
+  id             String                @id @default(uuid())
+  organizacionId String
+  grupoId        String
+  tipoAccion     TipoAccionRendimiento
+  /// actividadId o conductaId según tipoAccion. Sin FK: otra base.
+  origenId       String
+  /// Copiado al escribir, para que el ledger y el historial puedan contar la
+  /// historia aunque la actividad se archive o se renombre después.
+  nombreSnapshot String
+  /// Siempre >= 0 (decisión 4): lo que se hace nunca debita. El único camino al
+  /// saldo negativo sigue siendo la bancarrota del cierre (fase-14-22).
+  monedas         Int
+  /// Solo con tipoAccion = ACTIVIDAD y alcance = EQUIPO (decisión 8). Se fuerza
+  /// a 0 fuera de ese caso, mismo criterio que `puntosPorCumplir` de fase-14-20.
+  monedasBonoJefe Int                  @default(0)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@unique([tipoAccion, origenId])
+  @@index([organizacionId])
+  @@index([grupoId])
+}
+
 // fase-14-22: tipos de movimiento del ledger de monedas.
 enum TipoMovimientoMoneda {
   // Acreditación al cerrar la Sección (monto >= 0).
@@ -236,6 +285,13 @@ enum TipoMovimientoMoneda {
   AJUSTE_TUTOR
   // Compensación de una compra revertida.
   REVERSION
+  // fase-14-28: pagó completar una actividad o registrar una conducta BUENA.
+  // Siempre positivo. `origenId` = el registro de activity_db que lo originó.
+  RENDIMIENTO_ACCION
+  // fase-14-28: el Tutor quitó (monto < 0, con piso en 0) o deshizo su quita
+  // (monto > 0). UN solo valor con signo — decisión 13: es el mismo hecho con
+  // signo opuesto, igual que `TareaEquipoMarcaPayload` de fase-14-13.
+  REVERSION_ACCION
 }
 
 /**

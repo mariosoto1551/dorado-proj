@@ -1,3 +1,9 @@
+import type {
+  AlcanceActividad,
+  ComportamientoAlCierre,
+  TipoPuntaje,
+} from './activity';
+
 export enum MecanicaRecompensa {
   SELECCION = 'SELECCION',
   AZAR = 'AZAR',
@@ -35,6 +41,10 @@ export enum TipoMovimientoMoneda {
   COMPRA = 'COMPRA',
   AJUSTE_TUTOR = 'AJUSTE_TUTOR',
   REVERSION = 'REVERSION',
+  /** fase-14-28: pagó una actividad o una conducta BUENA. Siempre positivo. */
+  RENDIMIENTO_ACCION = 'RENDIMIENTO_ACCION',
+  /** fase-14-28: el Tutor quitó (negativo) o deshizo su quita (positivo). */
+  REVERSION_ACCION = 'REVERSION_ACCION',
 }
 
 export interface MovimientoMonedaDto {
@@ -164,6 +174,80 @@ export interface RendimientoZonaDto {
   colorHex: string;
   /** Puede ser negativo: dispara la bancarrota. `null` = sin configurar (0). */
   monedas: number | null;
+}
+
+/** Qué clase de registro paga monedas (fase-14-28 decisión 11). */
+export enum TipoAccionRendimiento {
+  ACTIVIDAD = 'ACTIVIDAD',
+  CONDUCTA = 'CONDUCTA',
+}
+
+/**
+ * Una fila de la pantalla «Por actividad» (fase-14-28 Parte C). Sale del
+ * catálogo COMPLETO del Grupo, no de las filas guardadas: una actividad sin
+ * rendimiento cargado tiene que aparecer igual (`monedas: 0`), porque si no el
+ * Tutor no tiene dónde cargarla — mismo criterio que `RendimientoZonaDto`.
+ */
+export interface RendimientoAccionDto {
+  tipoAccion: TipoAccionRendimiento;
+  /** actividadId o conductaId según `tipoAccion`. */
+  origenId: string;
+  nombre: string;
+  /** Solo lectura acá: se edita en la pantalla del catálogo (decisión 1). */
+  valorPuntos: number;
+  tipoPuntaje: TipoPuntaje | null;
+  alcance: AlcanceActividad | null;
+  comportamientoAlCierre: ComportamientoAlCierre | null;
+  /** El bono en puntos del jefe, para mostrarlo al lado del bono en monedas. */
+  bonoJefePuntos: number | null;
+  /** Cada repetición paga (decisión 16): es el multiplicador del aviso. */
+  repeticionesMaximasSesion: number | null;
+  monedas: number;
+  monedasBonoJefe: number;
+  /**
+   * Decisión 15 resuelta en el backend y no en la plantilla: una obligatoria
+   * `ASUME_HECHA` nunca genera un registro positivo, así que nunca puede pagar.
+   */
+  puedeRendir: boolean;
+  /** Por qué no rinde, escrito para mostrar tal cual. `null` si rinde. */
+  motivoNoRinde: string | null;
+}
+
+/** Respuesta del `GET`/`PUT` de rendimientos por acción: el catálogo entero. */
+export interface RendimientosAccionesDto {
+  actividades: RendimientoAccionDto[];
+  conductas: RendimientoAccionDto[];
+}
+
+export interface ConfigurarRendimientosAccionesRequest {
+  rendimientos: Array<{
+    tipoAccion: TipoAccionRendimiento;
+    origenId: string;
+    monedas: number;
+    /** Se fuerza a 0 fuera de una actividad de alcance EQUIPO (decisión 8). */
+    monedasBonoJefe?: number;
+  }>;
+}
+
+export type ConfigurarRendimientosAccionesResponse = RendimientosAccionesDto;
+
+/**
+ * Lo que el PARTICIPANTE ve antes de completar (fase-14-28 Parte F): «+10 pts ·
+ * +3 🪙» en su lista de actividades. Si no ve el precio antes de hacerla, la
+ * moneda no motiva nada — que es el punto entero del ítem de su lado.
+ *
+ * Es deliberadamente el mínimo: sin nombre, sin puntos, sin motivos. Todo eso
+ * ya lo trae `mi-estado-hoy` de activity, y el cruce lo hace la pantalla por
+ * `origenId` — activity no tiene por qué saber que existe una economía
+ * (decisión 2). En modo `DIRECTO` la lista viene vacía, así que «no se muestra
+ * en DIRECTO» cae por construcción y no como un `if` más en la plantilla.
+ */
+export interface ValorEnMonedasDto {
+  /** actividadId. */
+  origenId: string;
+  monedas: number;
+  /** Lo que cobra de más el jefe en una tarea de equipo; 0 si no aplica. */
+  monedasBonoJefe: number;
 }
 
 /**

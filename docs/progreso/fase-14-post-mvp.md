@@ -1423,3 +1423,145 @@ Se armó además una **réplica estática** del componente con la geometría exa
 2. **Probarlo en un teléfono de verdad**, no en el emulador angosto del navegador. Todo el diseño se eligió para que funcione sin hover; eso solo se confirma en el dispositivo.
 3. **Preguntarle a la mamá de José si es el termómetro que tenía en la cabeza.** El ítem nace de un pedido de ella y quedó verificado solo contra criterios técnicos.
 4. **La lista sigue siendo la vista por default.** Si se confirma que el termómetro es el que se usa, hay una decisión chica pendiente: cambiar el default o dejar que lo decida la preferencia guardada de cada uno (hoy es lo segundo).
+
+## Ítem 28: Monedas por cumplir (la segunda fuente de la economía)
+
+- **Estado**: EJECUTADO_CON_DESVIACIONES — backend, frontend, migración aplicada contra Postgres real y suite E2E propia verde.
+- **Fecha**: especificado 2026-08-03, ejecutado 2026-08-04 / **Spec**: `docs/phases/fase-14-28-monedas-por-cumplir.md`
+
+### Origen (pedido de José, 2026-08-03)
+
+*«Quisiera que la aplicación también pueda tener la opción de monedas por cumplir actividades — que en caso de estar configurado por tienda, el tutor pueda crear o modificar actividades para que además de puntos den monedas; flexible, tal que no haya dependencias entre sí.»*
+
+Misma sesión que el #27 y el mismo camino que el #24/#25: José mirando la app y notando lo que el sistema no deja decir. El #22 montó una economía cuyo **único ingreso es semanal y depende de la zona** — tender la cama diez veces y tenderla cuatro pueden caer en la misma zona y rendir lo mismo.
+
+### Lo que se decidió (resumen; el detalle y el porqué están en la spec)
+
+Diez decisiones cerradas con preguntas cerradas. Las que más condicionan la ejecución:
+
+1. **Puntos y monedas son independientes** — es el pedido literal y gobierna todo lo demás.
+2. **El valor en monedas vive en `rewards-service`** (`RendimientoAccion`), no en `Actividad`: decisión 11 del #22 aplicada igual. **`activity-service` no cambia ni un campo de schema y `activity_db` no tiene migración.**
+3. **Cuatro hechos pagan**: opcional completada, obligatoria confirmada, tarea de equipo y conducta BUENA.
+4. **Nada resta monedas por lo que se hace.** El único camino al saldo negativo sigue siendo la bancarrota del cierre (#22).
+6. **Deshacer compensa con piso en 0** y escribe la fila aunque recupere 0.
+9. **El integrante nunca pone monedas** — cae por construcción, sin regla nueva que mantener.
+10. **Pantalla propia** (`Rendimiento › Por actividad`), no campo en el formulario de la actividad.
+
+### El hallazgo que cambió el alcance (leer esto antes de tocar nada)
+
+`activity-service` **no publica el evento cuando el registro vale 0 puntos** — `registro.service.ts` líneas **313**, **765** y **894**, guard deliberado del #20. Con él, una actividad de **0 puntos + 5 monedas nunca le llegaría a rewards** y la decisión 1 sería imposible.
+
+**Resolución (Parte D de la spec)**: los tres guards se quitan y el descarte del 0 se muda a `scoring-service` (`ProyeccionService.proyectarRegistro`). El evento pasa a significar «esto pasó» en vez de «esto valió puntos», que es lo correcto para un fan-out por topic exchange.
+
+Verificado en esta sesión: **`ActividadCompletada` hoy lo consume solo `scoring-service`** — `notification-service` y `audit-service` no lo escuchan (`grep` sobre ambos `src/`: cero resultados). Por eso la superficie del cambio es exactamente scoring y nada más.
+
+> **Es el único cambio del ítem sobre código en producción, y cae en el camino más caliente de la app (registrar una actividad).** El invariante a sostener es explícito: *el contenido de `EventoPuntos` no cambia ni una fila*.
+
+### Baseline verde ANTES de mover el guard
+
+Corrido en esta sesión, sobre el árbol limpio en `fase-14-tienda-de-monedas` (último commit `2a6b457`), para que mañana cualquier rojo sea atribuible al ítem y no a algo heredado:
+
+| Proyecto | `nx test` | Archivos |
+|---|---|---|
+| `activity-service` | **357/357** | 18 |
+| `scoring-service` | **57/57** | 5 |
+| `rewards-service` | **168/168** | 13 |
+
+Comando exacto (ojo con la trampa 1 de las notas de Windows — las comillas en `-t` no son opcionales):
+
+```
+npx nx run-many -t "test" -p activity-service scoring-service rewards-service --skip-nx-cache
+```
+
+**El paso 1 del arranque tiene que devolver estos mismos tres números.** Si alguno se mueve, el error está en el guard mudado, no en el ítem que lo puso.
+
+`nx run-many -t "lint,build"` sobre los mismos tres: **verde (exit 0)**, con **3 warnings preexistentes** de `@typescript-eslint/no-non-null-assertion` — dos en `apps/activity-service/src/comun/rotacion-turnos.spec.ts` (50:22 y 51:16) y uno en `apps/activity-service/src/turnos/turnos.service.ts` (439:38). **Son del #21, no de este ítem**: quedan anotados acá para que mañana no se persigan como si fueran nuevos.
+
+### Arranque de mañana (en orden, tal como lo deja la spec)
+
+0. **Pre-flight de entorno** — la trampa 12 de las notas de Windows: chequear que los **nueve** puertos 3000-3008 no tengan `node` zombis de una corrida anterior antes de creerle a cualquier verificación. No hace falta levantar el stack para los pasos 1-4.
+1. **Quitar los tres guards de `registro.service.ts`** (313, 765, 894) y **mudar el descarte a `ProyeccionService.proyectarRegistro`** (`puntosSnapshot === 0` → no escribe `EventoPuntos`, marca `EventoProcesado`). Reemplazar el comentario de las líneas 309-312 por uno que explique por qué el guard del #20 se fue, citando esta spec — no borrarlo sin más. **Correr activity + scoring y comparar contra el baseline de arriba: tiene que dar exactamente lo mismo.**
+2. **`GET /internal/activity/grupos/:grupoId/catalogo-rendible`** en activity + `ActivityClientService` en `apps/rewards-service/src/clientes/` (molde: `scoring-client.service.ts`).
+3. **Schema + migración de `RendimientoAccion`** y los dos valores nuevos de `TipoMovimientoMoneda`, más el `GET`/`PUT` de la Parte C.
+4. **El consumidor** (`rewards.q.acciones`, ocho routing keys): acreditación primero, reversión después, **test antes que código en la reversión**.
+5. Tipos compartidos y frontend — **mostrarle el mockup a José antes de scaffoldear** (preferencia registrada).
+
+### Las tres trampas que la spec deja señaladas
+
+1. **El guard mudado** es lo más riesgoso (ver invariante arriba).
+2. **La reversión con piso en 0 lee el saldo y escribe contra él**: necesita el mismo `pg_advisory_xact_lock` que la compra del #22 y **probado contra Postgres real** — ese `$queryRaw` pasa tests, lint, typecheck y build, y falla en el 100 % de las corridas reales si está mal escrito (herencia del #16, repetida en el #22).
+3. **La tarea de equipo son N movimientos con el mismo `origenId`**, uno por miembro: la reversión tiene que buscarlos **todos**. Buscar el primero deja el resto de las billeteras mal en silencio — el error exacto que el #13 documentó para scoring.
+
+---
+
+## Ítem 28 — EJECUCIÓN (2026-08-04)
+
+Todo lo de arriba es el plan que dejó la sesión de especificación. Esto es lo que realmente pasó.
+
+### El baseline se cumplió exactamente
+
+Los tres números del plan volvieron idénticos tras mover el guard: **357/357** activity, **57/57** scoring, **168/168** rewards. El invariante que la spec puso en primer plano —*el contenido de `EventoPuntos` no cambia ni una fila*— se sostuvo, y los 4 tests de activity que cambiaron de resultado son exactamente los que **afirmaban el guard viejo** («no publica evento»), reescritos para afirmar lo contrario con el motivo escrito al lado.
+
+### El hueco que la spec no vio: la compensación también se rompía
+
+D.2 dice que scoring descarte `puntosSnapshot === 0`. Lo que no dice es qué pasa **después**: `compensarCadenas` busca el asiento original del registro que se quita, y **lanza si no lo encuentra** (guard deliberado de Fase 7 contra el descarte silencioso). Con el 0 descartado en la creación, quitar una confirmación de 0 puntos —el caso exacto que este ítem habilita— buscaba un asiento que nunca existió y **mandaba el mensaje a la DLQ**.
+
+La ausencia de asiento es **ambigua**: puede ser «valía 0» o «el evento llegó desordenado», y la segunda tiene que seguir fallando ruidosamente. Se resolvió con un campo **opcional** `valorPuntosSnapshot` en `ActividadRegistroEliminadoPayload` y `ActividadRegistroRevertidoPayload`: con `0` explícito no hay nada que compensar; **sin el campo se compensa (y lanza) como siempre**, así un mensaje viejo en vuelo no cambia de comportamiento.
+
+**Es una desviación registrada**: D.1 afirma «cambio de payload **cero**». Esa afirmación era correcta sobre el hecho que describe (quitar los guards) pero incompleta sobre su consecuencia. La spec **no se editó** (protocolo de `CLAUDE.md`).
+
+Dato que acotó el riesgo, verificado antes de decidir: `valorPuntos` tiene `@Min(1)` en los DTOs de actividades y conductas, así que **el único origen que puede traer 0 es la confirmación de una obligatoria** (`puntosPorCumplir`). `NO_HIZO` y `CONDUCTA` nunca valen 0 y su ledger no cambia ni una fila — el descarte «para los tres orígenes» de D.2 es uniformidad defensiva, no un cambio de datos.
+
+### EL BUG DEL ÍTEM: ocho `@RabbitSubscribe` sobre una cola no rutean por routing key
+
+La primera versión del consumidor declaraba **un `@RabbitSubscribe` por routing key**, los ocho apuntando a `rewards.q.acciones`. Compila, pasa lint, pasa los 32 tests unitarios nuevos — y **está mal**: ocho suscripciones sobre una misma cola registran ocho consumidores AMQP contra ella, y RabbitMQ reparte **round-robin entre consumidores, sin volver a mirar la routing key** con la que cada uno se dio de alta. Un `ActividadCompletada` caía en el handler de tareas de equipo y explotaba en `payload.asignaciones.map`.
+
+**Los unit tests no podían verlo**: llamaban a `consumer.onActividadCompletada(...)` directamente, así que el ruteo lo hacía el test, no RabbitMQ. Lo destapó la E2E, con el error visible en el log de rewards durante suites de **otros** ítems (historial, mínimo de repeticiones) — que pasaban igual porque no miran monedas.
+
+El patrón correcto **ya estaba en el repo**: `ScoringConsumer.onRegistro` usa **un** handler con `routingKey: [...]` y `switch` por `eventType`. Se reescribió así. Y los tests se cambiaron para entrar **todos por `onRegistro`**, que es la única puerta real: ahora el despacho está bajo test, más tres tests nuevos sobre la puerta en sí (cada evento a su rama, `eventType` desconocido que falla ruidoso, envelope sin `grupoId`).
+
+Es el **cuarto caso del mismo modo de falla en Fase 14** —después de `turnos-de-hoy` (#23 T1), el «✓ hizo» del Tutor (#23 T4) y el ocultamiento por vigencia (#24)—: *la unidad verifica la pieza, y lo que falla es el cable*.
+
+### Otras desviaciones y decisiones propias
+
+1. **`GET /rewards/grupos/:grupoId/valores-en-monedas`, endpoint que la Parte C no lista.** La Parte C dice «nada más», pero la Parte F pide que **el participante vea el precio antes de completar** y la sección «fuera de alcance» difiere explícitamente ese punto a la Parte F. El `GET` de la Parte C es `TUTOR`/`ORG_ADMIN` y trae nombres, motivos y bonos: no sirve. El nuevo devuelve **el mínimo** (`origenId` + monedas) y lo leen `USUARIO`, `TUTOR` y `ORG_ADMIN` —el Tutor porque desde el #23 T4 marca sobre la misma lista del integrante—. **En `DIRECTO` devuelve `[]`**, así «no se muestra en DIRECTO» cae por construcción y no como un `if` más en la plantilla. No llama a activity: es lectura local, para no pagar un cruce REST en el camino del integrante.
+2. **`CONDUCTA_MALA_NO_RINDE` cuesta una llamada extra, solo en el camino de error.** El interno `catalogo-rendible` devuelve solo conductas `BUENA` (D.3 tal cual), así que una `MALA` «no está en la lista» y daría `ACCION_INEXISTENTE`. Para darle su code propio (decisión 17) el service le pregunta a activity por esa conducta **únicamente cuando el `origenId` no apareció** — cero costo en el camino feliz, y sin ensuciar el interno con datos que la pantalla no muestra.
+3. **`repeticionesMaximasSesion` viajando en el DTO**, que D.3 no enumera: lo pide el aviso de calibración que eligió José (ver abajo).
+4. **`monto: recuperado === 0 ? 0 : -recuperado`** en la reversión: `-0` es un valor distinto de `0` para `Object.is`, y una fila de ledger con `-0` es la clase de rareza que aparece años después en una comparación. Lo encontró un test.
+5. **`RENDIMIENTO_ACCION` con `monedas <= 0` no escribe fila.** La spec dice «si no hay fila o `monedas = 0`»; se extendió a `<= 0` porque la validación ya impide negativos y una fila negativa que se colara por otro camino no debe poder debitar (decisión 4).
+
+### La UI que eligió José (mostrada antes de scaffoldear, preferencia registrada)
+
+Se le ofrecieron tres layouts con mockup y tres definiciones del aviso. Eligió:
+
+- **Fila compacta** con los puntos a la izquierda en solo lectura y el campo de monedas a la derecha; el bono del jefe baja indentado solo en las de equipo; las `ASUME_HECHA` van sin campo y **con el motivo escrito** (decisión 15). Se descartaron la tarjeta por actividad (demasiado scroll con 30 actividades) y la variante con buscador y filtro.
+- **Máximo teórico por semana** para el aviso: `Σ (monedas × repeticiones) × sesiones de la Sección`. Es el techo real —lo más alto que alguien puede llegar a cobrar—, contra el techo del otro camino (la zona más alta). Se descartaron «una vez cada cosa» (subestima el techo justo donde hay actividades repetibles) y «por sesión» (deja la comparación con la zona, que es semanal, al ojo del Tutor).
+
+Tres cosas que el cálculo decide y están escritas en `core/calibracion-monedas.ts`: multiplica por las repeticiones (decisión 16), **incluye el bono del jefe** porque es un techo y el techo lo toca quien es jefe de todo, y **cuenta las conductas una vez por sesión** porque no tienen tope y el máximo real sería infinito. La aritmética vive en `core/` y se testea sin montar Angular, como `core/termometro.ts` del #27.
+
+### Verificación
+
+| Proyecto | Antes | Después |
+|---|---|---|
+| `activity-service` | 357/357 | **357/357** (4 reescritos, ninguno nuevo) |
+| `scoring-service` | 57/57 | **63/63** (+6: el descarte del 0 y su simétrico) |
+| `rewards-service` | 168/168 | **206/206** (+38) |
+| `app-web` | 149/149 | **159/159** (+10) |
+
+- `lint` y `build` verdes. Los **3 warnings** de `no-non-null-assertion` siguen siendo los preexistentes del #21.
+- **Migración aplicada contra Postgres real** (`prisma migrate deploy`) y **sin drift**: `prisma migrate diff` → *«No difference detected»*.
+- **Suite E2E completa 73/73 en dos corridas seguidas**, con `E2E_UI=1` (las 18 de navegador incluidas, más `app-web` y `public-site` servidos) y con la suite nueva `monedas-por-cumplir.e2e.ts` (6 tests). La primera corrida —antes del fix— dio **3 rojos**, los tres del ítem nuevo, y eso fue lo que destapó el bug del consumidor.
+- Migración **aditiva pura**: `RendimientoAccion` nueva + dos valores de enum. No toca ninguna tabla existente, y `activity_db` no tiene migración (decisión 2 cumplida: `activity-service` no cambió **ni un campo** de schema).
+
+### Nota de herramienta: `prisma migrate diff` cambió de flags
+
+Prisma 7.8 renombró `--from-url` / `--to-schema-datamodel` a **`--from-config-datasource` / `--to-schema`**. Las sesiones anteriores usaban los nombres viejos; el comando que verifica drift hoy es:
+
+```
+cd apps/<servicio> && npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma
+```
+
+### Qué falta / verificar la próxima sesión
+
+1. **La vuelta manual en navegador** del ítem completo: cargar precios, completar desde el integrante y ver subir el saldo. Es lo que el #27 dejó pendiente y sigue siendo la verificación que más barato encuentra un problema de forma.
+2. Que **`MonedasPorAccion` no tiene consumidor todavía**: se publica y quedó documentado en el catálogo con Notification y Audit como consumidores previstos, pero **ninguno de los dos lo escucha** — exactamente la misma situación que `MonedasAcreditadas` dejó el #22 (verificado con `grep`: cero resultados en ambos `src/`). No es un bug de este ítem; es deuda heredada del #22 que este ítem repite.

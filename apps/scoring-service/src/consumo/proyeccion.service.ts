@@ -202,7 +202,8 @@ export class ProyeccionService {
       envelope.payload.registroId,
       TipoOrigenPuntos.ACTIVIDAD_COMPLETADA,
       envelope.payload.eliminadoPorTutorId,
-      'Completada de actividad quitada por un tutor'
+      'Completada de actividad quitada por un tutor',
+      envelope.payload.valorPuntosSnapshot
     );
   }
 
@@ -224,7 +225,8 @@ export class ProyeccionService {
       envelope.payload.revertidoPorTutorId,
       esNoHizo
         ? 'Marca de «no hizo» deshecha por un tutor'
-        : 'Completada de actividad restaurada por un tutor'
+        : 'Completada de actividad restaurada por un tutor',
+      envelope.payload.valorPuntosSnapshot
     );
   }
 
@@ -278,9 +280,26 @@ export class ProyeccionService {
     registroId: string,
     tipoOrigenDelRegistro: TipoOrigenPuntos,
     registradoPorId: string,
-    motivoCorreccion: string
+    motivoCorreccion: string,
+    snapshotDelRegistro?: number
   ): Promise<void> {
     if (await this.yaProcesado(envelope.eventId)) {
+      return;
+    }
+
+    // fase-14-28: el otro lado del descarte del 0 de `proyectarRegistro`. Un
+    // registro que valía 0 no tiene asiento, así que no hay nada que compensar
+    // — y sin este chequeo el `throw` de más abajo lo mandaría a la DLQ. Se
+    // decide con el snapshot que trae el payload y NO con "no encontré nada":
+    // esa ausencia también es el síntoma de un evento llegado desordenado, que
+    // sí tiene que fallar ruidosamente.
+    if (snapshotDelRegistro === 0) {
+      this.logger.debug(
+        `${envelope.eventType} ${envelope.eventId} sobre un registro de 0 puntos — sin asiento que compensar`
+      );
+
+      await this.enTransaccionIdempotente(envelope.eventId, async () => undefined);
+
       return;
     }
 
@@ -368,6 +387,28 @@ export class ProyeccionService {
     }
   ): Promise<void> {
     if (await this.yaProcesado(envelope.eventId)) {
+      return;
+    }
+
+    // fase-14-28 (D.2): el descarte del 0 vive ACÁ, no en activity. Hasta el
+    // fase-14-20 lo hacía `registro.service.ts` no publicando el evento; desde
+    // que rewards también escucha, ese guard haría invisible una actividad de 0
+    // puntos y N monedas (decisión 1). El evento significa «esto pasó»; quién
+    // lo necesita lo decide cada consumidor, y scoring no necesita un asiento
+    // que no mueve ningún puntaje. **El contenido de `EventoPuntos` queda
+    // idéntico a como estaba antes de este ítem** — ese es el invariante.
+    //
+    // En un solo punto para los tres orígenes que en teoría pueden traer 0, no
+    // repetido por consumidor. En la práctica solo lo trae la confirmación de
+    // una obligatoria (`puntosPorCumplir`): `valorPuntos` tiene `@Min(1)`, así
+    // que NO_HIZO y CONDUCTA nunca valen 0 y su ledger no cambia ni una fila.
+    if (datos.puntosSnapshot === 0) {
+      this.logger.debug(
+        `${envelope.eventType} ${envelope.eventId} vale 0 puntos — sin asiento en el ledger`
+      );
+
+      await this.enTransaccionIdempotente(envelope.eventId, async () => undefined);
+
       return;
     }
 

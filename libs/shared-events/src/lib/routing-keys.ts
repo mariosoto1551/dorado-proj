@@ -35,6 +35,8 @@ export const ROUTING_KEYS = {
   // fase-14-22 (tienda de monedas)
   MONEDAS_ACREDITADAS: 'rewards.monedas_acreditadas',
   COMPRA_REALIZADA: 'rewards.compra_realizada',
+  // fase-14-28 (monedas por cumplir): la SEGUNDA fuente de la economía.
+  MONEDAS_POR_ACCION: 'rewards.monedas_por_accion',
 } as const;
 
 export type RoutingKey = (typeof ROUTING_KEYS)[keyof typeof ROUTING_KEYS];

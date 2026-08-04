@@ -26,6 +26,7 @@ import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
 import type { SeccionConSesionesResponse } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
+import { RewardsApiService } from '../../core/api/rewards-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
 import { AuthService } from '../../core/auth/auth.service';
@@ -203,6 +204,15 @@ const MINUTOS_URGENTE = 60;
                         }
                       } @else {
                         <span class="font-bold text-marca-600 dark:text-marca-400">+{{ a.valorPuntos }} pts</span>
+                      }
+                      <!-- fase-14-28: el punto entero del ítem de este lado. Si
+                           no ve el precio ANTES de hacerla, la moneda no motiva
+                           nada. En modo DIRECTO el mapa viene vacío y no se
+                           muestra: no hace falta preguntar el modo. -->
+                      @if (monedasDe(a); as monedas) {
+                        · <span class="font-bold text-amber-500 dark:text-amber-400">
+                          +{{ monedas }} {{ iconoMoneda() }}
+                        </span>
                       }
                       @if (a.tipoLimiteTiempo === 'DEADLINE') {
                         · <span [class]="claseDeadline(a)">{{ textoDeadline(a) }}</span>
@@ -436,6 +446,8 @@ export class HomeUsuarioPage {
 
   private readonly scoring = inject(ScoringApiService);
 
+  private readonly rewards = inject(RewardsApiService);
+
   private readonly toasts = inject(ToastService);
 
   private readonly destroyRef = inject(DestroyRef);
@@ -462,6 +474,15 @@ export class HomeUsuarioPage {
 
     return mapa;
   });
+
+  /**
+   * fase-14-28: cuánto paga cada actividad, por `actividadId`. Vacío en modo
+   * DIRECTO —el backend devuelve `[]`—, así que «no se muestra en DIRECTO» no
+   * necesita ningún `if` de modo acá.
+   */
+  private readonly monedasPorActividad = signal(new Map<string, number>());
+
+  protected readonly iconoMoneda = signal('🪙');
 
   private readonly cronometros = signal<CronometroActivo[]>([]);
 
@@ -611,6 +632,11 @@ export class HomeUsuarioPage {
    * fase-14-15: tarea de equipo. Acá es solo informativa — la completa el jefe
    * desde «Mi equipo» y por esta vía el backend responde 400 ES_TAREA_DE_EQUIPO.
    */
+  /** `null` (falsy para el `@if`) cuando la actividad no paga monedas. */
+  protected monedasDe(a: ActividadDto): number | null {
+    return this.monedasPorActividad().get(a.id) ?? null;
+  }
+
   protected esDeEquipo(a: ActividadDto): boolean {
     return a.alcance === AlcanceActividad.EQUIPO;
   }
@@ -1045,6 +1071,23 @@ export class HomeUsuarioPage {
         // Falla en silencio: es accesorio, no debe romper la home.
         this.activity.obtenerConfiguracionContenido(grupoId).subscribe({
           next: (config) => this.modoContenido.set(config.modoCreacionUsuario),
+          error: () => undefined,
+        });
+
+        // fase-14-28: el precio en monedas al lado del de puntos. También en
+        // silencio: sin esto la lista sigue mostrando los puntos, que es el
+        // comportamiento de todos los grupos anteriores al ítem.
+        this.rewards.valoresEnMonedas(grupoId).subscribe({
+          next: (valores) => {
+            this.monedasPorActividad.set(
+              new Map(valores.map((valor) => [valor.origenId, valor.monedas]))
+            );
+          },
+          error: () => undefined,
+        });
+
+        this.rewards.configuracion(grupoId).subscribe({
+          next: (config) => this.iconoMoneda.set(config.iconoMoneda),
           error: () => undefined,
         });
       },

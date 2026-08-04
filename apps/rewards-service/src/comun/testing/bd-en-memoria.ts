@@ -219,6 +219,51 @@ function crearDelegadoLedger<T extends Fila>(filas: T[], defaults: () => Partial
   };
 }
 
+/**
+ * Delegado de `RendimientoAccion` (fase-14-28). No usa `crearDelegadoPorClave`
+ * porque su única es COMPUESTA (`tipoAccion_origenId`): dos filas pueden
+ * compartir `origenId` si una es de actividad y otra de conducta.
+ */
+function crearDelegadoRendimientosAccion(filas: Fila[]) {
+  const buscar = (tipoAccion: unknown, origenId: unknown) =>
+    filas.find(
+      (fila) => fila['tipoAccion'] === tipoAccion && fila['origenId'] === origenId
+    );
+
+  return {
+    findFirst: async (args: { where: Where }) =>
+      filas.find((fila) => matchea(fila, args.where)) ?? null,
+    findMany: async (args: { where?: Where } = {}) =>
+      filas.filter((fila) => (args.where ? matchea(fila, args.where) : true)),
+    upsert: async (args: {
+      where: { tipoAccion_origenId: { tipoAccion: string; origenId: string } };
+      create: Fila;
+      update: Fila;
+    }) => {
+      const clave = args.where.tipoAccion_origenId;
+      const existente = buscar(clave.tipoAccion, clave.origenId);
+
+      if (existente) {
+        Object.assign(existente, args.update);
+
+        return existente;
+      }
+
+      const fila = {
+        id: randomUUID(),
+        monedasBonoJefe: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...args.create,
+      };
+
+      filas.push(fila);
+
+      return fila;
+    },
+  };
+}
+
 /** Delegado con clave única sobre un campo arbitrario (ej. `umbralZonaId`). */
 function crearDelegadoPorClave<T extends Fila>(
   filas: T[],
@@ -402,6 +447,8 @@ export interface BdEnMemoria {
   /** fase-14-26: catálogo de etiquetas y sus asignaciones. */
   etiquetas: EtiquetaCatalogo[];
   etiquetasEnRecompensa: Fila[];
+  /** fase-14-28: cuánto paga cada acción del catálogo (config, no ledger). */
+  rendimientosAccion: Fila[];
   procesados: FilaEventoProcesado[];
   prisma: PrismaService;
 }
@@ -420,6 +467,7 @@ export function crearBdEnMemoria(datos: {
   objetivos?: Fila[];
   etiquetas?: EtiquetaCatalogo[];
   etiquetasEnRecompensa?: Fila[];
+  rendimientosAccion?: Fila[];
 } = {}): BdEnMemoria {
   const recompensas: Recompensa[] = [...(datos.recompensas ?? [])];
   const canjes: CanjeRecompensa[] = [...(datos.canjes ?? [])];
@@ -436,6 +484,7 @@ export function crearBdEnMemoria(datos: {
   const objetivos: Fila[] = [...(datos.objetivos ?? [])];
   const etiquetas: EtiquetaCatalogo[] = [...(datos.etiquetas ?? [])];
   const etiquetasEnRecompensa: Fila[] = [...(datos.etiquetasEnRecompensa ?? [])];
+  const rendimientosAccion: Fila[] = [...(datos.rendimientosAccion ?? [])];
   const procesados: FilaEventoProcesado[] = [];
 
   const client = {
@@ -520,6 +569,8 @@ export function crearBdEnMemoria(datos: {
       motivoReversion: null,
       createdAt: new Date(),
     })),
+    // fase-14-28: la segunda fuente de la economía.
+    rendimientoAccion: crearDelegadoRendimientosAccion(rendimientosAccion),
     rendimientoZona: crearDelegadoPorClave<RendimientoZona>(
       rendimientos,
       'umbralZonaId',
@@ -604,6 +655,7 @@ export function crearBdEnMemoria(datos: {
     objetivos,
     etiquetas,
     etiquetasEnRecompensa,
+    rendimientosAccion,
     procesados,
     prisma: { client: clienteConTransaccion } as unknown as PrismaService,
   };
@@ -662,6 +714,23 @@ export function rendimientoDePrueba(
     updatedAt: new Date(),
     ...sobrescribir,
   } as RendimientoZona;
+}
+
+/** fase-14-28: cuánto paga una acción del catálogo. */
+export function rendimientoAccionDePrueba(sobrescribir: Fila = {}): Fila {
+  return {
+    id: randomUUID(),
+    organizacionId: 'org-1',
+    grupoId: 'grupo-1',
+    tipoAccion: 'ACTIVIDAD',
+    origenId: 'actividad-1',
+    nombreSnapshot: 'Tender la cama',
+    monedas: 3,
+    monedasBonoJefe: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...sobrescribir,
+  };
 }
 
 export function movimientoDePrueba(

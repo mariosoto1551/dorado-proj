@@ -10,15 +10,15 @@
 | `InvitacionGenerada` | `identity.invitacion_generada` | Identity | Notification | MÍNIMO |
 | `InvitacionCanjeada` | `identity.invitacion_canjeada` | Identity | Audit | EXTENSIÓN |
 | `UsuarioUnido` | `identity.usuario_unido` | Identity | Notification, Audit | MÍNIMO |
-| `ActividadCompletada` | `activity.actividad_completada` | Activity Catalog | Scoring, Notification | MÍNIMO |
+| `ActividadCompletada` | `activity.actividad_completada` | Activity Catalog | Scoring, **Rewards** (fase-14-28: paga monedas), Notification | MÍNIMO |
 | `NoHizoRegistrado` | `activity.no_hizo_registrado` | Activity Catalog | Scoring, Notification | MÍNIMO |
-| `ConductaRegistrada` | `activity.conducta_registrada` | Activity Catalog | Scoring, Notification | MÍNIMO |
+| `ConductaRegistrada` | `activity.conducta_registrada` | Activity Catalog | Scoring, **Rewards** (fase-14-28: solo BUENA), Notification | MÍNIMO |
 | `ConductaRegistroEliminado` | `activity.conducta_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
-| `ActividadRegistroEliminado` | `activity.actividad_registro_eliminado` | Activity Catalog | Scoring, Audit | EXTENSIÓN |
-| `ActividadRegistroRevertido` | `activity.actividad_registro_revertido` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-12 (marcas rojas del tutor) |
-| `TareaEquipoCompletada` | `activity.tarea_equipo_completada` | Activity Catalog | Scoring, Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
-| `TareaEquipoAnulada` | `activity.tarea_equipo_anulada` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-13 (anular tareas de equipo) |
-| `TareaEquipoRevertida` | `activity.tarea_equipo_revertida` | Activity Catalog | Scoring, Audit | EXTENSIÓN — fase-14-13 (anular tareas de equipo) |
+| `ActividadRegistroEliminado` | `activity.actividad_registro_eliminado` | Activity Catalog | Scoring, Audit, **Rewards** (fase-14-28: revierte con piso en 0) | EXTENSIÓN |
+| `ActividadRegistroRevertido` | `activity.actividad_registro_revertido` | Activity Catalog | Scoring, Audit, **Rewards** (fase-14-28: restituye lo descontado) | EXTENSIÓN — fase-14-12 (marcas rojas del tutor) |
+| `TareaEquipoCompletada` | `activity.tarea_equipo_completada` | Activity Catalog | Scoring, Notification, **Rewards** (fase-14-28: paga a cada miembro) | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
+| `TareaEquipoAnulada` | `activity.tarea_equipo_anulada` | Activity Catalog | Scoring, Audit, **Rewards** (fase-14-28: revierte a cada miembro) | EXTENSIÓN — fase-14-13 (anular tareas de equipo) |
+| `TareaEquipoRevertida` | `activity.tarea_equipo_revertida` | Activity Catalog | Scoring, Audit, **Rewards** (fase-14-28: restituye a cada miembro) | EXTENSIÓN — fase-14-13 (anular tareas de equipo) |
 | `ReporteMiembroCreado` | `activity.reporte_miembro_creado` | Activity Catalog | Notification | EXTENSIÓN — fase-14-09 (equipos de trabajo) |
 | `ActividadPropuestaCreada` | `activity.actividad_propuesta_creada` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
 | `ActividadPropuestaResuelta` | `activity.actividad_propuesta_resuelta` | Activity Catalog | Notification | EXTENSIÓN — fase-14-10 (contenido por integrantes) |
@@ -32,6 +32,7 @@
 | `RecompensaCanjeada` | `rewards.recompensa_canjeada` | Rewards | Notification, Audit | MÍNIMO |
 | `MonedasAcreditadas` | `rewards.monedas_acreditadas` | Rewards | Notification, Audit | EXTENSIÓN — fase-14-22 (tienda de monedas). Un solo evento cubre "cobraste N monedas" y "te tocó un castigo": son el mismo hecho. |
 | `CompraRealizada` | `rewards.compra_realizada` | Rewards | Notification, Audit | EXTENSIÓN — fase-14-22 (tienda de monedas) |
+| `MonedasPorAccion` | `rewards.monedas_por_accion` | Rewards | Notification, Audit | EXTENSIÓN — fase-14-28 (monedas por cumplir). La SEGUNDA fuente de la economía: acredita al instante por completar una actividad o registrar una conducta BUENA. Las reversiones NO publican evento (ver payload). |
 | `AccionAdministrativaRegistrada` | `<servicio>.accion_administrativa` | Cualquier servicio con escrituras admin (Identity, Billing, Activity, Session, Scoring, Rewards) | Audit | EXTENSIÓN — evento genérico para no tener que enumerar un evento por cada acción administrativa posible |
 
 ## Payloads
@@ -70,6 +71,12 @@ interface UsuarioUnidoPayload {
   invitacionId: string;
 }
 
+// fase-14-28 (D.1): este evento significa **"esto pasó"**, no "esto valió
+// puntos". Hasta fase-14-20, activity no lo publicaba cuando el registro valía
+// 0 (la confirmación de una obligatoria sin premio); desde fase-14-28 se
+// publica SIEMPRE, porque una actividad de 0 puntos y N monedas es una
+// configuración válida y rewards tiene que enterarse. El descarte del 0 vive
+// ahora en scoring, que es el único a quien le sobra.
 interface ActividadCompletadaPayload {
   registroId: string;       // id del RegistroActividad en Activity Catalog
   usuarioId: string;
@@ -117,6 +124,12 @@ interface ActividadRegistroEliminadoPayload {
   registroId: string;
   usuarioId: string;
   eliminadoPorTutorId: string;
+  // fase-14-28: lo que valía el registro que se quita. 0 = scoring nunca
+  // escribió asiento por él, así que no hay nada que compensar. Desde que
+  // activity publica siempre (D.1) es la ÚNICA forma de distinguir eso de un
+  // evento llegado desordenado, que sí tiene que fallar e ir a la DLQ.
+  // Opcional: un mensaje viejo en vuelo no lo trae.
+  valorPuntosSnapshot?: number;
 }
 
 // fase-14-12: un tutor deshizo su propia marca roja — restauró una completada
@@ -128,6 +141,8 @@ interface ActividadRegistroRevertidoPayload {
   usuarioId: string;
   revertidoPorTutorId: string;
   tipoRegistro: 'COMPLETADA' | 'NO_HIZO';
+  // fase-14-28: ver ActividadRegistroEliminadoPayload.
+  valorPuntosSnapshot?: number;
 }
 
 // fase-14-13: el Tutor anuló una tarea de equipo (`TareaEquipoAnulada`) o
@@ -263,6 +278,26 @@ interface MonedasAcreditadasPayload {
   monedas: number;        // lo que rindió la zona, con signo
   saldoResultante: number;
   castigo: { recompensaId: string; nombre: string } | null;
+}
+
+// fase-14-28: la SEGUNDA fuente de la economía — pagó completar una actividad o
+// registrar una conducta BUENA. Acredita AL INSTANTE, no al cierre.
+//
+// Las reversiones (el Tutor quita la marca, o deshace su quita) NO publican
+// evento a propósito: notificar "te sacaron 2 monedas" duplicaría el aviso que
+// fase-14-12 ya manda al deshacer la marca, y la billetera del participante ya
+// muestra el movimiento.
+interface MonedasPorAccionPayload {
+  usuarioId: string;
+  organizacionId: string;
+  grupoId: string;
+  seccionId: string;
+  tipoAccion: 'ACTIVIDAD' | 'CONDUCTA';
+  origenId: string;          // actividadId o conductaId
+  nombreAccion: string;
+  monedas: number;           // siempre > 0: lo que se hace nunca debita
+  saldoResultante: number;
+  esTareaEquipo: boolean;    // true si vino del reparto de una tarea de equipo
 }
 
 // fase-14-22: una compra en la tienda.

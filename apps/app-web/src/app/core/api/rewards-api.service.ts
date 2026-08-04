@@ -15,7 +15,9 @@ import type {
   ProductosDesdeEtiquetaDto,
   ProductoTiendaDto,
   RecompensaDto,
+  RendimientosAccionesDto,
   RendimientoZonaDto,
+  ValorEnMonedasDto,
 } from '@dorado/shared-types';
 
 import { environment } from '../../../environments/environment';
@@ -25,6 +27,7 @@ import type {
   AsignarEtiquetasRequest,
   CambiarModoRecompensasRequest,
   ComprarRequest,
+  ConfigurarRendimientosAccionesRequest,
   ConfigurarRendimientosRequest,
   CrearProductoRequest,
   CrearRecompensaRequest,
@@ -197,6 +200,34 @@ export class RewardsApiService {
     return this.http.put<RendimientoZonaDto[]>(
       `${this.base}/grupos/${grupoId}/rendimientos`,
       datos
+    );
+  }
+
+  // fase-14-28: la SEGUNDA fuente de la economía — cuánto paga cada acción.
+
+  rendimientosAcciones(grupoId: string): Observable<RendimientosAccionesDto> {
+    return this.http.get<RendimientosAccionesDto>(
+      `${this.base}/grupos/${grupoId}/rendimientos-acciones`
+    );
+  }
+
+  configurarRendimientosAcciones(
+    grupoId: string,
+    datos: ConfigurarRendimientosAccionesRequest
+  ): Observable<RendimientosAccionesDto> {
+    return this.http.put<RendimientosAccionesDto>(
+      `${this.base}/grupos/${grupoId}/rendimientos-acciones`,
+      datos
+    );
+  }
+
+  /**
+   * Lo que el participante ve al lado de los puntos. En modo DIRECTO responde
+   * `[]`, así que la pantalla no necesita preguntar el modo antes de pedirlo.
+   */
+  valoresEnMonedas(grupoId: string): Observable<ValorEnMonedasDto[]> {
+    return this.http.get<ValorEnMonedasDto[]>(
+      `${this.base}/grupos/${grupoId}/valores-en-monedas`
     );
   }
 

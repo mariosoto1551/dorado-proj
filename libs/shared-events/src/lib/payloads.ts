@@ -92,6 +92,16 @@ export interface ActividadRegistroEliminadoPayload {
   registroId: string;
   usuarioId: string;
   eliminadoPorTutorId: string;
+  /**
+   * fase-14-28: lo que valía el registro que se quita. `0` significa que scoring
+   * NUNCA escribió asiento por él (una confirmación de obligatoria con
+   * `puntosPorCumplir = 0`), así que no hay nada que compensar — desde que
+   * activity publica siempre (D.1), es la única forma de distinguir «no hay
+   * asiento porque valía 0» de «el evento llegó desordenado», que sigue siendo
+   * un error y tiene que ir a la DLQ. Opcional: un mensaje viejo en vuelo no lo
+   * trae, y ahí se compensa como antes.
+   */
+  valorPuntosSnapshot?: number;
 }
 
 /**
@@ -106,6 +116,8 @@ export interface ActividadRegistroRevertidoPayload {
   revertidoPorTutorId: string;
   /** Decide de qué asiento arranca la cadena (ACTIVIDAD_COMPLETADA o NO_HIZO). */
   tipoRegistro: 'COMPLETADA' | 'NO_HIZO';
+  /** fase-14-28: ver `ActividadRegistroEliminadoPayload.valorPuntosSnapshot`. */
+  valorPuntosSnapshot?: number;
 }
 
 /**
@@ -275,6 +287,30 @@ export interface MonedasAcreditadasPayload {
   saldoResultante: number;
   /** No null solo si la bancarrota disparó un castigo (decisión 5). */
   castigo: { recompensaId: string; nombre: string } | null;
+}
+
+/**
+ * fase-14-28: pagó completar una actividad o registrar una conducta BUENA — la
+ * segunda fuente de la economía, que acredita AL INSTANTE y no al cierre.
+ *
+ * Las reversiones NO publican evento a propósito: notificar «te sacaron 2
+ * monedas» duplicaría el aviso que fase-14-12 ya manda al deshacer la marca, y
+ * la billetera del participante ya muestra el movimiento.
+ */
+export interface MonedasPorAccionPayload {
+  usuarioId: string;
+  organizacionId: string;
+  grupoId: string;
+  seccionId: string;
+  tipoAccion: 'ACTIVIDAD' | 'CONDUCTA';
+  /** actividadId o conductaId. */
+  origenId: string;
+  nombreAccion: string;
+  /** Siempre > 0: lo que se hace nunca debita (decisión 4). */
+  monedas: number;
+  saldoResultante: number;
+  /** true si vino del reparto de una tarea de equipo. */
+  esTareaEquipo: boolean;
 }
 
 /** fase-14-22: una compra en la tienda. */

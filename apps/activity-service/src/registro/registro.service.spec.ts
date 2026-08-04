@@ -442,7 +442,7 @@ describe('RegistroService — confirmar obligatoria (fase-14-08)', () => {
     );
   });
 
-  it('OBLIGATORIA REQUIERE_CONFIRMACION: registro COMPLETADA de 0 pts y SIN evento', async () => {
+  it('OBLIGATORIA REQUIERE_CONFIRMACION: registro COMPLETADA de 0 pts, y el evento se publica igual', async () => {
     const bd = crearBdRegistroEnMemoria({
       actividades: [
         actividadDePrueba({
@@ -463,8 +463,15 @@ describe('RegistroService — confirmar obligatoria (fase-14-08)', () => {
       registradoPorTipo: 'USUARIO',
     });
     expect(bd.registrosActividad).toHaveLength(1);
-    // 0 pts → no toca el ledger de scoring: no publica ningún evento de dominio.
-    expect(publicados).toHaveLength(0);
+    // fase-14-28 (D.1): antes acá no se publicaba nada, porque un asiento de 0
+    // no le sirve a scoring. Ahora el evento significa «esto pasó» y se publica
+    // siempre — rewards lo necesita para pagar monedas por una obligatoria que
+    // no da puntos (decisión 1). Quien descarta el 0 es scoring.
+    expect(publicados).toHaveLength(1);
+    expect(publicados[0]).toMatchObject({
+      eventType: 'ActividadCompletada',
+      payload: expect.objectContaining({ valorPuntosSnapshot: 0 }),
+    });
   });
 
   it('confirmar dos veces la misma obligatoria (reps=1) → 409', async () => {
@@ -515,13 +522,19 @@ describe('RegistroService — las obligatorias también suman (fase-14-20)', () 
     });
   });
 
-  it('con premio 0 se comporta exactamente como antes del ítem: sin evento', async () => {
+  it('con premio 0 el registro sigue valiendo 0, y el evento viaja con ese 0 (fase-14-28)', async () => {
     const { servicio, publicados } = crearServicio({ bd: bdConPremio(0) });
 
     const registro = await servicio.completar(tenantUsuario(), 'actividad-1', {});
 
     expect(registro.valorPuntosSnapshot).toBe(0);
-    expect(publicados).toHaveLength(0);
+    // El ledger de puntos sigue sin recibir nada por esto —lo descarta scoring—,
+    // pero el hecho se publica: es la única forma de que rewards pueda pagarlo.
+    expect(publicados).toHaveLength(1);
+    expect(publicados[0]).toMatchObject({
+      eventType: 'ActividadCompletada',
+      payload: expect.objectContaining({ valorPuntosSnapshot: 0 }),
+    });
   });
 
   it('el "no hizo" sobre una confirmación premiada la compensa en el ledger', async () => {
@@ -552,7 +565,7 @@ describe('RegistroService — las obligatorias también suman (fase-14-20)', () 
     expect(confirmacion?.eliminado).toBe(true);
   });
 
-  it('el "no hizo" sobre una confirmación de 0 pts no publica compensación (nada que compensar)', async () => {
+  it('el "no hizo" sobre una confirmación de 0 pts publica igual, con el snapshot en 0 (fase-14-28)', async () => {
     const bd = bdConPremio(0);
     const { servicio, publicados } = crearServicio({ bd });
 
@@ -561,7 +574,14 @@ describe('RegistroService — las obligatorias también suman (fase-14-20)', () 
 
     await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' });
 
-    expect(publicados.map((evento) => evento.eventType)).toEqual(['NoHizoRegistrado']);
+    // La confirmación de 0 puede haber pagado monedas: rewards tiene que poder
+    // revertirlas. El `valorPuntosSnapshot: 0` del payload es lo que le dice a
+    // scoring que no hay asiento que compensar (sin él iría a la DLQ).
+    expect(publicados.map((evento) => evento.eventType)).toEqual([
+      'NoHizoRegistrado',
+      'ActividadRegistroEliminado',
+    ]);
+    expect(publicados[1]?.payload).toMatchObject({ valorPuntosSnapshot: 0 });
   });
 
   it('el castigo automático no cambia: sigue siendo −valorPuntos, no el premio', async () => {
@@ -1288,7 +1308,7 @@ describe('RegistroService — marcas rojas del tutor (fase-14-12)', () => {
     );
   });
 
-  it('revertir una confirmación (0 pts) no publica evento: no tiene asiento en el ledger', async () => {
+  it('el ciclo completo de una confirmación de 0 pts publica los tres eventos con snapshot 0 (fase-14-28)', async () => {
     const bd = crearBdRegistroEnMemoria({
       actividades: [
         actividadDePrueba({
@@ -1303,7 +1323,17 @@ describe('RegistroService — marcas rojas del tutor (fase-14-12)', () => {
     await servicio.eliminarRegistroActividad(tenantTutor(), bd.registrosActividad[0].id);
     await servicio.revertirMarca(tenantTutor(), bd.registrosActividad[0].id);
 
-    expect(publicados).toHaveLength(0);
+    // Los tres pasos del camino de monedas: acreditar, revertir con piso en 0 y
+    // restituir. Ninguno tocaba a scoring antes de este ítem y ninguno lo toca
+    // ahora —el snapshot en 0 se lo dice—, pero rewards los necesita a los tres.
+    expect(publicados.map((evento) => evento.eventType)).toEqual([
+      'ActividadCompletada',
+      'ActividadRegistroEliminado',
+      'ActividadRegistroRevertido',
+    ]);
+    for (const evento of publicados) {
+      expect(evento.payload).toMatchObject({ valorPuntosSnapshot: 0 });
+    }
   });
 
   it('el tutor lista las marcas vivas del usuario para deshacerlas', async () => {

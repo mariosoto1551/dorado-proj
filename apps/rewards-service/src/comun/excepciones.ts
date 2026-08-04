@@ -48,6 +48,39 @@ export class SoloEnModoTiendaException extends DomainException {
   }
 }
 
+/** fase-14-28 decisión 4: lo que se hace nunca debita. */
+export class MonedasInvalidasException extends DomainException {
+  constructor() {
+    super(
+      'MONEDAS_INVALIDAS',
+      'El rendimiento en monedas no puede ser negativo',
+      400
+    );
+  }
+}
+
+/** fase-14-28: el `origenId` no existe, está archivado o es de otro grupo. */
+export class AccionInexistenteException extends DomainException {
+  constructor() {
+    super(
+      'ACCION_INEXISTENTE',
+      'La actividad o conducta no existe, está archivada o no es de este grupo',
+      400
+    );
+  }
+}
+
+/** fase-14-28 decisión 17: una conducta MALA no tiene nada que configurar. */
+export class ConductaMalaNoRindeException extends DomainException {
+  constructor() {
+    super(
+      'CONDUCTA_MALA_NO_RINDE',
+      'Una conducta MALA no puede pagar monedas: lo que se hace nunca debita',
+      400
+    );
+  }
+}
+
 export class SinItemsParaCrearException extends DomainException {
   constructor() {
     super(
