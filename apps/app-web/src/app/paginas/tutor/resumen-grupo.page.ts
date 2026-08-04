@@ -33,7 +33,9 @@ import {
   progresoHaciaLaZonaSiguiente,
   textoDePendientes,
 } from '../../core/home-grupo';
+import type { ParticipanteTermometro } from '../../core/termometro';
 import { formatearHora, iconoDeEvento } from './historial-sesion.util';
+import { TermometroZonasComponent } from './termometro-zonas.component';
 
 interface FilaRanking extends PuntajeUsuarioDto {
   nombre: string;
@@ -47,8 +49,30 @@ interface Pendiente {
   destino: string[];
 }
 
+/** Las formas de mirar «cómo van». Se muestra UNA a la vez, no todas juntas. */
+type VistaPuntaje = 'LISTA' | 'TERMOMETRO';
+
 /** Cuántas marcas del día muestra el home antes de mandar al historial completo. */
 const MARCAS_EN_EL_HOME = 3;
+
+/**
+ * Preferencia de vista, recordada entre visitas.
+ *
+ * `localStorage` acá NO choca con la regla 7 de CLAUDE.md: esa regla prohíbe
+ * guardar TOKENS en localStorage/sessionStorage. Esto es una preferencia de
+ * presentación sin ningún dato de sesión ni del grupo — que el termómetro siga
+ * puesto la próxima vez es justamente para quien lo eligió.
+ */
+const CLAVE_VISTA = 'dorado:resumen-vista';
+
+function leerVistaGuardada(): VistaPuntaje {
+  try {
+    return localStorage.getItem(CLAVE_VISTA) === 'TERMOMETRO' ? 'TERMOMETRO' : 'LISTA';
+  } catch {
+    // Modo privado o storage bloqueado: la vista arranca en LISTA y ya.
+    return 'LISTA';
+  }
+}
 
 /**
  * Home del grupo (fase-14-23 T3).
@@ -68,7 +92,13 @@ const MARCAS_EN_EL_HOME = 3;
 @Component({
   selector: 'app-resumen-grupo',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, EstadoSeccionBadgeComponent, ZonaBadgeComponent, IconoComponent],
+  imports: [
+    RouterLink,
+    EstadoSeccionBadgeComponent,
+    ZonaBadgeComponent,
+    IconoComponent,
+    TermometroZonasComponent,
+  ],
   template: `
     <section class="mx-auto max-w-3xl px-4 py-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -157,41 +187,81 @@ const MARCAS_EN_EL_HOME = 3;
           </div>
         }
 
-        <!-- ===== 3. Cómo van (una fila por persona) ===== -->
+        <!-- ===== 3. Cómo van (lista o termómetro, UNA a la vez) ===== -->
         @if (ranking().length > 0) {
-          <h2 class="mt-6 text-sm font-bold text-slate-900 dark:text-white">Cómo van</h2>
-          <ul class="mt-2 space-y-1.5">
-            @for (fila of ranking(); track fila.usuarioId) {
-              <li
-                class="flex items-center gap-3 tarjeta px-4 py-2.5"
-                [class.opacity-50]="fila.descalificado"
-              >
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                    {{ fila.nombre }}
-                    @if (fila.descalificado) {
-                      <span class="text-xs font-normal text-red-500 dark:text-red-400">
-                        (descalificado)
-                      </span>
-                    }
-                  </span>
-                  <span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    <span
-                      class="block h-full rounded-full transition-all duration-700"
-                      [style.width.%]="fila.progreso * 100"
-                      [style.background-color]="fila.zona?.colorHex ?? '#94a3b8'"
-                    ></span>
-                  </span>
-                </span>
-                @if (fila.zona) {
-                  <ui-zona-badge [zona]="fila.zona" tamano="sm" />
-                }
-                <span class="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-slate-900 dark:text-white">
-                  {{ fila.puntajeTotal }}
-                </span>
-              </li>
+          <div class="mt-6 flex items-center justify-between gap-3">
+            <h2 class="text-sm font-bold text-slate-900 dark:text-white">Cómo van</h2>
+
+            <!-- Mismo patrón de pestañas que Recompensas: tablist + aria-selected.
+                 Va acá y no dos bloques en paralelo para que el home no crezca:
+                 el largo de esta pantalla es lo que la hacía pesada. -->
+            <div
+              class="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800"
+              role="tablist"
+              aria-label="Forma de ver los puntajes"
+            >
+              @for (v of vistas; track v.clave) {
+                <button
+                  type="button"
+                  role="tab"
+                  [attr.aria-selected]="vista() === v.clave"
+                  (click)="elegirVista(v.clave)"
+                  [class]="
+                    vista() === v.clave
+                      ? 'rounded-lg bg-white px-3 py-1 text-xs font-semibold text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
+                      : 'rounded-lg px-3 py-1 text-xs font-semibold text-slate-500 transition hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  "
+                >
+                  {{ v.etiqueta }}
+                </button>
+              }
+            </div>
+          </div>
+
+          @switch (vista()) {
+            @case ('TERMOMETRO') {
+              <div class="mt-2 tarjeta animate-fade-in">
+                <app-termometro-zonas
+                  [umbrales]="umbrales()"
+                  [participantes]="participantes()"
+                />
+              </div>
             }
-          </ul>
+            @default {
+              <ul class="mt-2 space-y-1.5 animate-fade-in">
+                @for (fila of ranking(); track fila.usuarioId) {
+                  <li
+                    class="flex items-center gap-3 tarjeta px-4 py-2.5"
+                    [class.opacity-50]="fila.descalificado"
+                  >
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                        {{ fila.nombre }}
+                        @if (fila.descalificado) {
+                          <span class="text-xs font-normal text-red-500 dark:text-red-400">
+                            (descalificado)
+                          </span>
+                        }
+                      </span>
+                      <span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                        <span
+                          class="block h-full rounded-full transition-all duration-700"
+                          [style.width.%]="fila.progreso * 100"
+                          [style.background-color]="fila.zona?.colorHex ?? '#94a3b8'"
+                        ></span>
+                      </span>
+                    </span>
+                    @if (fila.zona) {
+                      <ui-zona-badge [zona]="fila.zona" tamano="sm" />
+                    }
+                    <span class="w-12 shrink-0 text-right text-sm font-bold tabular-nums text-slate-900 dark:text-white">
+                      {{ fila.puntajeTotal }}
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+          }
         }
 
         <!-- ===== 4. Hoy (tres líneas) ===== -->
@@ -265,7 +335,7 @@ export class ResumenGrupoPage {
 
   private readonly usuarios = signal<UsuarioDto[]>([]);
 
-  private readonly umbrales = signal<UmbralZonaDto[]>([]);
+  protected readonly umbrales = signal<UmbralZonaDto[]>([]);
 
   private readonly esManual = signal(true);
 
@@ -276,6 +346,13 @@ export class ResumenGrupoPage {
   private readonly reportesPendientes = signal(0);
 
   private readonly entregasPendientes = signal(0);
+
+  protected readonly vistas: { clave: VistaPuntaje; etiqueta: string }[] = [
+    { clave: 'LISTA', etiqueta: 'Lista' },
+    { clave: 'TERMOMETRO', etiqueta: 'Termómetro' },
+  ];
+
+  protected readonly vista = signal<VistaPuntaje>(leerVistaGuardada());
 
   protected readonly ranking = computed<FilaRanking[]>(() => {
     const mapa = new Map(this.usuarios().map((u) => [u.id, u.nombre]));
@@ -290,6 +367,16 @@ export class ResumenGrupoPage {
         progreso: progresoHaciaLaZonaSiguiente(p.puntajeTotal, umbrales),
       }));
   });
+
+  /** El mismo dato del ranking, con la forma mínima que pide el termómetro. */
+  protected readonly participantes = computed<ParticipanteTermometro[]>(() =>
+    this.ranking().map((f) => ({
+      usuarioId: f.usuarioId,
+      nombre: f.nombre,
+      puntajeTotal: f.puntajeTotal,
+      descalificado: f.descalificado,
+    }))
+  );
 
   protected readonly accion = computed(() =>
     accionPrincipal({
@@ -336,6 +423,16 @@ export class ResumenGrupoPage {
       // para reevaluar qué falta configurar.
       this.guia.cargar(g, true);
     });
+  }
+
+  protected elegirVista(vista: VistaPuntaje): void {
+    this.vista.set(vista);
+
+    try {
+      localStorage.setItem(CLAVE_VISTA, vista);
+    } catch {
+      // Sin storage la vista igual cambia; solo no se recuerda para la próxima.
+    }
   }
 
   protected hora(evento: EventoHistorialDto): string {

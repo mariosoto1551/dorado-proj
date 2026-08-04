@@ -1356,3 +1356,70 @@ Es la trampa que ya estaba anotada para este entorno (procesos viejos ocupando p
 1. **Vuelta manual en navegador**: crear dos etiquetas desde el gestor, asignarlas, filtrar la grilla, archivar una y recuperarla. Nada de eso está cubierto por E2E de navegador (la suite del ítem es API-first).
 2. **La deuda de los `code` del #22** (arriba): decidir si se convierten a `DomainException` en una pasada corta. Es mecánico y hoy no rompe nada visible.
 3. **El tope de 5 etiquetas por ítem** es un número de interfaz, no de dominio (decisión 8). Si a José le queda corto, subirlo es cambiar `MAX_ETIQUETAS_POR_ITEM` y su espejo en el frontend.
+
+## Ítem 27: Termómetro de zonas en el resumen del grupo
+
+- **Estado**: EJECUTADO (frontend puro; tests/lint/build verdes). **Sin verificación en navegador** — ver "Qué falta" abajo.
+- **Fecha**: 2026-08-03 / **Spec**: — (no tiene `fase-14-27-*.md`; ver más abajo por qué) / **Commit**: el que cierra el día.
+
+### Origen (pedido de José, 2026-08-03)
+
+*«Quisiera que dentro de la pantalla de inicio del grupo del tutor, o sea resumen, haya más formas de ver cómo va el puntaje. Mi mamá sí o sí quiere un termómetro, no sé por qué, pero bueno. Sería un termómetro con los colores de las zonas y los participantes apuntando, pero no sé si con un hover sería suficiente para ver a todos los participantes en caso de estar en el mismo lugar o muy juntos.»*
+
+El pedido trae la solución adentro (un termómetro) y **una duda técnica declarada** (el hover). Lo que faltaba decidir eran cuatro cosas, y se cerraron con él antes de escribir una línea: cómo resolver el amontonamiento, si el termómetro convive con la lista o la reemplaza, hasta dónde llega la escala cuando la zona más alta no tiene tope, y qué otras vistas entraban.
+
+### La duda del hover se contestó antes de ofrecerle opciones, y no por el amontonamiento
+
+José preguntó si el hover alcanzaba para desamontonar. La respuesta correcta no era sobre amontonamiento: **el hover no existe en un teléfono**, y ésta es la pantalla que se mira en el teléfono. Cualquier diseño donde un nombre aparezca solo al pasar el mouse deja a esos participantes invisibles justo en el dispositivo principal. Eso descartó de entrada media familia de soluciones, e hizo que las tres opciones ofrecidas (separar etiquetas, burbuja agrupada, un carril por persona) fueran todas usables sin hover — la burbuja pedía un toque, no un hover.
+
+Vale anotarlo porque es un modo de falla que **no aparece en ningún test**: se ve en un teléfono real o no se ve.
+
+### Por qué este ítem no tiene `fase-14-27-*.md`
+
+Todos los ítems anteriores escribieron su spec antes del código. Éste no, y conviene que quede escrito el criterio para que no se lea como un descuido ni como el nuevo default:
+
+Es **frontend puro**: no toca schema, ni endpoint, ni evento, ni un solo campo de DTO. `GET /api/scoring/grupos/:grupoId/umbrales` y `puntajesDeGrupo` ya traían exactamente lo que hace falta. No había nada que especificar que no fuera decisión de presentación, y esas se cerraron con José en la sesión, con opciones concretas y previsualizadas.
+
+Escribir la spec **después** de implementar habría sido peor que no escribirla: un archivo fechado como decisión previa que en realidad describe lo ya hecho. Es exactamente la clase de reescritura retroactiva que el protocolo de esta carpeta existe para evitar (regla 6 de `CLAUDE.md` aplicada a la documentación). Las decisiones quedaron en el índice de `fase-14-post-mvp.md` y acá.
+
+**En cuanto un ítem toque backend, vuelve la spec antes del código.**
+
+### Qué se ejecutó
+
+Tres archivos nuevos y una pantalla tocada, todo en `app-web`:
+
+- **`core/termometro.ts`** — la geometría: escala en puntos, bandas por zona, separación de etiquetas y promedio del grupo. Sin Angular adentro.
+- **`core/termometro.spec.ts`** — 20 tests.
+- **`paginas/tutor/termometro-zonas.component.ts`** — presentacional puro, recibe umbrales y participantes ya cargados.
+- **`paginas/tutor/resumen-grupo.page.ts`** — selector `Lista` / `Termómetro` sobre la sección «Cómo van».
+
+### Decisiones cerradas con José en la sesión
+
+1. **Etiquetas que se separan solas, con línea guía al punto real.** Descartadas la burbuja «+3» (pide un toque para saber quiénes son) y el carril por participante (imposible que se tapen, pero se pierde el «todos en el mismo termómetro», que era el pedido).
+2. **Selector de vistas, una a la vez y recordada** — no las dos apiladas. El largo del resumen es justo lo que el #23 T3 vino a arreglar; agregar un bloque permanente lo habría desandado.
+3. **La zona abierta se dibuja con el alto de la anterior, más una flecha.** Descartado el techo dinámico (la escala se deforma cada vez que alguien suma puntos y deja de poder compararse entre semanas) y la meta configurable (era la más motivadora, pero pedía un campo nuevo en la config de scoring — backend, o sea otro ítem).
+4. **Solo el termómetro por ahora.** Se ofrecieron pista de carrera horizontal, podio y evolución diaria; las tres descartadas. La evolución además habría necesitado un endpoint de histórico por día que hoy no existe.
+
+### Decisiones de implementación y desviaciones
+
+- **Escala lineal en puntos, no bandas de igual alto.** Con los umbrales del seed, Verde mide 25 puntos y Rojo 10, así que Verde ocupa 33,3 % del tubo y Rojo 13,3 %. Igualar las bandas se ve más prolijo y es mentira: la altura de una marca dejaría de significar su puntaje.
+- **El mercurio es el promedio del grupo, no un participante.** Un termómetro muestra *una* temperatura. Acá esa temperatura es «cómo viene el grupo» y las personas son las marcas sobre la escala. **El descalificado no cuenta para el promedio** —su puntaje ya no representa cómo viene la semana— pero **sí se dibuja** como marca, atenuado: sigue siendo alguien que está ahí.
+- **Los bordes entre zonas salen del `puntosMin` de la de arriba, no del `puntosMax + 1` de la de abajo.** Si un Grupo dejó un hueco al configurar sus umbrales, así se reparte en vez de dibujar una franja muerta. `calcularCortes` además fuerza monotonía: umbrales mal cargados deforman el dibujo pero no rompen la división.
+- **La separación de etiquetas se comprime antes que desbordar.** Con muchos participantes la separación pedida no entra en 100 %, así que se recorta a `100 / cantidad`. Hay test con 20 participantes: todas las etiquetas quedan dentro del tubo y en orden estricto.
+- **El tubo crece con la cantidad de gente** (300–520 px). Con alto fijo, 12 participantes quedaban encimados aunque el algoritmo los separara — la separación es un porcentaje, y un porcentaje de poco alto son pocos píxeles.
+- **`localStorage` para la vista elegida** (`dorado:resumen-vista`), con `try/catch` por si está bloqueado. **Es el primer uso de `localStorage` en `app-web`** y por eso quedó comentado en el código: la regla 7 de `CLAUDE.md` prohíbe guardar **tokens** ahí, y esto es una preferencia de presentación sin ningún dato de sesión. Si se quiere revertir, es cambiarlo por un signal en memoria.
+- **Quien se pasa del techo se ancla arriba con `↑`, no se sale del tubo.** Es el precio de la decisión 3 y se hace visible en vez de disimularse: con los umbrales del seed, 78 puntos quedan sobre un techo de 75.
+- **Todos los colores salen de `UmbralZona.colorHex`.** Ninguno está escrito en el componente; un grupo con otras zonas dibuja su propio termómetro. El único hex hardcodeado es el gris de «sin promedio».
+
+### Verificación
+
+`nx test app-web` **149/149** (20 nuevos, todos sobre `core/termometro.ts`) · `nx lint app-web` y `nx build app-web` verdes. Backend sin tocar: no hubo migración ni cambio de contrato.
+
+Se armó además una **réplica estática** del componente con la geometría exacta que devuelve `construirEscala` para el caso real (seis participantes, umbrales del seed), y se revisó contra ella. Sirvió para confirmar el caso que motivó el ítem: Lucas 44 / Emma 43 / Joaco 41 caen casi pegados sobre el tubo y sus tres nombres se leen sin superponerse.
+
+### Qué falta / verificar la próxima sesión
+
+1. **No se levantó la app en el navegador.** Es lo primero a hacer: la geometría está cubierta por tests y por la réplica, pero el render real no. Mirar en particular el bulbo asomando bajo el tubo, las líneas guía en pantalla angosta y que la columna de etiquetas no se coma el nombre largo.
+2. **Probarlo en un teléfono de verdad**, no en el emulador angosto del navegador. Todo el diseño se eligió para que funcione sin hover; eso solo se confirma en el dispositivo.
+3. **Preguntarle a la mamá de José si es el termómetro que tenía en la cabeza.** El ítem nace de un pedido de ella y quedó verificado solo contra criterios técnicos.
+4. **La lista sigue siendo la vista por default.** Si se confirma que el termómetro es el que se usa, hay una decisión chica pendiente: cambiar el default o dejar que lo decida la preferencia guardada de cada uno (hoy es lo segundo).
