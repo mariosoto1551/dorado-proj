@@ -106,6 +106,25 @@ export class EnvSchema {
   @IsString()
   OPENAI_MODEL?: string;
 
+  /**
+   * Base de la API del proveedor (fase-14-29 tanda 7). Default: la de OpenAI.
+   *
+   * Existe **solo para poder stubbear el proveedor en la suite E2E**, y es la
+   * única forma honesta de testear este servicio: la alternativa —una rama
+   * `if (esTest)` dentro de `OpenAiService`— haría que lo que corre en la
+   * suite no sea lo que corre en producción, justo en el componente donde eso
+   * más importa. Con esto, el cliente HTTP, el parseo de la respuesta y la
+   * contabilidad son **los mismos**; lo único que cambia es a quién le habla.
+   *
+   * Producción no la define: el default es la URL real.
+   */
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsOptional()
+  @Matches(/^https?:\/\/.+/, {
+    message: 'OPENAI_BASE_URL debe ser una URL http(s)://',
+  })
+  OPENAI_BASE_URL?: string;
+
   @IsOptional()
   @IsString()
   LOG_LEVEL?: string;

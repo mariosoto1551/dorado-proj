@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { EventoIaSse, PropuestaIaDto } from '@dorado/shared-types';
+
 import type { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import type { HerramientasService } from '../herramientas/herramientas.service';
 import type { OpenAiService } from '../proveedor/openai.service';
@@ -44,6 +46,7 @@ function crearMocks(respuestas: RespuestaDelProveedor[]) {
       propuestaId: 'prop-1',
       cantidad: 2,
       mensaje: 'Propuesta armada con 2 operación(es).',
+      propuesta: { id: 'prop-1', tipo: 'CREAR_ACTIVIDADES' } as unknown as PropuestaIaDto,
     })),
   } as unknown as PropuestasService;
 
@@ -221,5 +224,101 @@ describe('LoopService', () => {
 
     expect(resultado.texto).not.toBe('');
     expect(resultado.texto).toContain('sin espacio');
+  });
+
+  /**
+   * El progreso (fase-14-29 tanda 6). Lo que se afirma acá es que el loop
+   * **avisa antes de empezar cada herramienta y no solo al terminarla**: si
+   * solo avisara al final, la pantalla estaría en blanco justo durante los
+   * segundos que la herramienta tarda, que es todo el problema que el stream
+   * viene a resolver.
+   */
+  describe('progreso', () => {
+    it('avisa antes y después de cada herramienta, y manda la propuesta entera', async () => {
+      const { servicio } = crearMocks([
+        respuesta({ llamadas: [{ callId: 'c1', nombre: 'listar_actividades', argumentos: {} }] }),
+        respuesta({
+          llamadas: [
+            { callId: 'c2', nombre: 'proponer_crear_actividades', argumentos: { actividades: [] } },
+          ],
+        }),
+        respuesta({ texto: 'Listo' }),
+      ]);
+      const eventos: EventoIaSse[] = [];
+
+      await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1', (evento) => eventos.push(evento));
+
+      expect(eventos).toEqual([
+        { tipo: 'herramienta', nombre: 'listar_actividades', estado: 'corriendo' },
+        { tipo: 'herramienta', nombre: 'listar_actividades', estado: 'ok' },
+        { tipo: 'herramienta', nombre: 'proponer_crear_actividades', estado: 'corriendo' },
+        { tipo: 'herramienta', nombre: 'proponer_crear_actividades', estado: 'ok' },
+        { tipo: 'propuesta', propuesta: { id: 'prop-1', tipo: 'CREAR_ACTIVIDADES' } },
+      ]);
+    });
+
+    it('marca error la herramienta que falló, sin cortar el turno', async () => {
+      const { servicio, herramientas } = crearMocks([
+        respuesta({ llamadas: [{ callId: 'c', nombre: 'inventada', argumentos: {} }] }),
+        respuesta({ texto: 'ah, perdón' }),
+      ]);
+      const eventos: EventoIaSse[] = [];
+
+      vi.mocked(herramientas.ejecutar).mockResolvedValueOnce({
+        ok: false,
+        error: 'No existe una herramienta llamada "inventada".',
+      });
+
+      const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1', (evento) =>
+        eventos.push(evento)
+      );
+
+      // Mostrar «leyó el catálogo» en verde cuando en realidad falló es peor
+      // que no mostrar nada: el Tutor razonaría sobre datos que no se leyeron.
+      expect(eventos.at(-1)).toEqual({ tipo: 'herramienta', nombre: 'inventada', estado: 'error' });
+      expect(resultado.texto).toBe('ah, perdón');
+    });
+
+    it('una propuesta rechazada NO se manda por el stream', async () => {
+      const { servicio, propuestas } = crearMocks([
+        respuesta({
+          llamadas: [{ callId: 'c', nombre: 'proponer_crear_actividades', argumentos: {} }],
+        }),
+        respuesta({ texto: 'corregí' }),
+      ]);
+      const eventos: EventoIaSse[] = [];
+
+      vi.mocked(propuestas.armar).mockResolvedValueOnce({
+        ok: false,
+        error: 'actividades.0.valorPuntos: se esperaba un número.',
+      });
+
+      await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1', (evento) => eventos.push(evento));
+
+      // Decisión 11: no se guardó nada, así que no hay tarjeta que dibujar.
+      expect(eventos.some((evento) => evento.tipo === 'propuesta')).toBe(false);
+      expect(eventos.at(-1)).toEqual({
+        tipo: 'herramienta',
+        nombre: 'proponer_crear_actividades',
+        estado: 'error',
+      });
+    });
+
+    it('si emitir falla, el turno termina igual y la contabilidad sobrevive', async () => {
+      const { servicio } = crearMocks([
+        respuesta({ llamadas: [{ callId: 'c', nombre: 'listar_actividades', argumentos: {} }] }),
+        respuesta({ texto: 'Listo' }),
+      ]);
+
+      // El caso real: el Tutor cerró la pestaña y el socket murió. Si esto
+      // subiera, se perdería el ResultadoLoop con todo lo que ya se gastó — o
+      // sea que cortar la conexión saldría gratis (Parte E, punto 6).
+      const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1', () => {
+        throw new Error('write after end');
+      });
+
+      expect(resultado.texto).toBe('Listo');
+      expect(resultado.tokensTotales).toBe(300);
+    });
   });
 });

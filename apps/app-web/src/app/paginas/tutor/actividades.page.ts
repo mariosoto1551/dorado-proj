@@ -35,6 +35,7 @@ import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
 import type { CrearActividadRequest } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
+import { IaApiService } from '../../core/api/ia-api.service';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { describirDias, DIAS_SEMANA } from '../../core/dias-semana';
 import {
@@ -329,6 +330,39 @@ const SIN_DESTINATARIO: string[] = [];
         <ui-estado-vacio class="mt-6">
           Todavía no hay actividades. Creá la primera.
         </ui-estado-vacio>
+
+        <!--
+          fase-14-29: con el catálogo vacío, esta ES la acción principal de la
+          pantalla. Veinte actividades son veinte formularios, y quien recién
+          empieza no sabe cuánto vale «tender la cama» ni si conviene que sea
+          obligatoria — que es exactamente el problema que el asistente resuelve.
+          Solo aparece con la feature usable: un atajo a una pantalla que no
+          funciona es peor que no tener el atajo.
+        -->
+        @if (asistenteDisponible()) {
+          <a
+            [routerLink]="['/grupos', grupoId(), 'asistente']"
+            [queryParams]="{ pregunta: PREGUNTA_CATALOGO }"
+            class="tarjeta tarjeta-accionable mt-3 flex items-center gap-3"
+          >
+            <span
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-marca-50 text-marca-600 dark:bg-marca-900/40 dark:text-marca-300"
+            >
+              <span class="h-5 w-5"><app-icono nombre="chispa" /></span>
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block font-semibold text-slate-900 dark:text-white">
+                Pedirle ayuda a la IA
+              </span>
+              <span class="block text-xs text-slate-500 dark:text-slate-400">
+                Te arma una propuesta de catálogo para este grupo. Vos decidís qué se aplica.
+              </span>
+            </span>
+            <span class="h-5 w-5 shrink-0 text-slate-300 dark:text-slate-600">
+              <app-icono nombre="chevron" />
+            </span>
+          </a>
+        }
       } @else {
         <!-- fase-14-24: buscador + secciones por destinatario. Antes esto era un
              único @for en orden de creación: con 40 actividades era imposible
@@ -1038,6 +1072,17 @@ const SIN_DESTINATARIO: string[] = [];
 })
 export class ActividadesPage {
   readonly grupoId = input.required<string>();
+
+  /** fase-14-29: la entrada de contexto al asistente, con el catálogo vacío. */
+  protected readonly PREGUNTA_CATALOGO =
+    'El catálogo de este grupo está vacío. Mirá las zonas y quiénes son los ' +
+    'integrantes, y proponeme un catálogo de actividades para arrancar.';
+
+  private readonly ia = inject(IaApiService);
+
+  protected readonly asistenteDisponible = computed(
+    () => this.ia.configuracion()?.puedeUsarse === true
+  );
 
   protected readonly TP = TipoPuntaje;
 

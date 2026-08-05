@@ -1,7 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ConfiguracionIaDto, PrincipalType, Rol, TenantContext } from '@dorado/shared-types';
+import {
+  ConfiguracionIaDto,
+  EventoIaSse,
+  PrincipalType,
+  Rol,
+  TenantContext,
+} from '@dorado/shared-types';
 
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
@@ -61,7 +67,13 @@ function crearMocks(opciones: Opciones = {}) {
         updateMany: vi.fn(async () => ({ count: 1 })),
       },
       mensaje: {
-        create: vi.fn(async () => ({})),
+        create: vi.fn(async () => ({
+          id: 'msg-1',
+          rol: 'USUARIO',
+          contenido: 'Hola',
+          herramienta: null,
+          createdAt: new Date('2026-08-04T12:00:00.000Z'),
+        })),
         createMany: vi.fn(async () => ({ count: 1 })),
         findMany: vi.fn(async () => []),
       },
@@ -338,6 +350,93 @@ describe('ConversacionesService', () => {
 
       expect(claves[0]).toBe(claves[1]);
       expect(claves[2]).not.toBe(claves[0]);
+    });
+  });
+
+  describe('progreso (tanda 6)', () => {
+    it('al crear, el id de la conversación sale ANTES de que arranque el loop', async () => {
+      const { servicio, loop } = crearMocks();
+      const eventos: EventoIaSse[] = [];
+      let habiaEventosAlEntrarAlLoop = 0;
+
+      vi.mocked(loop.ejecutar).mockImplementationOnce(async () => {
+        habiaEventosAlEntrarAlLoop = eventos.length;
+
+        return {
+          texto: 'ok',
+          mensajes: [],
+          tokensTotales: 0,
+          cortadoPorTope: false,
+          propuestasArmadas: [],
+        };
+      });
+
+      await servicio.crear(TENANT, { grupoId: 'grupo-1', primerMensaje: 'hola' }, (evento) =>
+        eventos.push(evento)
+      );
+
+      // Sin esto el navegador pasa el turno entero sin saber contra qué
+      // conversación habla, y un corte a mitad le deja una conversación que
+      // existe en la base y que su pantalla no conoce.
+      expect(eventos[0]).toEqual({
+        tipo: 'conversacion',
+        conversacion: expect.objectContaining({ id: 'conv-1' }),
+      });
+      expect(habiaEventosAlEntrarAlLoop).toBe(2);
+    });
+
+    it('manda el mensaje del usuario con su id real y el texto al terminar', async () => {
+      const { servicio } = crearMocks();
+      const eventos: EventoIaSse[] = [];
+
+      await servicio.enviarMensaje(TENANT, 'conv-1', 'hola', (evento) => eventos.push(evento));
+
+      expect(eventos).toEqual([
+        { tipo: 'mensaje', mensaje: expect.objectContaining({ id: 'msg-1', rol: 'USUARIO' }) },
+        { tipo: 'texto', texto: 'respuesta' },
+      ]);
+    });
+
+    it('sin emisor no cambia nada: el turno corre igual', async () => {
+      const { servicio, loop } = crearMocks();
+
+      const salida = await servicio.enviarMensaje(TENANT, 'conv-1', 'hola');
+
+      // El request/response de siempre no tiene ninguna rama nueva por existir
+      // el stream — es el mismo camino con el callback en undefined.
+      expect(salida.tokensConsumidosMes).toBe(1234);
+      expect(vi.mocked(loop.ejecutar).mock.calls[0][4]).toBeUndefined();
+    });
+
+    it('un fallo del proveedor NO manda el texto, pero escribe la contabilidad', async () => {
+      const parcial = {
+        texto: '',
+        mensajes: [
+          {
+            rol: 'ASISTENTE' as const,
+            contenido: '',
+            herramienta: null,
+            tokensEntrada: 100,
+            tokensSalida: 0,
+            costoMicroUsd: 100,
+            modelo: 'gpt-5.6-terra',
+          },
+        ],
+        tokensTotales: 100,
+        cortadoPorTope: false,
+        propuestasArmadas: [],
+      };
+      const { servicio, prisma } = crearMocks({
+        loopLanza: new ErrorConConsumo(new Error('503'), parcial),
+      });
+      const eventos: EventoIaSse[] = [];
+
+      await servicio
+        .enviarMensaje(TENANT, 'conv-1', 'hola', (evento) => eventos.push(evento))
+        .catch(() => undefined);
+
+      expect(eventos.some((evento) => evento.tipo === 'texto')).toBe(false);
+      expect(prisma.client.mensaje.createMany).toHaveBeenCalled();
     });
   });
 });

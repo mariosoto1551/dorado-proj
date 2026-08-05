@@ -40,9 +40,22 @@ type TipoPropuesta =
   | 'PRECIOS_TIENDA'
   | 'RENDIMIENTOS_MONEDAS';
 
-/** Lo que el armador le devuelve al loop para que se lo cuente al modelo. */
+/**
+ * Lo que el armador le devuelve al loop para que se lo cuente al modelo.
+ *
+ * Lleva también la propuesta **entera** (fase-14-29 tanda 6): la fila recién
+ * creada ya está en memoria, así que mandarla por el stream cuesta cero y hace
+ * que la tarjeta aparezca en pantalla en el momento en que se armó, sin una
+ * segunda llamada del navegador.
+ */
 export type ResultadoArmado =
-  | { ok: true; propuestaId: string; cantidad: number; mensaje: string }
+  | {
+      ok: true;
+      propuestaId: string;
+      cantidad: number;
+      mensaje: string;
+      propuesta: PropuestaIaDto;
+    }
   | { ok: false; error: string };
 
 /**
@@ -432,6 +445,7 @@ export class PropuestasService {
       ok: true,
       propuestaId: propuesta.id,
       cantidad: operaciones.length,
+      propuesta: this.aDto(propuesta),
       mensaje:
         `Propuesta armada con ${operaciones.length} operación(es). La app se la está mostrando ` +
         'al Tutor para que decida. Contale en una línea qué le propusiste; no digas que ya se aplicó.',

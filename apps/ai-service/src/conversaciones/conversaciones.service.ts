@@ -18,7 +18,13 @@ import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ItemEntrada } from '../proveedor/tipos';
 import { PropuestasService } from '../propuestas/propuestas.service';
-import { ErrorConConsumo, LoopService, MensajeAPersistir, ResultadoLoop } from './loop.service';
+import {
+  EmisorProgreso,
+  ErrorConConsumo,
+  LoopService,
+  MensajeAPersistir,
+  ResultadoLoop,
+} from './loop.service';
 
 /** Largo máximo del título derivado del primer mensaje. */
 const LARGO_TITULO = 60;
@@ -61,10 +67,17 @@ export class ConversacionesService {
     return { ...this.aDto(conversacion), mensajes, propuestas };
   }
 
-  /** Crea la conversación y contesta el primer mensaje en la misma llamada. */
+  /**
+   * Crea la conversación y contesta el primer mensaje en la misma llamada.
+   *
+   * `onProgreso` es opcional y no cambia nada de lo que hace este método: el
+   * turno corre igual, escribe el mismo ledger y devuelve el mismo DTO. Lo
+   * único que agrega es que alguien se entere mientras tanto.
+   */
   async crear(
     tenant: TenantContext,
-    datos: { grupoId: string; primerMensaje: string }
+    datos: { grupoId: string; primerMensaje: string },
+    onProgreso?: EmisorProgreso
   ): Promise<ConversacionIaDetalleDto> {
     await this.asegurarUsable(tenant);
 
@@ -78,7 +91,12 @@ export class ConversacionesService {
       },
     });
 
-    await this.responder(tenant, conversacion.id, datos.primerMensaje, contexto);
+    // Primero de todo: sin esto el navegador pasa el turno entero sin saber
+    // contra qué conversación está hablando, y un corte a mitad de camino le
+    // dejaría al Tutor una conversación existente que su pantalla no conoce.
+    onProgreso?.({ tipo: 'conversacion', conversacion: this.aDto(conversacion) });
+
+    await this.responder(tenant, conversacion.id, datos.primerMensaje, contexto, onProgreso);
 
     return {
       ...this.aDto(conversacion),
@@ -91,7 +109,8 @@ export class ConversacionesService {
   async enviarMensaje(
     tenant: TenantContext,
     id: string,
-    texto: string
+    texto: string,
+    onProgreso?: EmisorProgreso
   ): Promise<{ mensajes: MensajeIaDto[]; tokensConsumidosMes: number }> {
     await this.asegurarUsable(tenant);
 
@@ -99,7 +118,7 @@ export class ConversacionesService {
     const contexto = await this.acceso.contextoPara(tenant, conversacion.grupoId);
     const desde = new Date();
 
-    await this.responder(tenant, id, texto, contexto);
+    await this.responder(tenant, id, texto, contexto, onProgreso);
 
     const nuevos = await this.prisma.client.mensaje.findMany({
       where: { conversacionId: id, createdAt: { gte: desde } },
@@ -137,9 +156,10 @@ export class ConversacionesService {
     tenant: TenantContext,
     conversacionId: string,
     texto: string,
-    contexto: ContextoHerramienta
+    contexto: ContextoHerramienta,
+    onProgreso?: EmisorProgreso
   ): Promise<void> {
-    await this.prisma.client.mensaje.create({
+    const propio = await this.prisma.client.mensaje.create({
       data: {
         conversacionId,
         organizacionId: tenant.organizacionId,
@@ -147,6 +167,11 @@ export class ConversacionesService {
         contenido: texto,
       },
     });
+
+    // El mensaje del usuario vuelve con su id real: la pantalla lo dibujó
+    // optimista al apretar Enter y con esto lo reconcilia, en vez de quedarse
+    // con una fila inventada que no existe en el ledger.
+    onProgreso?.({ tipo: 'mensaje', mensaje: this.mensajeADto(propio) });
 
     const historial = await this.historialPara(conversacionId);
     let resultado: ResultadoLoop | null = null;
@@ -159,8 +184,11 @@ export class ConversacionesService {
           safetyIdentifier: this.safetyIdentifier(tenant),
           promptCacheKey: this.promptCacheKey(tenant.organizacionId, contexto.grupoId),
         },
-        conversacionId
+        conversacionId,
+        onProgreso
       );
+
+      onProgreso?.({ tipo: 'texto', texto: resultado.texto });
     } catch (error) {
       if (error instanceof ErrorConConsumo) {
         // Lo gastado hasta el fallo queda para que el `finally` lo escriba, y

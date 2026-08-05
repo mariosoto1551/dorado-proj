@@ -1,0 +1,265 @@
+import { describe, expect, it } from 'vitest';
+
+import type {
+  ActividadDto,
+  OperacionPropuestaIaDto,
+  ProductoTiendaDto,
+  PropuestaIaDto,
+  RendimientoAccionDto,
+  TipoPropuestaIa,
+} from '@dorado/shared-types';
+
+import { armarFilas, estaCerrada, horasHastaVencer } from './propuesta-ia';
+
+function propuesta(
+  tipo: TipoPropuestaIa,
+  operaciones: Array<Partial<OperacionPropuestaIaDto>>
+): PropuestaIaDto {
+  return {
+    id: 'prop-1',
+    conversacionId: 'conv-1',
+    grupoId: 'grupo-1',
+    tipo,
+    estado: 'BORRADOR',
+    venceEn: '2026-08-05T12:00:00.000Z',
+    aplicadaEn: null,
+    resultado: null,
+    createdAt: '2026-08-04T12:00:00.000Z',
+    operaciones: operaciones.map((operacion, i) => ({
+      opId: `op-${i + 1}`,
+      metodo: 'POST',
+      ruta: '/activity/grupos/grupo-1/actividades',
+      body: {},
+      etiqueta: '',
+      ...operacion,
+    })),
+  };
+}
+
+function actividad(parcial: Partial<ActividadDto>): ActividadDto {
+  return {
+    id: 'act-1',
+    nombre: 'Tender la cama',
+    valorPuntos: 5,
+    diasSemana: [],
+    rolesPermitidos: [],
+    ...parcial,
+  } as ActividadDto;
+}
+
+describe('armarFilas', () => {
+  describe('alta de actividades', () => {
+    it('pone el nombre en el título y no lo repite abajo', () => {
+      const filas = armarFilas(
+        propuesta('CREAR_ACTIVIDADES', [
+          { body: { nombre: 'Lavar los platos', valorPuntos: 8, tipoPuntaje: 'OPCIONAL' } },
+        ])
+      );
+
+      expect(filas[0].titulo).toBe('Crear «Lavar los platos»');
+      expect(filas[0].cambios.map((c) => c.campo)).toEqual(['Tipo', 'Puntos']);
+    });
+
+    it('el orden de los campos no depende del orden en que los emitió el modelo', () => {
+      const alDerecho = armarFilas(
+        propuesta('CREAR_ACTIVIDADES', [
+          { body: { nombre: 'X', tipoPuntaje: 'OPCIONAL', valorPuntos: 8, alcance: 'EQUIPO' } },
+        ])
+      );
+      const alReves = armarFilas(
+        propuesta('CREAR_ACTIVIDADES', [
+          { body: { alcance: 'EQUIPO', valorPuntos: 8, tipoPuntaje: 'OPCIONAL', nombre: 'X' } },
+        ])
+      );
+
+      // Dos propuestas del mismo tipo tienen que leerse igual: el orden de las
+      // claves que emite el modelo es cosa suya y cambia entre respuestas.
+      expect(alReves[0].cambios).toEqual(alDerecho[0].cambios);
+      expect(alDerecho[0].cambios.map((c) => c.campo)).toEqual(['Tipo', 'Puntos', 'Alcance']);
+    });
+
+    it('un alta no tiene valor anterior', () => {
+      const filas = armarFilas(
+        propuesta('CREAR_ACTIVIDADES', [{ body: { nombre: 'X', valorPuntos: 8 } }])
+      );
+
+      expect(filas[0].cambios[0].antes).toBeNull();
+    });
+
+    it('traduce los enums y los días a castellano', () => {
+      const filas = armarFilas(
+        propuesta('CREAR_ACTIVIDADES', [
+          {
+            body: {
+              nombre: 'X',
+              tipoPuntaje: 'OBLIGATORIA',
+              tipoLimiteTiempo: 'DEADLINE',
+              comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+              diasSemana: [1, 2, 3, 4, 5],
+              siempreVisible: true,
+            },
+          },
+        ])
+      );
+      const porCampo = new Map(filas[0].cambios.map((c) => [c.campo, c.despues]));
+
+      expect(porCampo.get('Tipo')).toBe('Obligatoria');
+      expect(porCampo.get('Límite de tiempo')).toBe('Con hora tope');
+      expect(porCampo.get('Al cerrar la sesión')).toBe('Hay que confirmarla');
+      expect(porCampo.get('Días')).toBe('de lunes a viernes');
+      expect(porCampo.get('Siempre visible')).toBe('Sí');
+    });
+
+    it('un campo en null se lee como «—» y no como «null»', () => {
+      const filas = armarFilas(
+        propuesta('CREAR_ACTIVIDADES', [{ body: { nombre: 'X', deadlineHora: null } }])
+      );
+
+      expect(filas[0].cambios[0].despues).toBe('—');
+    });
+  });
+
+  describe('edición de actividades', () => {
+    const contexto = {
+      actividades: [actividad({ id: 'act-1', nombre: 'Tender la cama', valorPuntos: 5 })],
+    };
+
+    it('muestra el valor viejo y el nuevo', () => {
+      const filas = armarFilas(
+        propuesta('EDITAR_ACTIVIDADES', [
+          { metodo: 'PATCH', ruta: '/activity/actividades/act-1', body: { valorPuntos: 12 } },
+        ]),
+        contexto
+      );
+
+      expect(filas[0].titulo).toBe('Editar «Tender la cama»');
+      expect(filas[0].cambios).toEqual([{ campo: 'Puntos', antes: '5', despues: '12' }]);
+    });
+
+    /**
+     * El filtro que hace usable la tarjeta. El modelo **no puede omitir una
+     * propiedad declarada** (lo aprendió la tanda 5), así que una edición que
+     * solo sube los puntos igual llega con veinte campos. Sin este filtro, el
+     * único campo que cambia queda escondido entre diecinueve que no.
+     */
+    it('saltea los campos que llegan con el valor que ya tenían', () => {
+      const filas = armarFilas(
+        propuesta('EDITAR_ACTIVIDADES', [
+          {
+            metodo: 'PATCH',
+            ruta: '/activity/actividades/act-1',
+            body: { nombre: 'Tender la cama', valorPuntos: 12, diasSemana: [] },
+          },
+        ]),
+        contexto
+      );
+
+      expect(filas[0].cambios).toHaveLength(1);
+      expect(filas[0].cambios[0].campo).toBe('Puntos');
+    });
+
+    it('sin contexto se dibuja igual, pero sin inventar un valor anterior', () => {
+      const filas = armarFilas(
+        propuesta('EDITAR_ACTIVIDADES', [
+          { metodo: 'PATCH', ruta: '/activity/actividades/act-1', body: { valorPuntos: 12 } },
+        ])
+      );
+
+      expect(filas[0].titulo).toBe('Editar «una actividad»');
+      expect(filas[0].cambios[0].antes).toBeNull();
+    });
+
+    it('traduce ids de roles a nombres', () => {
+      const filas = armarFilas(
+        propuesta('EDITAR_ACTIVIDADES', [
+          {
+            metodo: 'PATCH',
+            ruta: '/activity/actividades/act-1',
+            body: { rolesPermitidos: ['rol-1', 'rol-2'] },
+          },
+        ]),
+        { ...contexto, roles: new Map([['rol-1', 'Cocina']]) }
+      );
+
+      // El id que no está en el mapa se muestra recortado en vez de
+      // ocultarse: algo ilegible es una señal de que hay que mirar; ocultarlo
+      // haría que la tarjeta mienta por omisión.
+      expect(filas[0].cambios[0].despues).toBe('Cocina, rol-2…');
+    });
+
+    it('una lista vacía se lee «todos», que es lo que significa', () => {
+      const filas = armarFilas(
+        propuesta('EDITAR_ACTIVIDADES', [
+          {
+            metodo: 'PATCH',
+            ruta: '/activity/actividades/act-1',
+            body: { rolesPermitidos: [] },
+          },
+        ]),
+        { actividades: [actividad({ id: 'act-1', rolesPermitidos: ['rol-1'] })] }
+      );
+
+      expect(filas[0].cambios[0]).toEqual({ campo: 'Roles', antes: 'rol-1…', despues: 'todos' });
+    });
+  });
+
+  it('precio de tienda: nombre del producto y monedas viejas contra nuevas', () => {
+    const producto = { id: 'prod-1', nombre: 'Una hora de tele', precio: 40 } as ProductoTiendaDto;
+    const filas = armarFilas(
+      propuesta('PRECIOS_TIENDA', [
+        { metodo: 'PATCH', ruta: '/rewards/productos/prod-1', body: { precio: 60 } },
+      ]),
+      { productos: [producto] }
+    );
+
+    expect(filas[0].titulo).toBe('Una hora de tele');
+    expect(filas[0].cambios).toEqual([{ campo: 'Precio', antes: '40 🪙', despues: '60 🪙' }]);
+  });
+
+  it('rendimientos: una sola operación se abre en una línea por acción', () => {
+    const actuales = [
+      { origenId: 'act-1', nombre: 'Tender la cama', monedas: 2 },
+      { origenId: 'act-2', nombre: 'Lavar los platos', monedas: 3 },
+    ] as RendimientoAccionDto[];
+    const filas = armarFilas(
+      propuesta('RENDIMIENTOS_MONEDAS', [
+        {
+          metodo: 'PUT',
+          ruta: '/rewards/grupos/grupo-1/rendimientos-acciones',
+          body: {
+            rendimientos: [
+              { origenId: 'act-1', monedas: 5 },
+              { origenId: 'act-2', monedas: 3 },
+            ],
+          },
+        },
+      ]),
+      { rendimientos: actuales }
+    );
+
+    // El PUT del #28 manda todo junto, así que la propuesta tiene UNA
+    // operación aunque toque veinte acciones. Aprobar «actualizar 20 acciones»
+    // sin ver cuáles sería aprobar a ciegas.
+    expect(filas).toHaveLength(1);
+    expect(filas[0].titulo).toBe('Lo que paga cada acción (2)');
+    expect(filas[0].cambios).toEqual([
+      { campo: 'Tender la cama', antes: '2 🪙', despues: '5 🪙' },
+      { campo: 'Lavar los platos', antes: '3 🪙', despues: '3 🪙' },
+    ]);
+  });
+});
+
+describe('estado de la propuesta', () => {
+  it('solo BORRADOR se puede aplicar', () => {
+    expect(estaCerrada(propuesta('CREAR_ACTIVIDADES', []))).toBe(false);
+    expect(estaCerrada({ ...propuesta('CREAR_ACTIVIDADES', []), estado: 'VENCIDA' })).toBe(true);
+    expect(estaCerrada({ ...propuesta('CREAR_ACTIVIDADES', []), estado: 'APLICADA' })).toBe(true);
+  });
+
+  it('cuenta las horas que le quedan, sin bajar de cero', () => {
+    const p = propuesta('CREAR_ACTIVIDADES', []);
+
+    expect(horasHastaVencer(p, new Date('2026-08-05T02:30:00.000Z'))).toBe(9);
+    expect(horasHastaVencer(p, new Date('2026-08-06T00:00:00.000Z'))).toBe(0);
+  });
+});

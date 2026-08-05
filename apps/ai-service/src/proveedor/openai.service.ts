@@ -4,7 +4,14 @@ import { ConfigService } from '@nestjs/config';
 import { ProveedorNoDisponibleException } from '../comun/excepciones';
 import { PedidoAlProveedor, RespuestaDelProveedor } from './tipos';
 
-const URL_RESPONSES = 'https://api.openai.com/v1/responses';
+/**
+ * Base por defecto: la API real. `OPENAI_BASE_URL` la reemplaza y **existe
+ * solo para que la suite E2E pueda stubbear al proveedor** (fase-14-29 tanda
+ * 7). La alternativa era una rama `if (esTest)` acá adentro, que haría que lo
+ * que corre en la suite no sea lo que corre en producción — justo en el
+ * archivo donde eso más importa.
+ */
+const BASE_POR_DEFECTO = 'https://api.openai.com/v1';
 
 /**
  * Timeout por llamada (Parte E, punto 9). Generoso porque un turno con
@@ -33,9 +40,15 @@ export class OpenAiService {
 
   readonly modelo: string;
 
+  private readonly urlRespuestas: string;
+
   constructor(config: ConfigService) {
     this.apiKey = config.get<string>('OPENAI_API_KEY');
     this.modelo = config.get<string>('OPENAI_MODEL') ?? 'gpt-5.6-terra';
+
+    const base = (config.get<string>('OPENAI_BASE_URL') ?? BASE_POR_DEFECTO).replace(/\/+$/, '');
+
+    this.urlRespuestas = `${base}/responses`;
   }
 
   /**
@@ -76,7 +89,7 @@ export class OpenAiService {
     let respuesta: Response;
 
     try {
-      respuesta = await fetch(URL_RESPONSES, {
+      respuesta = await fetch(this.urlRespuestas, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.apiKey}`,

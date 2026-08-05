@@ -91,6 +91,43 @@ export interface EnviarMensajeIaRequest {
   texto: string;
 }
 
+// --- Eventos SSE (fase-14-29 tanda 6) ---
+
+/**
+ * Lo que viaja por `text/event-stream` mientras el loop trabaja.
+ *
+ * **Los dos endpoints que corren el loop lo negocian por `Accept`**: con
+ * `text/event-stream` transmiten estos eventos, sin él contestan el JSON de
+ * siempre. Un turno tarda entre 20 y 50 segundos y la mayor parte de ese
+ * tiempo se va en llamadas a herramientas, así que lo que hace usable la
+ * pantalla es saber *qué está haciendo*, no ver el texto letra por letra.
+ *
+ * **El texto llega entero en un solo evento y es una decisión, no una etapa
+ * intermedia** (José, 2026-08-04): streamear los deltas del proveedor obliga a
+ * parsear su propio SSE y a sacar el `usage` del evento final, o sea a tocar
+ * el único camino del monorepo que gasta dinero — y no cambia ni la respuesta
+ * ni lo que cuesta, solo cómo aparece.
+ */
+export type EventoIaSse =
+  /** Solo al crear: el id recién asignado, para que la pantalla ya pueda navegar. */
+  | { tipo: 'conversacion'; conversacion: ConversacionIaDto }
+  /** El mensaje del usuario tal como quedó en el ledger. */
+  | { tipo: 'mensaje'; mensaje: MensajeIaDto }
+  /** Una herramienta del loop cambió de estado. `nombre` es el de la definición. */
+  | { tipo: 'herramienta'; nombre: string; estado: 'corriendo' | 'ok' | 'error' }
+  /** La respuesta para el humano, completa. */
+  | { tipo: 'texto'; texto: string }
+  /** Una propuesta armada en este turno, entera: la tarjeta se dibuja sin otra llamada. */
+  | { tipo: 'propuesta'; propuesta: PropuestaIaDto }
+  /** Cierre normal. `tokensConsumidosMes` cambia justo en este momento. */
+  | { tipo: 'fin'; tokensConsumidosMes: number }
+  /**
+   * Falla ocurrida **después** de que el stream ya empezó. Las que se conocen
+   * antes (cuota, feature, permisos) salen como status HTTP normal, porque en
+   * ese momento todavía no se escribió ninguna cabecera de stream.
+   */
+  | { tipo: 'error'; code: string; mensaje: string };
+
 /**
  * Lo que devuelve mandar un mensaje. `tokensConsumidosMes` viaja en la
  * respuesta para que la pantalla pueda mostrar el consumo sin una segunda

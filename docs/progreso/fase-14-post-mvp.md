@@ -1568,10 +1568,11 @@ cd apps/<servicio> && npx prisma migrate diff --from-config-datasource --to-sche
 
 ---
 
-## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1 a 5 EJECUTADAS (2026-08-04)
+## Ítem 29: Asistente de IA para el área del Tutor — COMPLETO, 7 de 7 tandas (2026-08-04)
 
 > Spec: `docs/phases/fase-14-29-asistente-ia.md` (escrita antes de tocar código). Índice: entrada #29 de `fase-14-post-mvp.md`.
-> **Estado: 5 de 7 tandas.** Las dos restantes están enumeradas abajo con su punto de entrada exacto.
+> **Estado: las 7 tandas ejecutadas y los 12 criterios de aceptación cubiertos.**
+> Un Tutor entra por el menú, conversa, ve la propuesta con el valor viejo al lado del nuevo y la aplica — verificado en el navegador contra OpenAI real (tanda 6) y fijado con el proveedor stubbeado para que se verifique en cada corrida (tanda 7).
 
 ### Origen (pedido de José, 2026-08-04)
 
@@ -1797,12 +1798,136 @@ Se hizo **por ruta**, con el default de la spec de Fase 3 intacto y solo `/api/a
   - Aplicado parcial → `APLICADA_PARCIAL` con las 3 filas; re-aplicar → 409; vencida → legible pero 409 al aplicar; propuesta de otra organización → 404.
 - Zod **4.4.3** es dependencia nueva del workspace.
 
-### Cómo seguir: las dos tandas que faltan
+### Tanda 6 — el frontend y el SSE (2026-08-04)
 
-Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de la spec).
+La pantalla `/asistente`, la conversión del `POST /mensajes` a SSE y el rate limit por usuario de la Parte E 5c. Es la tanda donde el ítem se vuelve algo que un Tutor puede usar.
 
-6. **Frontend**: pantalla `/asistente` en el grupo Ajustes del menú (#23 T3), chat con streaming, tarjeta de propuesta con diff, aplicar por operación con resultado por fila. La lógica del diff va en `core/propuesta-ia.ts`, testeable sin montar Angular (mismo criterio que `core/termometro.ts` del #27). **Acá se convierte el `POST /mensajes` a SSE** y se verifica que el proxy del Gateway no lo bufferee. El «Aplicar» ya tiene todo lo que necesita: cada operación trae `metodo`, `ruta` y `body`, y la tanda 5 verificó contra la API real que ejecutarlas tal cual funciona — el frontend hace un `for`, no una traducción.
-7. **E2E** (`asistente-ia.e2e.ts`) con el proveedor **stubbeado**: se testea el ruteo, la validación, la cuota, el aislamiento entre tenants y el aplicado parcial — no que el modelo proponga cosas buenas, que no es determinista ni es lo que se rompe en un deploy. Los dos cables que necesitan E2E de navegador son **el SSE a través del proxy** y **el «Aplicar» del frontend**.
+#### La decisión que José tomó antes de que se escribiera una línea
+
+Se le ofrecieron dos profundidades de streaming y eligió **«el más barato, con tal de que dé la respuesta igual de bien»**, o sea: **SSE de progreso, con el texto entero en un solo evento**. Vale dejar escrito por qué esa opción no le quita nada al producto, porque el nombre engaña:
+
+- **No cambia la respuesta ni lo que cuesta.** El proveedor cobra lo mismo con `stream: true` que sin él, y devuelve el mismo texto. Lo único que cambia es si aparece de a pedacitos o de una.
+- **Lo caro estaba en otro lado.** Streamear los deltas obliga a parsear el SSE del proveedor, a acumular los argumentos de las `function_call` a mano y a sacar el `usage` del evento final — es decir, a reescribir el único camino del monorepo que gasta dinero, y a rehacer la contabilidad del `finally` que la Parte E punto 6 exige.
+- **Y el 90% del tiempo de espera no es texto.** Medido en esta tanda: de un turno de 4,6 s, el texto tardó 2,1 s y el resto se fue en llamadas a herramientas. Lo que hace usable la pantalla es **saber qué está haciendo** («leí las actividades del grupo», «armé una propuesta»), no ver la última oración escribirse letra por letra.
+
+Los otros dos: layout de **una columna con el historial en panel** (el área Tutor ya gasta una columna en la sidebar; dos layouts era mantener dos), y el **rate limit por usuario entra en esta tanda**.
+
+#### Los dos endpoints negocian por `Accept`, y no es una transición
+
+Con `Accept: text/event-stream` transmiten; sin él contestan el JSON de siempre. **Hay dos clientes legítimos con necesidades opuestas**: el navegador, que necesita mostrar algo durante 40 segundos, y los scripts de verificación y la suite E2E de la tanda 7, que quieren un cuerpo entero que se pueda afirmar de una. La lógica es una sola — `ConversacionesService` recibe un emisor opcional y no sabe cuál de los dos lo llama; sin emisor el camino no tiene ni una rama nueva.
+
+**`POST /conversaciones` también transmite**, aunque la spec solo pide SSE en `/mensajes`: el primer mensaje corre exactamente el mismo loop, y dejarlo como request/response haría que *toda conversación nueva arranque con la pantalla congelada* — justo el momento en que el Tutor todavía no sabe si esto funciona.
+
+#### La regla del controller, que es lo único que hay que entender de él
+
+> **El canal no se abre hasta que el turno emite su primer evento.**
+
+Todo lo que rebota antes de gastar un token —el plan, el switch del dueño, la cuota, que la conversación sea de otro— sale como status HTTP de verdad: 402, 403, 404. Abrir el stream primero convertiría esos cuatro rechazos en un `200 OK` con la mala noticia adentro, y el cliente tendría que aprender a leer errores en dos lugares para saber por qué no puede hablar. Después del primer evento ya hay un 200 escrito y no hay vuelta: de ahí en más el fallo viaja como evento `error` con el mismo `code` de negocio. Por eso `transmitir()` **no tiene `finally`**: cerrar el canal en el camino del rechazo dejaría al `HttpExceptionFilter` sin dónde escribir.
+
+#### Tres cosas que se resolvieron distinto de lo obvio
+
+1. **El latido de 15 s no es decorativo.** Entre que el modelo empieza a pensar y contesta pueden pasar 50 segundos sin un solo byte, y el `proxyTimeout` de `/api/ai` es de 120 s **de inactividad**. Sin latido, un turno lento queda a un pelo del mismo 502 que encontró la tanda 5 — pero esta vez con la respuesta ya en camino.
+2. **Una emisión que falla no puede tumbar el turno.** El Tutor cierra la pestaña, el socket muere y el próximo `write` lanza. Si esa excepción subiera, se perdería el `ResultadoLoop` con todo lo gastado: **cortar la conexión saldría gratis**, que es exactamente lo que la Parte E punto 6 no permite. El emisor va envuelto en un `try/catch` que loguea y sigue, y el canal ignora todo lo que se escriba después de que el cliente cortó.
+3. **El rate limit por usuario es una capa propia, no un número más.** El limitador que ya existía corre en el paso 3 de `main.ts`, **antes** de la validación JWT — y la clave que hace falta acá es el `sub` del token, que en ese punto no existe todavía. Va como paso 5, después del JWT. **10 turnos por minuto y por persona**: un turno tarda 20–50 s con un humano esperándolo, así que nadie llega a 3 usando la app; corta bastante antes de que un bucle haga daño, y la cuota mensual sigue siendo la defensa del gasto total.
+
+#### El bug que encontró el test, y por qué importa el modo de falla
+
+`standardHeaders: 'draft-8'` de `express-rate-limit` llama a `response.append()`, que es un método de **Express** y no de `node:http`. El doble de respuesta del test no lo tenía, la librería capturó ese fallo y lo pasó a `next(err)` — o sea que **el request siguió de largo como si no hubiera límite**: 11 de 11 pasaron. Un doble incompleto convirtió «cortado» en «permitido» sin decir una palabra. En producción `append` existe (el limitador global ya lo usa y sus 429 están probados), así que era un artefacto del test, pero el modo de falla —*una defensa que se apaga en silencio*— es el que no se puede dejar pasar. La lista de métodos del doble quedó documentada como parte del test.
+
+#### Los dos hallazgos de mirar la pantalla, que ningún test iba a dar
+
+Se corrió una conversación real contra OpenAI **en el navegador**, con capturas. Las dos correcciones salieron de mirarlas:
+
+1. **El orden estaba al revés de como ocurrió.** La tarjeta de propuesta se dibujaba **arriba** del rastro de herramientas que la había producido, porque las propuestas colgaban del último mensaje y el rastro iba después del bucle. Ahora el rastro va pegado al **último mensaje del usuario** —el que lo disparó— y las tarjetas al final: usuario → rastro → respuesta → propuestas.
+2. **El consumo decía «0%» después de gastar dinero de verdad.** Una conversación entera come ≈0,4% de la cuota de PRO y `Math.round` lo dejaba en cero, que se lee como «el contador no anda». Abajo del 1% ahora dice «menos del 1%».
+
+#### La tarjeta de propuesta es el control humano de todo el ítem
+
+La decisión 2 —«la IA propone, el humano aplica»— vale exactamente lo que valga lo que se lee en esa tarjeta: **si el Tutor no entiende qué va a pasar, aprobar es un botón y no una revisión**. De ahí tres cosas:
+
+- **Nada de JSON crudo.** `core/propuesta-ia.ts` traduce el request literal del endpoint destino a filas legibles, con el valor viejo al lado del nuevo. Hay un test que afirma que la pantalla no contiene ni `valorPuntos` ni `{`.
+- **Se saltean los campos que no cambian nada.** El modelo **no puede omitir una propiedad declarada** (lo aprendió la tanda 5), así que una edición que solo sube los puntos igual llega con veinte campos; sin ese filtro, el único que importa queda escondido entre diecinueve que no.
+- **El orden de los campos es una decisión, no el orden en que el modelo los emitió** — que cambia entre respuestas y haría que dos propuestas del mismo tipo se lean distinto sin ninguna razón.
+
+Y **se confirma «Aplicar» pero no «Descartar»** (regla del #23 T4: se confirma lo que no tiene vuelta atrás). Descartar no borra nada que exista en el grupo: la propuesta nunca tocó una base.
+
+#### Otras decisiones
+
+- **El switch del `ORG_ADMIN` va en el panel de la organización, no en la configuración del grupo.** La fila de configuración es *por organización* (decisión 5) y prenderla manda datos a un tercero: un switch en la pantalla de un grupo sugeriría que se prende por grupo —lo que es falso— y lo pondría al alcance de quien no tiene esa decisión.
+- **Se escribió un parser de SSE propio (`core/sse-parser.ts`) en vez de usar `EventSource`.** `EventSource` solo hace GET y no manda cabeceras; esto es un `POST` con body y con el token en `Authorization` (regla 7: el access token vive en memoria, no hay cookie de sesión que aprovechar). Lo que se pierde con `fetch` es la reconexión automática, y **perderla es lo correcto**: un turno que se reconecta solo vuelve a llamar al proveedor y vuelve a pagarlo.
+- **El rastro de herramientas se borra al terminar el turno.** Una conversación reabierta desde el historial no lo tiene (el ledger guarda un resumen, no los pasos), así que dejarlo solo en el turno en vivo haría que la misma conversación se vea distinta antes y después de recargar.
+- **`ai-service` no ganó ningún camino de escritura.** El «Aplicar» lo hace `app-web` con el JWT del Tutor, contra `POST /api/activity/actividades` y compañía. `core/aplicar-propuesta.ts` es literalmente un `for` sobre las operaciones y hay un test que afirma que lo que se ejecuta es **el objeto tal cual lo guardó el servidor**: un `if` ahí sería la señal de que el servidor dejó de guardar la forma del endpoint destino.
+
+#### Verificación de la tanda 6
+
+| Proyecto | Antes | Después |
+|---|---|---|
+| `ai-service` | 126/126 | **148/148** (+22: 8 del canal SSE, 4 del progreso del loop, 4 del service, 6 del controller) |
+| `gateway` | 41/41 | **49/49** (+8 del rate limit por usuario) |
+| `app-web` | 159/159 | **205/205** (+46: 7 del parser SSE, 17 del diff, 12 del aplicar, 4 de herramientas, 6 de la tarjeta) |
+| El resto del workspace | — | sin cambios (activity 357, rewards 206, session 74, scoring 63, identity 48, shared-ui 24, notification 22, shared-auth 20, e2e 17, billing 9) |
+
+- **`lint` 19/19** y **`build` 18/18** verdes. Sin migraciones: esta tanda no tocó ningún schema.
+- **El cable riesgoso, medido: 9/9 checks contra el stack real.** El proxy **no bufferea** — primer evento a los **34 ms** y último a los **4638 ms** de un turno de 4639 ms; `content-type: text/event-stream` conservado y **sin `content-length`** (que sería la firma de un cuerpo entero). El camino sin `Accept` sigue contestando el JSON de siempre, y el límite por usuario cortó en el intento 9 (los dos turnos reales previos ya habían gastado 2 de los 10).
+- **Conversación real de punta a punta en el navegador, contra OpenAI**: el modelo leyó las zonas del grupo, armó una propuesta de 3 actividades, **el catálogo seguía en 0 con la propuesta a la vista**, y al apretar «Aplicar todo» las 3 quedaron creadas con el JWT del Tutor. La propuesta quedó en `APLICADA`. Se verificaron también el ítem del menú, la entrada de contexto del catálogo vacío y el panel de historial.
+- `admin-web:test` sigue fallando por no tener ningún `.spec.ts` — deuda declarada del #5, **verificada como preexistente**.
+
+#### Sobre la corrida de la suite E2E completa
+
+**Resultado final: 71 pasaron, 2 fallaron, ninguno por esta tanda** (con `E2E_UI=1`, o sea incluyendo las cuatro suites de navegador).
+
+La primera corrida había dado **4 fallos**, y perseguirlos dejó dos cosas anotadas:
+
+- **Tres eran el presupuesto de requests por IP.** Levanté el stack a mano y `scripts/e2e-up.mjs` arranca el Gateway con `RATE_LIMIT_GLOBAL=1000` / `RATE_LIMIT_AUTH=100`, que yo no había puesto. Corridas por separado las tres suites pasan, y al reintentar `confirmaciones-tutor` sola falló **otro** test distinto — que es la firma del presupuesto y no la de un bug. Con el Gateway reiniciado con esas dos variables, las cuatro suites de navegador pasan enteras. **Cuarta tanda de la fase que tropieza con esto** (#23 T1, T3, T4 y ahora esta): el síntoma siempre es «la pantalla no cargó», nunca «me limitaron».
+- **`flujo-completo` › smoke UI** falla porque `public-site` (:4321) no estaba servido. No es un fallo, es una suite que no se corrió.
+
+Y en la segunda corrida apareció uno nuevo que **vale la pena arreglar en su ítem**, porque va a volver:
+
+> **`destinatario-y-vigencia.e2e.ts:391` falla de noche y no se terminó de diagnosticar. NO es una regresión de esta tanda** — no se tocó nada de activity ni de session, y la misma prueba había pasado un rato antes en esta misma sesión.
+>
+> Lo que se sabe: el test arma `diasSemana` excluyendo **el día de hoy según `new Date().getDay()` del proceso que corre el test**, y el servidor decide con `estaDisponibleEn(programacion, fechaInicioSesion, timezone)` — o sea contra **el día en que arrancó la Sesión, en la timezone del Grupo**, no contra el reloj de quien pregunta (ver `activity-service/src/comun/programacion.ts`, que existe justamente para no cometer ese error). Devuelve **201 donde el test espera 409**.
+>
+> La primera hipótesis fue el desfasaje de zonas —esta máquina está en **UTC-4** y el Grupo en **Buenos Aires (UTC-3)**, así que entre las 23:00 y las 00:00 locales los dos lados están en días distintos— y **se descartó**: a las 00:00 locales las dos zonas ya coinciden en miércoles y la prueba **sigue fallando**. Queda como deuda del ítem #24: el día de ese test tiene que derivarse de la Sesión y de la timezone del Grupo, no del reloj del runner, pero **la causa exacta hay que confirmarla antes de escribir el arreglo** — no repetir el error de dar por buena la primera explicación que suena bien.
+
+### Tanda 7 — la suite E2E con el proveedor stubbeado (2026-08-04)
+
+La última. Convierte los dos cables que la tanda 6 ejerció a mano —el SSE por el proxy y «aplicar es un `for`»— en algo que se verifica en cada corrida.
+
+#### La decisión que hace que este stub sirva
+
+> **El proveedor se reemplaza por HTTP, no por un `if` adentro del servicio.**
+
+`OPENAI_BASE_URL` (nueva, opcional, default la URL real) apunta `ai-service` a un servidor local que habla **la Responses API de verdad**: `output` con `function_call` y `message`, `usage` con `input_tokens` / `output_tokens` / `cached_tokens`, y un `call_id` distinto por llamada. La alternativa —una rama `if (esTest)` dentro de `OpenAiService`— haría que **lo que corre en la suite no sea lo que corre en producción**, justo en el archivo donde eso más importa: el cliente HTTP, el parseo de la salida, la lectura del `usage` y la contabilidad de tokens. Con esta forma, todo ese camino es el mismo y lo único que cambia es a quién le habla.
+
+El stub (`apps/e2e/src/support/stub-proveedor.ts`) tiene un **guion como cola**: cada escenario carga los turnos que necesita y el stub los va consumiendo. Cuando se acaban, contesta un texto de cierre — así un loop que se descontrola termina en vez de colgar la suite. Y registra **todo lo que se le pidió**, que es lo que permite afirmar lo más importante de varias pruebas: **que al proveedor NO se lo llamó**.
+
+`scripts/e2e-up.mjs` suma `ai-service` (novena base, décimo proceso) y le pisa `OPENAI_API_KEY` con una de mentira además de apuntar la base al stub: si ahí quedara la key real y alguien cambiara la URL sin querer, **cada corrida de la suite gastaría plata**.
+
+#### Qué se testea, y qué explícitamente no
+
+**No se testea que el modelo proponga cosas buenas** — no es determinista y no es lo que se rompe en un deploy. Los 17 escenarios cubren el sistema: el gate de plan/switch/consentimiento, los tres roles, el stream por el proxy, la cuota, el aislamiento entre organizaciones, la validación de lo que propone, el ciclo de vida de la propuesta y el aplicado parcial. Los que más valen:
+
+- **«con la cuota agotada devuelve 402 y NO se llama al proveedor»** — el assert que importa es `stub.llamadas === 0`. El pre-flight corta antes de gastar, no después.
+- **«los tokens quedan registrados aunque el proveedor falle a mitad de camino»** — primer turno bien (500 tokens), segundo turno 500 del stub, la conversación termina en 503 y **el consumo del mes queda en 500**. Es la Parte E punto 6 escrita como test: contabilizar solo lo que termina bien deja abierta la puerta a consumir gratis cortando la conexión.
+- **«una herramienta ejecutada en el contexto de A nunca devuelve una fila de B»** — se inspecciona lo que el servicio le mandó al proveedor en el segundo turno, que lleva adentro la salida de la herramienta. Ahí se ve **qué datos salieron de verdad**: aparece la actividad de ALFA, no la de BETA, y no hay ni un `@`.
+- **«el consumo es la suma del ledger»** — compara el DTO contra un `sum()` en SQL y después consulta `information_schema` para afirmar que **no existe ninguna columna contador**.
+- **«hacia el proveedor no viaja ni la organización en claro ni un email»** — el `safety_identifier` y el `prompt_cache_key` miden 64 y no contienen ni el `organizacionId` ni el `grupoId`.
+
+#### Dos expectativas que estaban mal en el test, no en el código
+
+La suite salió 15/17 en la primera corrida y las dos correcciones fueron del test:
+
+1. **El stream devuelve `201`, no `200`.** Y está bien que así sea: negociar por `Accept` cambia **cómo** llega la respuesta, no qué pasó — y crear una conversación es crear algo. Los dos caminos, con y sin SSE, devuelven el mismo status.
+2. **Listar conversaciones sobre el grupo de otra organización da `404`, no `403`.** `AccesoGrupoService` valida la pertenencia contra identity y un grupo ajeno **no existe** para quien pregunta. Es más correcto que un 403: no se confirma que exista y sea de otro.
+
+#### Verificación de la tanda 7
+
+- **`asistente-ia.e2e.ts`: 17/17 en dos corridas seguidas**, en ~10 segundos cada una (no habla con OpenAI, así que no cuesta ni tiempo ni dinero).
+- **Criterio de aceptación 9, verificado con `ai-service` realmente abajo**: `GET /api/health` reporta `ai: "down"` (posible gracias al health controller que agregó la tanda 3) y **las 17 pruebas de navegador del área Tutor pasan igual** — el asistente no está en el camino crítico de ninguna pantalla. El shell pide su configuración y el fallo se traga en silencio: sin respuesta, el ítem del menú simplemente no aparece.
+- `ai-service` **148/148**, lint y build verdes. Sin migraciones.
+- **Suite E2E completa con `E2E_UI=1`**: ver la nota de abajo.
+
+Con esto **los 12 criterios de aceptación de la spec están cubiertos**: 1-3 y 6-8 en la suite nueva, 4 con dos organizaciones reales, 5 y 10 con el stub como testigo, 9 con el servicio abajo, 11 entre la suite y los tests de la tanda 3, y 12 con las dos corridas seguidas.
 
 ### Qué debería verificar la próxima sesión antes de seguir
 
@@ -1814,5 +1939,18 @@ Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de 
 6. **Que `scripts/e2e-up.mjs` no levanta `ai-service`.** Sigue sin tocarse, **y ahora es una decisión y no un olvido**: el criterio de aceptación 9 pide correr la suite completa con `ai-service` abajo. Antes de la tanda 7 hay que sumarlo — con las cuatro `*_INTERNAL_URL` nuevas, que son requeridas.
 7. **Que el `resumen_cumplimiento` no se vuelva caro con un grupo grande.** Hoy trae todos los `RegistroActividad` de la ventana y agrupa en memoria. Con el grupo piloto (18 actividades, 90 días) son 4,7 KB y milisegundos; con un grupo de 40 personas y un año habría que pasarlo a un `groupBy` en SQL. No es un problema todavía y no se optimizó por adelantado — queda anotado para no descubrirlo en producción.
 8. **Que los invariantes de `propuestas/invariantes.ts` son un espejo de reglas de activity y pueden derivar.** Si activity agrega una validación nueva, acá no aparece sola: el síntoma va a ser una propuesta que falla al aplicar con una fila roja. Antes de tocar las reglas de negocio del catálogo, mirar ese archivo.
-9. **Que el `POST /ai/conversaciones/:id/mensajes` todavía NO es SSE.** La Parte C lo pide así; la tanda 4 lo dejó como request/response normal a propósito, y la tanda 6 tiene que convertirlo **y verificar que el proxy del Gateway no buferee `text/event-stream`** — la propia spec marca ese cable como riesgoso, y es de la misma familia que los siete casos de *la unidad verifica la pieza y lo que falla es el cable* que la fase ya lleva.
-10. **Que el rate limit por usuario sobre `/api/ai/conversaciones/*/mensajes` no existe todavía** (Parte E, punto 5c). El seam `RATE_LIMIT_*` del #23 T4 está, pero no se le puso una regla más estricta a este prefijo: hoy una conversación cae bajo el límite global, que es más flojo de lo que la spec pide para un endpoint que gasta dinero por request.
+9. ~~Que el `POST /ai/conversaciones/:id/mensajes` todavía NO es SSE.~~ **Hecho en la tanda 6**, y el cable verificado contra el stack real: el proxy no bufferea (primer evento a los 34 ms de un turno de 4,6 s).
+10. ~~Que el rate limit por usuario no existe.~~ **Hecho en la tanda 6**: `rate-limit-ia.middleware.ts`, 10 turnos por minuto y por persona, como paso 5 de `main.ts` (después del JWT, porque la clave es el `sub`).
+
+Y lo que deja abierto la tanda 6:
+
+11. **Levantar el stack a mano NO es lo mismo que `scripts/e2e-up.mjs`.** Ese script arranca el Gateway con `RATE_LIMIT_GLOBAL=1000` y `RATE_LIMIT_AUTH=100`; sin esas dos variables la suite E2E completa falla tests que están bien, y el síntoma es «la pantalla no cargó», nunca «me limitaron». **Cuarta tanda de la fase que tropieza con esto.** Antes de culpar a un cambio, mirar con qué env arrancó el Gateway.
+12. **Una recarga completa de página volvió al login una vez de tres**, en un script temporal que hacía dos `page.goto` seguidos. El inicializador de la app espera el refresh silencioso (`provideAppInitializer` con `firstValueFrom`), así que el guard ve el estado ya resuelto: la vuelta al login significa que el servidor **rechazó** el refresh, probablemente por rotación del token entre dos recargas casi simultáneas. **No es de esta tanda** —no se tocó nada de auth— y la app real navega por router, no recargando; pero si aparece en la tanda 7 con la suite de navegador, empezar por acá y no por el asistente.
+13. **El estado del asistente se carga una vez por sesión en el shell** (`IaApiService.cargarConfiguracion()` en `ngOnInit`, solo para tutores). Es lo que decide si el menú muestra «Asistente» y si aparecen las dos entradas de contexto. Si el `ORG_ADMIN` prende el switch, **los Tutores ya logueados no ven el ítem hasta recargar** — es aceptable para algo que se prende una vez, pero está anotado por si molesta.
+14. ~~La suite E2E de la tanda 7 va a necesitar `ai-service` arriba y con la key apuntando al stub.~~ **Hecho en la tanda 7**: `scripts/e2e-up.mjs` levanta `ai-service` con `OPENAI_BASE_URL` apuntando al stub local **y con la key pisada por una de mentira**, así que ni siquiera un error de configuración hace que la suite gaste plata.
+
+Y lo que deja abierto el ítem ya terminado:
+
+15. **`OPENAI_BASE_URL` es la única variable nueva del ítem que producción NO define.** El default es la URL real; existe solo para la suite. Si algún día aparece en un `.env` de producción, es un error — no una configuración.
+16. **Los invariantes de `propuestas/invariantes.ts` siguen siendo un espejo de reglas de activity y pueden derivar** (pendiente 8, sin cambios). La suite nueva no los cubre: sus propuestas son válidas a propósito, porque lo que testea es el sistema y no el criterio del modelo.
+17. **El costo del piloto sigue sin revisarse** (pendiente 4): 2M tokens ≈ USD 3 por organización y por mes, contra un tope de USD 5 en el project `dorado-dev`. La suite ya no gasta nada, pero el número del plan sigue siendo el de la tanda 1.

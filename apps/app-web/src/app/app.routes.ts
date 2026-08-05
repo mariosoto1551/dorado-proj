@@ -136,6 +136,16 @@ export const appRoutes: Route[] = [
                 (m) => m.ConfiguracionGrupoPage
               ),
           },
+          {
+            // fase-14-29: el asistente de IA. Sin guard propio — el rol ya lo
+            // cubre `soloTutorGuard` del padre, y si la feature está apagada
+            // la pantalla lo explica en vez de rebotar a otro lado: quien
+            // llegó acá por el menú o por un enlace merece saber por qué no
+            // está disponible y qué hacer al respecto.
+            path: 'asistente',
+            loadComponent: () =>
+              import('./paginas/tutor/asistente/asistente.page').then((m) => m.AsistentePage),
+          },
           // fase-14-23 T3: la config de sesión dejó de ser pantalla y pasó a ser
           // el primer bloque del hub. La ruta vieja se conserva redirigiendo
           // para no romper enlaces guardados ni el «Configurar sesión» del

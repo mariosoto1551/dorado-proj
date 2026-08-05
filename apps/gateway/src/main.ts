@@ -7,6 +7,7 @@ import { AppModule } from './app/app.module';
 import { crearVerificadorDeOrigen } from './proxy/cors-origin';
 import { crearJwtValidationMiddleware } from './proxy/jwt-validation.middleware';
 import { crearProxyMiddlewares } from './proxy/proxy.middleware';
+import { crearRateLimitIaMiddleware } from './proxy/rate-limit-ia.middleware';
 import { crearRateLimitMiddleware } from './proxy/rate-limit.middleware';
 import { crearTenantHeaderInjector } from './proxy/tenant-header-injector.middleware';
 
@@ -46,12 +47,17 @@ async function bootstrap(): Promise<void> {
   // 4. Validación JWT RS256 (rutas exentas: lista explícita en el middleware).
   app.use(crearJwtValidationMiddleware());
 
-  // 5. Headers de contexto de tenant + x-internal-secret (ADR-00 §4).
+  // 5. Límite por usuario sobre los endpoints del asistente que llaman a
+  //    OpenAI (fase-14-29, Parte E 5c). Va acá y no junto al del paso 3
+  //    porque su clave es el `sub` del token, que antes del paso 4 no existe.
+  app.use(crearRateLimitIaMiddleware());
+
+  // 6. Headers de contexto de tenant + x-internal-secret (ADR-00 §4).
   app.use(
     crearTenantHeaderInjector(() => process.env.GATEWAY_INTERNAL_SECRET as string)
   );
 
-  // 6. Proxy por prefijo según la tabla de ruteo (503 si el servicio no está).
+  // 7. Proxy por prefijo según la tabla de ruteo (503 si el servicio no está).
   for (const proxy of crearProxyMiddlewares(logger)) {
     app.use(proxy);
   }

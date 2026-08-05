@@ -6,6 +6,7 @@ import type { GrupoDto } from '@dorado/shared-types';
 import { IconoComponent } from '../../componentes/icono.component';
 import { AuthService } from '../../core/auth/auth.service';
 import { IdentityApiService } from '../../core/api/identity-api.service';
+import { BloqueAsistenteIaComponent } from './bloque-asistente-ia.component';
 
 /**
  * Home del ORG_ADMIN (fase-14, "inicio distinto por rol"): panel de toda la
@@ -17,7 +18,7 @@ import { IdentityApiService } from '../../core/api/identity-api.service';
 @Component({
   selector: 'app-panel-organizacion',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconoComponent],
+  imports: [RouterLink, IconoComponent, BloqueAsistenteIaComponent],
   template: `
     <section class="mx-auto max-w-4xl px-4 py-8">
       <div class="flex flex-wrap items-center gap-3">
@@ -80,6 +81,10 @@ import { IdentityApiService } from '../../core/api/identity-api.service';
           }
         </div>
       }
+
+      <!-- fase-14-29: es configuración de la ORGANIZACIÓN y la decide el
+           dueño, no cada Tutor. Ver el bloque para el porqué. -->
+      <app-bloque-asistente-ia />
     </section>
   `,
 })

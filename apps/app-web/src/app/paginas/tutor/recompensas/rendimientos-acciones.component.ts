@@ -8,12 +8,14 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 import type { RendimientoAccionDto, RendimientoZonaDto } from '@dorado/shared-types';
 import { AlcanceActividad } from '@dorado/shared-types';
 
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
+import { IaApiService } from '../../../core/api/ia-api.service';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
 import { SessionApiService } from '../../../core/api/session-api.service';
 import { calcularCalibracion } from '../../../core/calibracion-monedas';
@@ -35,7 +37,7 @@ function clave(fila: RendimientoAccionDto): string {
 @Component({
   selector: 'app-rendimientos-acciones',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="tarjeta">
       <p class="text-sm font-bold text-slate-900 dark:text-white">
@@ -171,12 +173,38 @@ function clave(fila: RendimientoAccionDto): string {
             {{ guardando() ? 'Guardando…' : 'Guardar' }}
           </button>
         </div>
+
+        <!--
+          fase-14-29: la otra entrada de contexto al asistente. El aviso de
+          arriba dice cuánto rinde una semana; no dice cuánto DEBERÍA rendir, y
+          esa es justo la pregunta que nadie sabe contestar al llegar acá.
+        -->
+        @if (asistenteDisponible()) {
+          <a
+            [routerLink]="['/grupos', grupoId(), 'asistente']"
+            [queryParams]="{ pregunta: PREGUNTA_CALIBRAR }"
+            class="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-marca-600 transition hover:underline dark:text-marca-300"
+          >
+            ✨ ¿Cuánto debería pagar cada cosa? Preguntale a la IA
+          </a>
+        }
       }
     </div>
   `,
 })
 export class RendimientosAccionesComponent {
   readonly grupoId = input.required<string>();
+
+  /** fase-14-29: la pregunta que el aviso de calibración no puede contestar. */
+  protected readonly PREGUNTA_CALIBRAR =
+    'Mirá lo que paga hoy cada acción, los precios de la tienda y las zonas del ' +
+    'grupo, y decime si la economía está calibrada. Si no, proponeme los cambios.';
+
+  private readonly ia = inject(IaApiService);
+
+  protected readonly asistenteDisponible = computed(
+    () => this.ia.configuracion()?.puedeUsarse === true
+  );
 
   /** El ícono de moneda del Grupo — nunca se hardcodea (misma regla que zonas). */
   readonly icono = input<string>('🪙');

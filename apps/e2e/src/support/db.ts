@@ -22,7 +22,9 @@ export type NombreBase =
   | 'scoring_db'
   | 'rewards_db'
   | 'notification_db'
-  | 'audit_db';
+  | 'audit_db'
+  /** fase-14-29: el ledger de mensajes y las propuestas del asistente. */
+  | 'ai_db';
 
 /** Ejecuta una query contra una base puntual y cierra la conexión. */
 export async function consultar<T = Record<string, unknown>>(

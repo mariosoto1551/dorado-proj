@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { EventoIaSse, PropuestaIaDto } from '@dorado/shared-types';
+
 import { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import { HERRAMIENTAS_LECTURA } from '../herramientas/definiciones';
 import { HerramientasService } from '../herramientas/herramientas.service';
@@ -59,6 +61,38 @@ export interface ResultadoLoop {
 }
 
 /**
+ * Por dónde salen los eventos de progreso (tanda 6).
+ *
+ * El loop **no sabe que existe SSE**: recibe una función y la llama. Eso es lo
+ * que deja que el mismo camino sirva para el request/response de siempre (sin
+ * callback, sin ninguna rama nueva) y para el stream, y que los tests del loop
+ * afirmen sobre una lista de eventos en vez de sobre un socket.
+ *
+ * **Ninguna emisión puede tumbar el turno**: si el cliente cortó y escribir
+ * falla, se sigue — los tokens ya se están pagando y la contabilidad tiene que
+ * llegar al ledger igual (Parte E, punto 6).
+ */
+export type EmisorProgreso = (evento: EventoIaSse) => void;
+
+/** Las dos caras de una herramienta ejecutada, más lo que necesita el stream. */
+interface SalidaHerramienta {
+  /** Lo que se le devuelve al modelo (envuelto en `<datos_del_grupo>` si son datos). */
+  paraElModelo: string;
+  /** Lo que queda en el ledger: un resumen, no los datos (auditar, no reservir). */
+  paraElLedger: string;
+  /**
+   * La herramienta no pudo hacer lo suyo. **No corta el turno** —el error
+   * vuelve al modelo para que reintente—, pero la pantalla lo marca distinto:
+   * ver «leyó el catálogo» en verde cuando en realidad falló es peor que no
+   * mostrar nada.
+   */
+  fallo?: boolean;
+  propuestaId?: string;
+  /** Solo en las de propuesta: la fila recién armada, para mandarla por el stream. */
+  propuesta?: PropuestaIaDto;
+}
+
+/**
  * El loop de herramientas (fase-14-29 tanda 4).
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -96,8 +130,10 @@ export class LoopService {
     historial: ItemEntrada[],
     contexto: ContextoHerramienta,
     identificadores: { safetyIdentifier: string; promptCacheKey: string },
-    conversacionId: string
+    conversacionId: string,
+    onProgreso?: EmisorProgreso
   ): Promise<ResultadoLoop> {
+    const emitir = this.emisorSeguro(onProgreso);
     const entrada: ItemEntrada[] = [...historial];
     const mensajes: MensajeAPersistir[] = [];
     const propuestasArmadas: string[] = [];
@@ -162,10 +198,22 @@ export class LoopService {
       entrada.push(...respuesta.itemsSalida);
 
       for (const llamada of respuesta.llamadas) {
+        emitir({ tipo: 'herramienta', nombre: llamada.nombre, estado: 'corriendo' });
+
         const salida = await this.ejecutarHerramienta(llamada, contexto, conversacionId);
+
+        emitir({
+          tipo: 'herramienta',
+          nombre: llamada.nombre,
+          estado: salida.fallo ? 'error' : 'ok',
+        });
 
         if (salida.propuestaId) {
           propuestasArmadas.push(salida.propuestaId);
+        }
+
+        if (salida.propuesta) {
+          emitir({ tipo: 'propuesta', propuesta: salida.propuesta });
         }
 
         entrada.push({
@@ -213,7 +261,7 @@ export class LoopService {
     llamada: { nombre: string; argumentos: Record<string, unknown> },
     contexto: ContextoHerramienta,
     conversacionId: string
-  ): Promise<{ paraElModelo: string; paraElLedger: string; propuestaId?: string }> {
+  ): Promise<SalidaHerramienta> {
     // Las de PROPUESTA no ejecutan nada contra otro servicio: validan, guardan
     // una fila en ai_db y le contestan al modelo. La asimetría con las de
     // lectura es el corazón del ítem, no un detalle de ruteo.
@@ -230,7 +278,11 @@ export class LoopService {
     if (!resultado.ok) {
       // El error vuelve al modelo como texto plano, no envuelto: es un mensaje
       // del sistema y no un dato del grupo.
-      return { paraElModelo: resultado.error, paraElLedger: `error: ${resultado.error}` };
+      return {
+        paraElModelo: resultado.error,
+        paraElLedger: `error: ${resultado.error}`,
+        fallo: true,
+      };
     }
 
     const serializado = JSON.stringify(resultado.datos);
@@ -253,7 +305,7 @@ export class LoopService {
     llamada: { nombre: string; argumentos: Record<string, unknown> },
     contexto: ContextoHerramienta,
     conversacionId: string
-  ): Promise<{ paraElModelo: string; paraElLedger: string; propuestaId?: string }> {
+  ): Promise<SalidaHerramienta> {
     const armado = await this.propuestas.armar(
       llamada.nombre,
       llamada.argumentos,
@@ -269,6 +321,7 @@ export class LoopService {
           `La propuesta no se guardó porque tiene un error: ${armado.error} ` +
           'Corregilo y volvé a llamar a la herramienta.',
         paraElLedger: `rechazada: ${armado.error}`,
+        fallo: true,
       };
     }
 
@@ -276,6 +329,35 @@ export class LoopService {
       paraElModelo: armado.mensaje,
       paraElLedger: `propuesta ${armado.propuestaId} (${armado.cantidad} operaciones)`,
       propuestaId: armado.propuestaId,
+      propuesta: armado.propuesta,
+    };
+  }
+
+  /**
+   * Envuelve al emisor para que **una falla al emitir no tumbe el turno**.
+   *
+   * El caso concreto: el Tutor cierra la pestaña, el socket muere y el próximo
+   * `write` lanza. Si esa excepción sube, se pierde el `ResultadoLoop` con la
+   * contabilidad de todo lo que ya se gastó — o sea que cortar la conexión
+   * saldría gratis, que es exactamente lo que la Parte E punto 6 no permite.
+   *
+   * Sin emisor devuelve una función vacía: el camino request/response no tiene
+   * ninguna rama nueva por existir el stream.
+   */
+  private emisorSeguro(onProgreso?: EmisorProgreso): EmisorProgreso {
+    if (!onProgreso) {
+      return () => undefined;
+    }
+
+    return (evento) => {
+      try {
+        onProgreso(evento);
+      } catch (error) {
+        this.logger.debug(
+          `No se pudo emitir el progreso (${evento.tipo}): ` +
+            `${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     };
   }
 

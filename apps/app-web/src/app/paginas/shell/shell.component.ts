@@ -14,6 +14,7 @@ import { filter, map, startWith } from 'rxjs';
 
 import { IconoComponent, type NombreIcono } from '../../componentes/icono.component';
 import { EconomiaService } from '../../core/api/economia.service';
+import { IaApiService } from '../../core/api/ia-api.service';
 import { NotificationApiService } from '../../core/api/notification-api.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { GuiaSetupService } from '../../core/guia/guia-setup.service';
@@ -61,6 +62,9 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   /** fase-14-22: el chip de saldo del participante (solo si el grupo usa tienda). */
   protected readonly economia = inject(EconomiaService);
+
+  /** fase-14-29: decide si el menú muestra «Asistente». Cacheado, una llamada. */
+  private readonly ia = inject(IaApiService);
 
   private readonly router = inject(Router);
 
@@ -135,6 +139,11 @@ export class ShellComponent implements OnInit, OnDestroy {
           { ruta: `${base}/configuracion`, etiqueta: 'Configuración del grupo', icono: 'cog' },
           { ruta: `${base}/umbrales`, etiqueta: 'Zonas', icono: 'chart' },
           { ruta: `${base}/roles`, etiqueta: 'Roles', icono: 'tag' },
+          // fase-14-29: solo con la feature usable. Un ítem de menú que lleva a
+          // una pantalla que no funciona es peor que no tener el ítem.
+          ...(this.ia.configuracion()?.puedeUsarse
+            ? [{ ruta: `${base}/asistente`, etiqueta: 'Asistente', icono: 'chispa' as const }]
+            : []),
         ],
       },
     ];
@@ -167,6 +176,13 @@ export class ShellComponent implements OnInit, OnDestroy {
     // El chip de saldo del encabezado; para un tutor no hace ninguna llamada.
     if (!this.auth.esTutor()) {
       this.economia.cargar();
+    }
+
+    // Una sola vez por sesión: el estado del asistente es de la ORGANIZACIÓN,
+    // no del grupo, así que no hace falta releerlo al cambiar de grupo. El
+    // participante no lo pregunta nunca — no tiene la pantalla (decisión 14).
+    if (this.auth.esTutor()) {
+      void this.ia.cargarConfiguracion();
     }
 
     this.notif.iniciarPolling();
