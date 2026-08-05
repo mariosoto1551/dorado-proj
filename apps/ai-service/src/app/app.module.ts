@@ -10,6 +10,7 @@ import { ConversacionesModule } from '../conversaciones/conversaciones.module';
 import { HerramientasModule } from '../herramientas/herramientas.module';
 import { InternalModule } from '../internal/internal.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { PropuestasModule } from '../propuestas/propuestas.module';
 
 /**
  * ai-service (fase-14-29). Sin `EventosModule`: este servicio no publica ni
@@ -32,6 +33,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     ConfiguracionModule,
     HerramientasModule,
     ConversacionesModule,
+    PropuestasModule,
     InternalModule,
   ],
 })

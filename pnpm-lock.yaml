@@ -101,6 +101,9 @@ importers:
       rxjs:
         specifier: ~7.8.0
         version: 7.8.2
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@angular-devkit/core':
         specifier: 22.0.6

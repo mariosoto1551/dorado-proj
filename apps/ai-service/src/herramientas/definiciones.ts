@@ -25,18 +25,36 @@
  * cambio de proveedor no toca el catálogo de capacidades.
  */
 
-export interface PropiedadEsquema {
-  type: 'string' | 'integer' | 'boolean';
-  description: string;
-  enum?: string[];
-  minimum?: number;
-  maximum?: number;
-}
+/**
+ * JSON Schema mínimo, recursivo. Las de lectura usan solo escalares; las de
+ * propuesta (tanda 5) necesitan arrays de objetos — una propuesta es una lista
+ * de operaciones, no un campo suelto.
+ */
+export type PropiedadEsquema =
+  | {
+      type: 'string' | 'integer' | 'boolean' | 'number';
+      description: string;
+      enum?: string[];
+      minimum?: number;
+      maximum?: number;
+    }
+  | {
+      type: 'array';
+      description: string;
+      items: PropiedadEsquema;
+      minItems?: number;
+      maxItems?: number;
+    }
+  | ({ description: string } & EsquemaParametros);
 
 export interface EsquemaParametros {
   type: 'object';
   properties: Record<string, PropiedadEsquema>;
-  /** Vacío en todas las de lectura: el contexto lo pone el servicio, no el modelo. */
+  /**
+   * Vacío en todas las de LECTURA: el contexto lo pone el servicio, no el
+   * modelo (decisión 9). Las de propuesta sí exigen su lista de operaciones —
+   * ahí lo obligatorio es el contenido de la propuesta, nunca el tenant.
+   */
   required: string[];
   additionalProperties: false;
 }

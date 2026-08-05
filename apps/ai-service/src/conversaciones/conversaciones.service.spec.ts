@@ -12,6 +12,7 @@ import {
 import type { ConfiguracionService } from '../configuracion/configuracion.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { ConversacionesService } from './conversaciones.service';
+import type { PropuestasService } from '../propuestas/propuestas.service';
 import { ErrorConConsumo, type LoopService } from './loop.service';
 
 const TENANT: TenantContext = {
@@ -76,6 +77,10 @@ function crearMocks(opciones: Opciones = {}) {
     contextoPara: vi.fn(async () => ({ organizacionId: 'org-1', grupoId: 'grupo-1' })),
   } as unknown as AccesoGrupoService;
 
+  const propuestas = {
+    deConversacion: vi.fn(async () => []),
+  } as unknown as PropuestasService;
+
   const loop = {
     ejecutar: vi.fn(async () => {
       if (opciones.loopLanza) {
@@ -97,6 +102,7 @@ function crearMocks(opciones: Opciones = {}) {
         ],
         tokensTotales: 120,
         cortadoPorTope: false,
+        propuestasArmadas: [],
       };
     }),
   } as unknown as LoopService;
@@ -106,7 +112,8 @@ function crearMocks(opciones: Opciones = {}) {
     configuracion,
     acceso,
     loop,
-    servicio: new ConversacionesService(prisma, configuracion, acceso, loop),
+    propuestas,
+    servicio: new ConversacionesService(prisma, configuracion, acceso, loop, propuestas),
   };
 }
 
@@ -213,6 +220,7 @@ describe('ConversacionesService', () => {
         ],
         tokensTotales: 910,
         cortadoPorTope: false,
+        propuestasArmadas: [],
       };
       const causa = new Error('el proveedor se cayó');
       const { servicio, prisma } = crearMocks({

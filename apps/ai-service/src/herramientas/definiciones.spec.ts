@@ -1,10 +1,45 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  HERRAMIENTAS_PROPUESTA,
+  NOMBRES_HERRAMIENTAS_PROPUESTA,
+} from '../propuestas/definiciones-propuesta';
+import {
   DefinicionHerramienta,
+  EsquemaParametros,
   HERRAMIENTAS_LECTURA,
   NOMBRES_HERRAMIENTAS_LECTURA,
+  PropiedadEsquema,
 } from './definiciones';
+
+/** Todas las herramientas que el modelo puede llamar, de las dos familias. */
+const TODAS = [...HERRAMIENTAS_LECTURA, ...HERRAMIENTAS_PROPUESTA];
+
+/**
+ * Recorre el esquema COMPLETO, incluidos los objetos anidados dentro de
+ * arrays. Es donde viven los campos de las herramientas de propuesta, y donde
+ * un `grupoId` se colaría sin que un chequeo del primer nivel lo vea.
+ */
+function todasLasClaves(esquema: EsquemaParametros): string[] {
+  const claves: string[] = [];
+  const visitar = (propiedades: Record<string, PropiedadEsquema>): void => {
+    for (const [nombre, propiedad] of Object.entries(propiedades)) {
+      claves.push(nombre);
+
+      if (propiedad.type === 'array' && propiedad.items.type === 'object') {
+        visitar(propiedad.items.properties);
+      }
+
+      if (propiedad.type === 'object') {
+        visitar(propiedad.properties);
+      }
+    }
+  };
+
+  visitar(esquema.properties);
+
+  return claves;
+}
 
 /**
  * TEST ESTRUCTURAL 1 de la tanda 3 (fase-14-29 Parte E, punto 2).
@@ -24,8 +59,11 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
   it('ninguna herramienta declara un parámetro de tenant (decisión 9)', () => {
     const infractoras: string[] = [];
 
-    for (const herramienta of HERRAMIENTAS_LECTURA) {
-      for (const nombreParametro of Object.keys(herramienta.parametros.properties)) {
+    // Las DOS familias, y hasta el fondo de los objetos anidados: las de
+    // propuesta llevan arrays de objetos, y ahí es donde un `grupoId` se
+    // colaría sin que un chequeo del primer nivel lo viera.
+    for (const herramienta of TODAS) {
+      for (const nombreParametro of todasLasClaves(herramienta.parametros)) {
         if (PROHIBIDO_EN_PARAMETROS.test(nombreParametro)) {
           infractoras.push(`${herramienta.nombre}.${nombreParametro}`);
         }
@@ -53,9 +91,41 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
   it('ninguna herramienta acepta propiedades extra', () => {
     // `additionalProperties: false` evita que el modelo mande campos que nadie
     // declaró y que alguien, más adelante, lea "porque ya venían".
-    for (const herramienta of HERRAMIENTAS_LECTURA) {
+    for (const herramienta of TODAS) {
       expect(herramienta.parametros.additionalProperties, herramienta.nombre).toBe(false);
     }
+  });
+
+  describe('las de propuesta (tanda 5)', () => {
+    it('son las cuatro de la spec y todas empiezan con proponer_', () => {
+      // El nombre es parte del contrato con el modelo: `proponer_` le dice que
+      // no está aplicando nada. Un `crear_*` acá significaría que la decisión 6
+      // se rompió.
+      expect(NOMBRES_HERRAMIENTAS_PROPUESTA).toEqual([
+        'proponer_crear_actividades',
+        'proponer_editar_actividades',
+        'proponer_precios_tienda',
+        'proponer_rendimientos_monedas',
+      ]);
+
+      for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {
+        expect(nombre.startsWith('proponer_'), nombre).toBe(true);
+      }
+    });
+
+    it('cada una le avisa al modelo que NO aplica el cambio', () => {
+      // Sin esto el modelo dice «ya lo cambié», que es exactamente la frase que
+      // rompe la confianza del Tutor cuando después ve que no cambió nada.
+      for (const herramienta of HERRAMIENTAS_PROPUESTA) {
+        expect(herramienta.descripcion, herramienta.nombre).toContain('No aplica el cambio');
+      }
+    });
+
+    it('ningún nombre de herramienta se repite entre las dos familias', () => {
+      const todos = [...NOMBRES_HERRAMIENTAS_LECTURA, ...NOMBRES_HERRAMIENTAS_PROPUESTA];
+
+      expect(new Set(todos).size).toBe(todos.length);
+    });
   });
 
   it('están las ocho de la spec, con nombres únicos', () => {

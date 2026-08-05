@@ -17,6 +17,7 @@ import {
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ItemEntrada } from '../proveedor/tipos';
+import { PropuestasService } from '../propuestas/propuestas.service';
 import { ErrorConConsumo, LoopService, MensajeAPersistir, ResultadoLoop } from './loop.service';
 
 /** Largo máximo del título derivado del primer mensaje. */
@@ -30,7 +31,8 @@ export class ConversacionesService {
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionService,
     private readonly acceso: AccesoGrupoService,
-    private readonly loop: LoopService
+    private readonly loop: LoopService,
+    private readonly propuestas: PropuestasService
   ) {}
 
   async listar(tenant: TenantContext, grupoId: string): Promise<ConversacionIaDto[]> {
@@ -51,9 +53,12 @@ export class ConversacionesService {
     await this.asegurarUsable(tenant);
 
     const conversacion = await this.buscarPropia(tenant, id);
-    const mensajes = await this.mensajesDe(id);
+    const [mensajes, propuestas] = await Promise.all([
+      this.mensajesDe(id),
+      this.propuestas.deConversacion(id),
+    ]);
 
-    return { ...this.aDto(conversacion), mensajes };
+    return { ...this.aDto(conversacion), mensajes, propuestas };
   }
 
   /** Crea la conversación y contesta el primer mensaje en la misma llamada. */
@@ -78,6 +83,7 @@ export class ConversacionesService {
     return {
       ...this.aDto(conversacion),
       mensajes: await this.mensajesDe(conversacion.id),
+      propuestas: await this.propuestas.deConversacion(conversacion.id),
     };
   }
 
@@ -146,10 +152,15 @@ export class ConversacionesService {
     let resultado: ResultadoLoop | null = null;
 
     try {
-      resultado = await this.loop.ejecutar(historial, contexto, {
-        safetyIdentifier: this.safetyIdentifier(tenant),
-        promptCacheKey: this.promptCacheKey(tenant.organizacionId, contexto.grupoId),
-      });
+      resultado = await this.loop.ejecutar(
+        historial,
+        contexto,
+        {
+          safetyIdentifier: this.safetyIdentifier(tenant),
+          promptCacheKey: this.promptCacheKey(tenant.organizacionId, contexto.grupoId),
+        },
+        conversacionId
+      );
     } catch (error) {
       if (error instanceof ErrorConConsumo) {
         // Lo gastado hasta el fallo queda para que el `finally` lo escriba, y

@@ -1568,10 +1568,10 @@ cd apps/<servicio> && npx prisma migrate diff --from-config-datasource --to-sche
 
 ---
 
-## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1 a 4 EJECUTADAS (2026-08-04)
+## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1 a 5 EJECUTADAS (2026-08-04)
 
 > Spec: `docs/phases/fase-14-29-asistente-ia.md` (escrita antes de tocar código). Índice: entrada #29 de `fase-14-post-mvp.md`.
-> **Estado: 4 de 7 tandas.** Las tres restantes están enumeradas abajo con su punto de entrada exacto.
+> **Estado: 5 de 7 tandas.** Las dos restantes están enumeradas abajo con su punto de entrada exacto.
 
 ### Origen (pedido de José, 2026-08-04)
 
@@ -1739,12 +1739,69 @@ Es el **séptimo caso del mismo modo de falla en la Fase 14**: unidad, lint y bu
 - **Costo medido** de una conversación de 2 mensajes con 4 llamadas al proveedor y un catálogo chico: **7.910 tokens, USD 0,0117**. Sin caché habrían sido USD 0,0188 → **el `prompt_cache_key` ahorró un 38%**, que es la razón por la que ese parámetro está en el diseño.
 - **Lo que eso implica para la cuota**: al ritmo medido (≈1,48 µUSD por token), una organización que queme los **2M tokens del plan PRO** cuesta **≈ USD 3**. El tope de gasto del project `dorado-dev` está hoy en **USD 5**, o sea que alcanza para desarrollo y el piloto pero **está por debajo de dos organizaciones a cuota llena** — hay que subirlo o bajar la cuota antes de vender el plan.
 
-### Cómo seguir: las tres tandas que faltan
+### Tanda 5 — las herramientas de propuesta (2026-08-04)
+
+Las cuatro `proponer_*`, la validación con Zod y el ciclo de vida de `Propuesta`. Es la tanda donde la IA empieza a proponer cambios de verdad — y donde **la asimetría del ítem se vuelve código**: el modelo «llama» a estas herramientas y no ejecutan nada; el servicio valida, guarda una fila en `ai_db` y le contesta «propuesta armada, mostrala».
+
+#### Que un cambio de DTO rompa el build (y la verificación de que realmente pasa)
+
+La spec pide que las operaciones se persistan con la forma exacta del request destino «para que un cambio de DTO rompa el build acá y no en producción». Eso **no era posible** como estaba el repo: `CrearActividadRequest` y compañía vivían solo como clases con decoradores dentro de su servicio, y `ai-service` no puede importarlas.
+
+Se llevaron los **contratos** a `shared-types` y las clases los `implements` con un alias local (`implements ContratoCrear`), sin renombrar nada. Dos detalles que costaron:
+
+- **Los enums no son compatibles entre servicios.** La clase de activity valida contra los enums que **genera Prisma**; TypeScript trata dos `enum` declarados por separado como tipos distintos aunque tengan los mismos valores, así que el `implements` no compilaba. Se resolvió tipando esos campos con el **tipo plantilla del enum** —que da la unión de sus strings— al que sí son asignables los miembros de ambos enums, y que se sigue derivando del enum.
+- **La anotación `z.ZodType<Contrato>` sola no alcanza.** Por tipado estructural, un esquema al que le falta un campo **opcional** del contrato sigue siendo asignable: renombrar `siempreVisible` no habría roto nada y la propuesta simplemente habría dejado de poder configurarlo — un deterioro silencioso, peor que un build roto. Se cerró con un chequeo de cobertura de claves (`Exhaustivo<ClavesNoCubiertas<...>>`), y **se verificó a mano renombrando un campo opcional a propósito**: el build falla nombrando el campo.
+
+#### Los dos bugs que encontró llamar de verdad (y el segundo cambió el diseño)
+
+1. **La propuesta se guardaba impecable y fallaba entera al aplicar.** La primera corrida real armó 4 actividades de shape perfecto y **las 4 devolvieron 400**: el modelo mandaba `deadlineHora` y `duracionCronometroMinutos` en actividades `SIN_LIMITE`. Zod decía que sí (los campos existen, el formato es válido) y el endpoint decía que no (en `SIN_LIMITE` van en null). O sea exactamente lo que la decisión 11 existe para evitar: *«el Tutor nunca ve una propuesta que la API rechazaría»*. Faltaban los **invariantes cruzados**, que ahora viven en `propuestas/invariantes.ts`.
+
+2. **El modelo NO puede omitir una propiedad declarada.** Al agregar los invariantes como rechazos, dos corridas seguidas terminaron con el modelo **quemando las ocho iteraciones del loop** contra el mismo error, alternando entre poner un valor de relleno y sacarlo, y la conversación terminó **sin ninguna propuesta**. Se le estaba pidiendo algo imposible: emite todas las propiedades del esquema, siempre. Su única forma de decir «no aplica» es `null`.
+
+   Eso obligó a **cambiar la regla del archivo**, que es el aprendizaje de la tanda:
+
+   > **Se rechaza lo ambiguo, se normaliza lo determinado.**
+
+   Con `SIN_LIMITE`, los dos campos son null y no hay otra lectura posible: pedirle al modelo que acierte algo que el servidor deriva solo es hacerle hacer trabajo que además hace mal, y pagarlo en tokens. Un `DEADLINE` sin hora se sigue rechazando —esa hora no se puede inventar—. Es además lo que el propio endpoint destino hace con otros campos (`bonoJefePuntos` fuera de EQUIPO): los fuerza en silencio.
+
+   **El resultado se mide**: el mismo pedido pasó de 49,5 s y 67.000 tokens (sin propuesta) a **19,6 s y 48.000 tokens con la propuesta armada**. Dejar de pelear con el modelo salió más barato y más correcto.
+
+   Corolario para las tandas que vienen: en un **alta**, `null` / `""` / `[]` son todos «no lo puse»; en un **PATCH**, `null` **borra** el campo (fase-14-24) y se conserva. Son dos significados opuestos del mismo valor, y `limpiarVacios` lleva el flag explícito.
+
+#### El tercer bug: el Gateway cortaba a los 30 s
+
+Una corrida tardó 30,0 s y se comió un **502 `SERVICIO_NO_RESPONDE`** mientras `ai-service` seguía trabajando **y gastando tokens** del otro lado: el Tutor veía un error y la plataforma pagaba igual. El `proxyTimeout` del Gateway era un **30 s fijo para todas las rutas**.
+
+Se hizo **por ruta**, con el default de la spec de Fase 3 intacto y solo `/api/ai` en 120 s. No es «subamos el timeout global»: que un servicio interno tarde más de 30 s significa que está roto, y eso se quiere seguir viendo. Mismo criterio de *seam* que el `RATE_LIMIT_*` del #23 T4.
+
+#### Otras decisiones
+
+- **`proponer_precios_tienda` apunta a `/rewards/productos/:id`, no a `/rewards/recompensas/:id`** como dice la Parte D de la spec: **en `Recompensa` no hay ningún precio**, vive en `ProductoTienda`. Con la ruta literal de la spec, aplicar habría fallado siempre. **Desviación registrada; la spec no se edita.**
+- **Una propuesta que no valida no se guarda, ni siquiera parcialmente.** No se guarda «lo que sí validó»: una propuesta a medias es peor que ninguna, porque el Tutor no tiene cómo saber qué falta.
+- **`VENCIDA` se deriva de la fecha al leer**, no se persiste. Un cron que recorra la tabla marcando filas viejas es trabajo y un modo de falla nuevo a cambio de nada.
+- **Los invariantes son un espejo deliberado** de reglas que viven en activity, y **pueden derivar**: queda anotado. La alternativa —un endpoint de «validá esto sin guardarlo»— era superficie nueva en el servicio que este ítem se propuso no tocar, y la red de seguridad es que fallar es visible y recuperable (fila roja).
+
+#### Verificación de la tanda 5
+
+| Proyecto | Antes | Después |
+|---|---|---|
+| `ai-service` | 82/82 | **126/126** (+44: 22 de propuestas, 19 de invariantes, 3 estructurales nuevos) |
+| `gateway` | 36/36 | **41/41** (+5: `tabla-ruteo.spec.ts`, que no existía) |
+| El resto del workspace | — | sin cambios (activity 357, rewards 206, app-web 159, session 74, scoring 63, identity 48, shared-ui 24, notification 22, shared-auth 20, e2e 17, billing 9) |
+
+- **`lint` 19/19** y **`build` 18/18** verdes. Sin migraciones: el schema de la tanda 2 ya tenía `Propuesta`.
+- **Ciclo completo contra OpenAI real, por el Gateway: 14/14 checks**, cubriendo los criterios 6, 7 y 8:
+  - El modelo leyó el catálogo vacío y las zonas, y **armó una propuesta de 4 actividades** con valores calibrados contra los umbrales del grupo.
+  - **Nada se escribió hasta aplicar**: el catálogo seguía en 0 con la propuesta ya guardada.
+  - **Las 4 operaciones se aplicaron tal cual**, con el JWT del Tutor y sin traducir un solo campo — que es la prueba real de «aplicar es un `for`».
+  - Aplicado parcial → `APLICADA_PARCIAL` con las 3 filas; re-aplicar → 409; vencida → legible pero 409 al aplicar; propuesta de otra organización → 404.
+- Zod **4.4.3** es dependencia nueva del workspace.
+
+### Cómo seguir: las dos tandas que faltan
 
 Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de la spec).
 
-5. **Herramientas de propuesta** (`proponer_crear_actividades`, `proponer_editar_actividades`, `proponer_precios_tienda`, `proponer_rendimientos_monedas`) con validación Zod contra los DTOs reales y `Propuesta` con vencimiento a 24 h. Una operación que no valida **no se guarda**: el error vuelve al modelo para que reintente. Las operaciones se persisten con **la forma exacta del request del endpoint destino**, para que aplicar sea un `for` y no una traducción.
-6. **Frontend**: pantalla `/asistente` en el grupo Ajustes del menú (#23 T3), chat con streaming, tarjeta de propuesta con diff, aplicar por operación con resultado por fila. La lógica del diff va en `core/propuesta-ia.ts`, testeable sin montar Angular (mismo criterio que `core/termometro.ts` del #27).
+6. **Frontend**: pantalla `/asistente` en el grupo Ajustes del menú (#23 T3), chat con streaming, tarjeta de propuesta con diff, aplicar por operación con resultado por fila. La lógica del diff va en `core/propuesta-ia.ts`, testeable sin montar Angular (mismo criterio que `core/termometro.ts` del #27). **Acá se convierte el `POST /mensajes` a SSE** y se verifica que el proxy del Gateway no lo bufferee. El «Aplicar» ya tiene todo lo que necesita: cada operación trae `metodo`, `ruta` y `body`, y la tanda 5 verificó contra la API real que ejecutarlas tal cual funciona — el frontend hace un `for`, no una traducción.
 7. **E2E** (`asistente-ia.e2e.ts`) con el proveedor **stubbeado**: se testea el ruteo, la validación, la cuota, el aislamiento entre tenants y el aplicado parcial — no que el modelo proponga cosas buenas, que no es determinista ni es lo que se rompe en un deploy. Los dos cables que necesitan E2E de navegador son **el SSE a través del proxy** y **el «Aplicar» del frontend**.
 
 ### Qué debería verificar la próxima sesión antes de seguir
@@ -1756,5 +1813,6 @@ Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de 
 5. **Que el `PUT /ai/configuracion` a través del Gateway responda 403 con un JWT de `TUTOR`** y 200 con uno de `ORG_ADMIN`. La tanda 4 lo ejerció con un `ORG_ADMIN` real (200) pero **no con un `TUTOR`**: falta el lado que rebota. Sigue cubierto por unidad.
 6. **Que `scripts/e2e-up.mjs` no levanta `ai-service`.** Sigue sin tocarse, **y ahora es una decisión y no un olvido**: el criterio de aceptación 9 pide correr la suite completa con `ai-service` abajo. Antes de la tanda 7 hay que sumarlo — con las cuatro `*_INTERNAL_URL` nuevas, que son requeridas.
 7. **Que el `resumen_cumplimiento` no se vuelva caro con un grupo grande.** Hoy trae todos los `RegistroActividad` de la ventana y agrupa en memoria. Con el grupo piloto (18 actividades, 90 días) son 4,7 KB y milisegundos; con un grupo de 40 personas y un año habría que pasarlo a un `groupBy` en SQL. No es un problema todavía y no se optimizó por adelantado — queda anotado para no descubrirlo en producción.
-8. **Que el `POST /ai/conversaciones/:id/mensajes` todavía NO es SSE.** La Parte C lo pide así; la tanda 4 lo dejó como request/response normal a propósito, y la tanda 6 tiene que convertirlo **y verificar que el proxy del Gateway no buferee `text/event-stream`** — la propia spec marca ese cable como riesgoso, y es de la misma familia que los siete casos de *la unidad verifica la pieza y lo que falla es el cable* que la fase ya lleva.
-9. **Que el rate limit por usuario sobre `/api/ai/conversaciones/*/mensajes` no existe todavía** (Parte E, punto 5c). El seam `RATE_LIMIT_*` del #23 T4 está, pero no se le puso una regla más estricta a este prefijo: hoy una conversación cae bajo el límite global, que es más flojo de lo que la spec pide para un endpoint que gasta dinero por request.
+8. **Que los invariantes de `propuestas/invariantes.ts` son un espejo de reglas de activity y pueden derivar.** Si activity agrega una validación nueva, acá no aparece sola: el síntoma va a ser una propuesta que falla al aplicar con una fila roja. Antes de tocar las reglas de negocio del catálogo, mirar ese archivo.
+9. **Que el `POST /ai/conversaciones/:id/mensajes` todavía NO es SSE.** La Parte C lo pide así; la tanda 4 lo dejó como request/response normal a propósito, y la tanda 6 tiene que convertirlo **y verificar que el proxy del Gateway no buferee `text/event-stream`** — la propia spec marca ese cable como riesgoso, y es de la misma familia que los siete casos de *la unidad verifica la pieza y lo que falla es el cable* que la fase ya lleva.
+10. **Que el rate limit por usuario sobre `/api/ai/conversaciones/*/mensajes` no existe todavía** (Parte E, punto 5c). El seam `RATE_LIMIT_*` del #23 T4 está, pero no se le puso una regla más estricta a este prefijo: hoy una conversación cae bajo el límite global, que es más flojo de lo que la spec pide para un endpoint que gasta dinero por request.

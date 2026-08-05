@@ -371,3 +371,20 @@ export interface RendimientoAccionInternoDto {
   monedas: number;
   monedasBonoJefe: number;
 }
+
+// --- Contratos de request de la tienda (fase-14-29 tanda 5) ---
+// Ver la nota equivalente en activity.ts: la clase con decoradores de
+// rewards-service las `implements`, para que un cambio rompa el build.
+
+export interface EditarProductoRequest {
+  nombre?: string;
+  descripcion?: string | null;
+  imagenUrl?: string | null;
+  /** El precio en monedas. Vive acá y NO en `Recompensa`. */
+  precio?: number;
+  /** Ver la nota de `CrearActividadRequest`: el tipo plantilla acepta los dos enums. */
+  fuente?: `${FuenteProducto}`;
+  mecanica?: `${MecanicaProducto}`;
+  recompensaId?: string | null;
+  bolsaId?: string | null;
+}

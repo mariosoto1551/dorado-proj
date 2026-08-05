@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
 import { responderErrorGateway } from './respuesta-error';
-import { TABLA_RUTEO, type RutaProxy } from './tabla-ruteo';
+import { TABLA_RUTEO, TIMEOUT_PROXY_DEFAULT_MS, type RutaProxy } from './tabla-ruteo';
 
 type Middleware = (
   req: IncomingMessage,
@@ -42,7 +42,9 @@ export function crearProxyMiddlewares(logger: LoggerProxy): Middleware[] {
       target: urlInterna,
       changeOrigin: true,
       pathRewrite: { '^/api': '' },
-      proxyTimeout: 30_000,
+      // Por ruta: solo /api/ai lo sube, porque solo él depende de un tercero
+      // que piensa durante segundos (fase-14-29).
+      proxyTimeout: ruta.timeoutMs ?? TIMEOUT_PROXY_DEFAULT_MS,
       on: {
         error: (err, req, res) => {
           logger.error(

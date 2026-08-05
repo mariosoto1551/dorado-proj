@@ -4,6 +4,7 @@ import type { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import type { HerramientasService } from '../herramientas/herramientas.service';
 import type { OpenAiService } from '../proveedor/openai.service';
 import type { RespuestaDelProveedor } from '../proveedor/tipos';
+import type { PropuestasService } from '../propuestas/propuestas.service';
 import { ErrorConConsumo, LoopService } from './loop.service';
 
 const CONTEXTO: ContextoHerramienta = { organizacionId: 'org-1', grupoId: 'grupo-1' };
@@ -37,14 +38,28 @@ function crearMocks(respuestas: RespuestaDelProveedor[]) {
     ejecutar: vi.fn(async () => ({ ok: true as const, datos: { filas: [1, 2, 3] } })),
   } as unknown as HerramientasService;
 
-  return { proveedor, herramientas, servicio: new LoopService(proveedor, herramientas) };
+  const propuestas = {
+    armar: vi.fn(async () => ({
+      ok: true as const,
+      propuestaId: 'prop-1',
+      cantidad: 2,
+      mensaje: 'Propuesta armada con 2 operación(es).',
+    })),
+  } as unknown as PropuestasService;
+
+  return {
+    proveedor,
+    herramientas,
+    propuestas,
+    servicio: new LoopService(proveedor, herramientas, propuestas),
+  };
 }
 
 describe('LoopService', () => {
   it('devuelve el texto cuando el modelo contesta sin pedir herramientas', async () => {
     const { servicio, herramientas } = crearMocks([respuesta({ texto: 'Hola' })]);
 
-    const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+    const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
 
     expect(resultado.texto).toBe('Hola');
     expect(resultado.tokensTotales).toBe(150);
@@ -68,7 +83,7 @@ describe('LoopService', () => {
       respuesta({ texto: 'Listo' }),
     ]);
 
-    const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+    const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
 
     expect(herramientas.ejecutar).toHaveBeenCalledTimes(2);
     expect(resultado.texto).toBe('Listo');
@@ -83,7 +98,7 @@ describe('LoopService', () => {
       respuesta({ texto: 'ok' }),
     ]);
 
-    await servicio.ejecutar([{ role: 'user', content: 'hola' }], CONTEXTO, IDS);
+    await servicio.ejecutar([{ role: 'user', content: 'hola' }], CONTEXTO, IDS, 'conv-1');
 
     const segundoPedido = vi.mocked(proveedor.responder).mock.calls[1][0];
     const salida = segundoPedido.entrada.find(
@@ -102,7 +117,7 @@ describe('LoopService', () => {
       respuesta({ llamadas: [{ callId: 'c', nombre: 'listar_actividades', argumentos: {} }] }),
     ]);
 
-    const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+    const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
 
     expect(proveedor.responder).toHaveBeenCalledTimes(8);
     expect(resultado.cortadoPorTope).toBe(true);
@@ -120,7 +135,7 @@ describe('LoopService', () => {
         }),
       ]);
 
-      const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+      const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
 
       // terra: 500k plenos × $2/1M + 500k cacheados × $0,20/1M = $1,10 = 1.100.000 µUSD
       expect(resultado.mensajes[0].costoMicroUsd).toBe(1_100_000);
@@ -132,7 +147,7 @@ describe('LoopService', () => {
         respuesta({ texto: 'ok' }),
       ]);
 
-      const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+      const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
       const deHerramienta = resultado.mensajes.filter((m) => m.rol === 'HERRAMIENTA');
 
       // Lo que cuesta una herramienta es que su salida entre como ENTRADA en el
@@ -165,9 +180,10 @@ describe('LoopService', () => {
       const herramientas = {
         ejecutar: vi.fn(async () => ({ ok: true as const, datos: {} })),
       } as unknown as HerramientasService;
-      const servicio = new LoopService(proveedor, herramientas);
+      const propuestas = { armar: vi.fn() } as unknown as PropuestasService;
+      const servicio = new LoopService(proveedor, herramientas, propuestas);
 
-      const error = await servicio.ejecutar([], CONTEXTO, IDS).catch((e: unknown) => e);
+      const error = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1').catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(ErrorConConsumo);
       const parcial = (error as ErrorConConsumo).parcial;
@@ -188,7 +204,7 @@ describe('LoopService', () => {
       error: 'No existe una herramienta llamada "inventada".',
     });
 
-    const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+    const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
     const segundoPedido = vi.mocked(proveedor.responder).mock.calls[1][0];
     const salida = segundoPedido.entrada.find(
       (item) => (item as Record<string, unknown>)['type'] === 'function_call_output'
@@ -201,7 +217,7 @@ describe('LoopService', () => {
   it('un turno sin texto ni herramientas no deja al usuario sin respuesta', async () => {
     const { servicio } = crearMocks([respuesta({ texto: '', incompleta: true })]);
 
-    const resultado = await servicio.ejecutar([], CONTEXTO, IDS);
+    const resultado = await servicio.ejecutar([], CONTEXTO, IDS, 'conv-1');
 
     expect(resultado.texto).not.toBe('');
     expect(resultado.texto).toContain('sin espacio');

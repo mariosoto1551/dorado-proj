@@ -1,0 +1,186 @@
+import { z } from 'zod';
+
+import {
+  AlcanceActividad,
+  ComportamientoAlCierre,
+  ConfigurarRendimientosAccionesRequest,
+  CrearActividadRequest,
+  EditarActividadRequest,
+  EditarProductoRequest,
+  TipoAccionRendimiento,
+  TipoLimiteTiempo,
+  TipoPuntaje,
+} from '@dorado/shared-types';
+
+/**
+ * Validación de lo que propone el modelo (fase-14-29 decisión 11).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ ESTO ES ESTRICTO Y NO INDULGENTE:
+ *
+ * Una operación que no valida **no se guarda**: el error vuelve al modelo con
+ * el detalle del campo para que reintente. Así el Tutor nunca ve una propuesta
+ * que la API iba a rechazar, y el «Aplicar» no falla a mitad de camino por
+ * algo que se podía saber antes.
+ *
+ * Es lo contrario del criterio del ejecutor de herramientas de lectura, que
+ * sanea y sigue: allá un `dias: 100000` se acota al máximo porque se entiende
+ * qué quiso decir; acá un `valorPuntos: "diez"` no se convierte a 10 — el
+ * modelo tiene que corregirlo, porque adivinar sobre algo que va a escribirse
+ * en la base del Tutor es exactamente lo que este ítem no hace.
+ *
+ * Cada esquema está tipado como `z.ZodType<Contrato>`, donde el contrato vive
+ * en `shared-types` y las clases con decoradores de activity/rewards lo
+ * `implements`. Es lo que hace que un cambio de DTO **rompa el build acá** en
+ * vez de descubrirse en producción.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** `HH:mm` 24 h, igual que el DTO destino. */
+const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Fecha civil `YYYY-MM-DD` del calendario del Grupo. */
+const FECHA_CIVIL = /^\d{4}-\d{2}-\d{2}$/;
+
+const uuid = z.string().uuid();
+
+const enteroPositivo = z.number().int().positive();
+
+/**
+ * Campos comunes a crear y editar. Se declaran una vez porque son literalmente
+ * el mismo request: editar es el mismo shape con todo opcional.
+ */
+const camposActividad = {
+  nombre: z.string().trim().min(1).max(120),
+  descripcion: z.string().max(1000).nullish(),
+  tipoPuntaje: z.enum(TipoPuntaje),
+  valorPuntos: enteroPositivo,
+  puntosPorCumplir: z.number().int().min(0).optional(),
+  tipoLimiteTiempo: z.enum(TipoLimiteTiempo),
+  deadlineHora: z
+    .string()
+    .regex(HORA_HHMM, 'deadlineHora debe tener formato HH:mm (24 h)')
+    .nullish(),
+  duracionCronometroMinutos: enteroPositivo.nullish(),
+  repeticionesMaximasSesion: enteroPositivo.optional(),
+  repeticionesMinimasSesion: enteroPositivo.optional(),
+  repeticionesMaximasSeccion: enteroPositivo.nullish(),
+  comportamientoAlCierre: z.enum(ComportamientoAlCierre).optional(),
+  alcance: z.enum(AlcanceActividad).optional(),
+  bonoJefePuntos: z.number().int().min(0).optional(),
+  diasSemana: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  siempreVisible: z.boolean().optional(),
+  rolesPermitidos: z.array(uuid).optional(),
+  usuariosPermitidos: z.array(uuid).optional(),
+  equiposPermitidos: z.array(uuid).optional(),
+  vigenteDesde: z
+    .string()
+    .regex(FECHA_CIVIL, 'vigenteDesde debe tener formato YYYY-MM-DD')
+    .nullish(),
+  vigenteHasta: z
+    .string()
+    .regex(FECHA_CIVIL, 'vigenteHasta debe tener formato YYYY-MM-DD')
+    .nullish(),
+};
+
+/**
+ * `strict()` en todos: una propiedad que nadie declaró es un error, no algo que
+ * se ignora. Un modelo que inventa `prioridad: "alta"` tiene que enterarse —
+ * si se descartara en silencio, la propuesta que ve el Tutor no diría lo que el
+ * modelo creyó estar proponiendo.
+ */
+const crearActividad = z.object(camposActividad).strict();
+
+const editarActividad = z.object(camposActividad).partial().strict();
+
+const editarProducto = z
+  .object({
+    nombre: z.string().trim().min(1).max(120).optional(),
+    descripcion: z.string().max(500).nullish(),
+    imagenUrl: z.string().nullish(),
+    precio: enteroPositivo.optional(),
+    recompensaId: uuid.nullish(),
+    bolsaId: uuid.nullish(),
+  })
+  .strict();
+
+const rendimientos = z
+  .object({
+    rendimientos: z
+      .array(
+        z
+          .object({
+            tipoAccion: z.enum(TipoAccionRendimiento),
+            origenId: uuid,
+            // Nunca negativo (fase-14-28 decisión 4): lo que se hace no debita.
+            monedas: z.number().int().min(0),
+            monedasBonoJefe: z.number().int().min(0).optional(),
+          })
+          .strict()
+      )
+      .min(1),
+  })
+  .strict();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dos chequeos EN TIEMPO DE COMPILACIÓN, y hacen falta los dos.
+//
+// La anotación `z.ZodType<Contrato>` sola no alcanza: por tipado estructural,
+// un esquema al que le falta un campo OPCIONAL del contrato sigue siendo
+// asignable. O sea que renombrar `siempreVisible` en activity no rompería
+// nada acá, y la propuesta simplemente dejaría de poder configurarlo — un
+// deterioro silencioso, que es peor que un build roto.
+//
+// `SinFaltantes` cierra ese agujero: falla si el contrato tiene una clave que
+// el esquema no declara.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Falla a compilar si `T` no es `never`, mostrando qué claves faltan. */
+type Exhaustivo<T extends never> = T;
+
+type ClavesNoCubiertas<TContrato, TEsquema> = Exclude<keyof TContrato, keyof TEsquema>;
+
+type _CrearActividadCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearActividadRequest, z.infer<typeof crearActividad>>
+>;
+
+type _EditarActividadCompleto = Exhaustivo<
+  ClavesNoCubiertas<EditarActividadRequest, z.infer<typeof editarActividad>>
+>;
+
+type _RendimientosCompleto = Exhaustivo<
+  ClavesNoCubiertas<ConfigurarRendimientosAccionesRequest, z.infer<typeof rendimientos>>
+>;
+
+export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
+
+export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
+
+/**
+ * **A propósito NO cubre todas las claves del contrato**, y por eso no lleva el
+ * chequeo `Exhaustivo` de arriba: `fuente`, `mecanica` y el resto definen QUÉ
+ * es el producto, no cuánto sale. El asistente calibra precios; cambiarle la
+ * mecánica a un producto ya publicado es otra decisión y la toma el Tutor en su
+ * pantalla.
+ */
+export const esquemaEditarProducto: z.ZodType<EditarProductoRequest> = editarProducto;
+
+export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesRequest> =
+  rendimientos;
+
+/**
+ * Un error de validación con la ruta del campo, para devolvérselo al modelo.
+ *
+ * El formato importa: `rendimientos.0.monedas: expected number` le dice al
+ * modelo exactamente qué arreglar. Un «datos inválidos» genérico lo deja
+ * adivinando, y adivinar cuesta otra vuelta del loop, o sea dinero.
+ */
+export function explicarError(error: z.ZodError): string {
+  return error.issues
+    .map((incidencia) => {
+      const ruta = incidencia.path.join('.');
+
+      return ruta ? `${ruta}: ${incidencia.message}` : incidencia.message;
+    })
+    .join(' · ');
+}

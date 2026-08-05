@@ -12,7 +12,11 @@ import {
   Min,
 } from 'class-validator';
 
-import { FuenteProducto, MecanicaProducto } from '@dorado/shared-types';
+import {
+  FuenteProducto,
+  MecanicaProducto,
+  type EditarProductoRequest as ContratoEditarProducto,
+} from '@dorado/shared-types';
 
 // Requests de la tienda (spec fase-14-22 Partes C y D). Los Response son
 // BolsaPremiosDto / ProductoTiendaDto / CompraDto de shared-types.
@@ -71,7 +75,13 @@ export class CrearProductoRequest {
   bolsaId?: string | null;
 }
 
-export class EditarProductoRequest {
+/**
+ * `implements` contra el contrato de `shared-types` (fase-14-29 tanda 5): un
+ * campo renombrado acá rompe el build de `ai-service`, que arma propuestas de
+ * precio con esta forma exacta, en vez de descubrirse cuando el Tutor aprieta
+ * «Aplicar» en producción.
+ */
+export class EditarProductoRequest implements ContratoEditarProducto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()

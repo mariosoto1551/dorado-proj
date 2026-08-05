@@ -16,6 +16,11 @@ import {
   Min,
 } from 'class-validator';
 
+import type {
+  CrearActividadRequest as ContratoCrear,
+  EditarActividadRequest as ContratoEditar,
+} from '@dorado/shared-types';
+
 import {
   AlcanceActividad,
   ComportamientoAlCierre,
@@ -34,7 +39,14 @@ const HORA_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const FECHA_CIVIL = /^\d{4}-\d{2}-\d{2}$/;
 
 // POST /activity/grupos/:grupoId/actividades
-export class CrearActividadRequest {
+/**
+ * `implements` contra el contrato de `shared-types` (fase-14-29 tanda 5): es lo
+ * que hace que renombrar o retipar un campo de acá rompa el build de
+ * `ai-service`, que arma propuestas con esta forma exacta. Sin esto, el
+ * desajuste se descubriría en producción, cuando el Tutor aprieta «Aplicar».
+ * El alias del import evita chocar con el nombre de esta clase.
+ */
+export class CrearActividadRequest implements ContratoCrear {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
@@ -169,7 +181,7 @@ export class CrearActividadRequest {
 // PATCH /activity/actividades/:id — edita cualquier campo del catálogo.
 // `estado` NO se edita por acá: archivar es DELETE, y la spec prohíbe
 // reactivar una archivada ("crear una nueva si hace falta").
-export class EditarActividadRequest {
+export class EditarActividadRequest implements ContratoEditar {
   @IsOptional()
   @IsString()
   @IsNotEmpty()

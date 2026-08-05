@@ -16,7 +16,34 @@ export interface RutaProxy {
   /** Prefijo público, ej. '/api/auth'. */
   prefijo: string;
   servicio: ServicioInterno;
+  /**
+   * Timeout del proxy en ms. Omitido = `TIMEOUT_PROXY_DEFAULT_MS`, que es el
+   * valor de la spec de Fase 3 para todo el resto del stack (fase-14-29).
+   */
+  timeoutMs?: number;
 }
+
+/**
+ * Timeout por defecto (spec fase-03). Todos los servicios del monorepo
+ * responden en milisegundos, así que 30 s ya es holgadísimo: si uno tarda más,
+ * está roto.
+ */
+export const TIMEOUT_PROXY_DEFAULT_MS = 30_000;
+
+/**
+ * Timeout de `/api/ai` (fase-14-29).
+ *
+ * **Es la única ruta con un perfil de latencia distinto**, y no por un problema
+ * de performance: un turno del asistente puede encadenar varias llamadas a un
+ * proveedor externo que piensa durante segundos, y la spec ya le da 60 s a cada
+ * una. Lo destapó una verificación real que tardó 30,0 s y se comió un 502
+ * mientras `ai-service` seguía trabajando y **gastando tokens** del otro lado:
+ * el Tutor veía un error y la plataforma pagaba igual.
+ *
+ * No es «subamos el timeout global»: el 30 s del resto es una propiedad
+ * deseable —un servicio interno que tarda más está roto— y se conserva.
+ */
+export const TIMEOUT_PROXY_AI_MS = 120_000;
 
 const IDENTITY: ServicioInterno = { nombre: 'identity', envVar: 'IDENTITY_INTERNAL_URL' };
 const BILLING: ServicioInterno = { nombre: 'billing', envVar: 'BILLING_INTERNAL_URL' };
@@ -54,5 +81,5 @@ export const TABLA_RUTEO: readonly RutaProxy[] = [
   { prefijo: '/api/rewards', servicio: REWARDS },
   { prefijo: '/api/notification', servicio: NOTIFICATION },
   { prefijo: '/api/audit', servicio: AUDIT },
-  { prefijo: '/api/ai', servicio: AI },
+  { prefijo: '/api/ai', servicio: AI, timeoutMs: TIMEOUT_PROXY_AI_MS },
 ];

@@ -759,3 +759,57 @@ export interface ResumenCumplimientoDto {
   /** Una fila por actividad del catálogo, incluidas las que tienen 0 marcas. */
   actividades: CumplimientoActividadDto[];
 }
+
+// --- Contratos de request del catálogo (fase-14-29 tanda 5) ---
+//
+// Estas interfaces son la MISMA forma que los bodies de los endpoints de
+// activity-service: sus clases con decoradores las `implements`, así que
+// cambiarles un campo rompe el build de quien las use.
+//
+// Existen porque `ai-service` arma propuestas con la forma EXACTA del request
+// destino: aplicar una propuesta es un `for` sobre el array, no una traducción.
+// Sin este contrato compartido, un campo renombrado en activity se descubriría
+// en producción, cuando el Tutor aprieta «Aplicar» y la API rechaza la fila.
+
+export interface CrearActividadRequest {
+  nombre: string;
+  descripcion?: string | null;
+  /**
+   * `${Enum}` y no `Enum` a propósito, en los cuatro campos de enumeración.
+   *
+   * La clase con decoradores de activity-service valida contra los enums que
+   * GENERA PRISMA, no contra los de esta librería. TypeScript trata dos `enum`
+   * declarados por separado como tipos distintos aunque tengan exactamente los
+   * mismos valores, así que un `implements` contra el enum de acá no compila.
+   *
+   * El tipo plantilla resuelve la union de los strings del enum
+   * (`'OPCIONAL' | 'OBLIGATORIA'`), a la que **sí** son asignables los miembros
+   * de los dos enums — y sigue derivándose del enum, así que agregar un valor
+   * lo propaga solo.
+   */
+  tipoPuntaje: `${TipoPuntaje}`;
+  /** Siempre positivo: el signo se aplica al registrar. */
+  valorPuntos: number;
+  puntosPorCumplir?: number;
+  tipoLimiteTiempo: `${TipoLimiteTiempo}`;
+  deadlineHora?: string | null;
+  duracionCronometroMinutos?: number | null;
+  repeticionesMaximasSesion?: number;
+  repeticionesMinimasSesion?: number;
+  repeticionesMaximasSeccion?: number | null;
+  comportamientoAlCierre?: `${ComportamientoAlCierre}`;
+  alcance?: `${AlcanceActividad}`;
+  bonoJefePuntos?: number;
+  /** 0=domingo … 6=sábado. Vacío u omitido = todos los días. */
+  diasSemana?: number[];
+  siempreVisible?: boolean;
+  rolesPermitidos?: string[];
+  usuariosPermitidos?: string[];
+  equiposPermitidos?: string[];
+  /** Fecha civil `YYYY-MM-DD` del calendario del Grupo. */
+  vigenteDesde?: string | null;
+  vigenteHasta?: string | null;
+}
+
+/** Todo opcional: es un PATCH. */
+export type EditarActividadRequest = Partial<CrearActividadRequest>;

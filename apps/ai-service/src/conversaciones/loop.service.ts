@@ -7,6 +7,11 @@ import { OpenAiService } from '../proveedor/openai.service';
 import { envolverDatos, systemPrompt } from '../proveedor/system-prompt';
 import { costoMicroUsd } from '../proveedor/tarifas';
 import { ItemEntrada } from '../proveedor/tipos';
+import {
+  HERRAMIENTAS_PROPUESTA,
+  NOMBRES_HERRAMIENTAS_PROPUESTA,
+} from '../propuestas/definiciones-propuesta';
+import { PropuestasService } from '../propuestas/propuestas.service';
 
 /**
  * Tope de vueltas del loop (Parte E, punto 5b). Cuenta TURNOS del modelo, no
@@ -49,6 +54,8 @@ export interface ResultadoLoop {
   tokensTotales: number;
   /** Se agotaron las iteraciones sin que el modelo cerrara con texto. */
   cortadoPorTope: boolean;
+  /** Ids de las propuestas que se armaron en este turno (tanda 5). */
+  propuestasArmadas: string[];
 }
 
 /**
@@ -74,7 +81,8 @@ export class LoopService {
 
   constructor(
     private readonly proveedor: OpenAiService,
-    private readonly herramientas: HerramientasService
+    private readonly herramientas: HerramientasService,
+    private readonly propuestas: PropuestasService
   ) {}
 
   /**
@@ -87,10 +95,12 @@ export class LoopService {
   async ejecutar(
     historial: ItemEntrada[],
     contexto: ContextoHerramienta,
-    identificadores: { safetyIdentifier: string; promptCacheKey: string }
+    identificadores: { safetyIdentifier: string; promptCacheKey: string },
+    conversacionId: string
   ): Promise<ResultadoLoop> {
     const entrada: ItemEntrada[] = [...historial];
     const mensajes: MensajeAPersistir[] = [];
+    const propuestasArmadas: string[] = [];
     let tokensTotales = 0;
 
     for (let iteracion = 1; iteracion <= MAX_ITERACIONES; iteracion += 1) {
@@ -101,7 +111,7 @@ export class LoopService {
           modelo: this.proveedor.modelo,
           instrucciones: systemPrompt(),
           entrada,
-          herramientas: HERRAMIENTAS_LECTURA,
+          herramientas: [...HERRAMIENTAS_LECTURA, ...HERRAMIENTAS_PROPUESTA],
           maxTokensSalida: MAX_TOKENS_SALIDA,
           ...identificadores,
         });
@@ -109,7 +119,13 @@ export class LoopService {
         // Lo consumido en las vueltas ANTERIORES ya está en `mensajes` y tiene
         // que persistirse igual: la llamada que falló puede no haber gastado
         // nada, pero las de antes sí gastaron.
-        throw new ErrorConConsumo(error, { texto: '', mensajes, tokensTotales, cortadoPorTope: false });
+        throw new ErrorConConsumo(error, {
+          texto: '',
+          mensajes,
+          tokensTotales,
+          cortadoPorTope: false,
+          propuestasArmadas,
+        });
       }
 
       const consumo = respuesta.tokensEntrada + respuesta.tokensSalida;
@@ -136,6 +152,7 @@ export class LoopService {
           mensajes,
           tokensTotales,
           cortadoPorTope: false,
+          propuestasArmadas,
         };
       }
 
@@ -145,7 +162,11 @@ export class LoopService {
       entrada.push(...respuesta.itemsSalida);
 
       for (const llamada of respuesta.llamadas) {
-        const salida = await this.ejecutarHerramienta(llamada, contexto);
+        const salida = await this.ejecutarHerramienta(llamada, contexto, conversacionId);
+
+        if (salida.propuestaId) {
+          propuestasArmadas.push(salida.propuestaId);
+        }
 
         entrada.push({
           type: 'function_call_output',
@@ -178,6 +199,7 @@ export class LoopService {
       mensajes,
       tokensTotales,
       cortadoPorTope: true,
+      propuestasArmadas,
     };
   }
 
@@ -189,8 +211,16 @@ export class LoopService {
    */
   private async ejecutarHerramienta(
     llamada: { nombre: string; argumentos: Record<string, unknown> },
-    contexto: ContextoHerramienta
-  ): Promise<{ paraElModelo: string; paraElLedger: string }> {
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<{ paraElModelo: string; paraElLedger: string; propuestaId?: string }> {
+    // Las de PROPUESTA no ejecutan nada contra otro servicio: validan, guardan
+    // una fila en ai_db y le contestan al modelo. La asimetría con las de
+    // lectura es el corazón del ítem, no un detalle de ruteo.
+    if (NOMBRES_HERRAMIENTAS_PROPUESTA.includes(llamada.nombre)) {
+      return await this.armarPropuesta(llamada, contexto, conversacionId);
+    }
+
     const resultado = await this.herramientas.ejecutar(
       llamada.nombre,
       llamada.argumentos,
@@ -208,6 +238,44 @@ export class LoopService {
     return {
       paraElModelo: envolverDatos(llamada.nombre, resultado.datos),
       paraElLedger: `ok (${serializado.length} bytes)`,
+    };
+  }
+
+  /**
+   * Arma una propuesta a partir de lo que pidió el modelo.
+   *
+   * **Una propuesta que no valida NO se guarda** (decisión 11): el error vuelve
+   * con la ruta del campo y el modelo reintenta dentro del mismo turno,
+   * gastando una vuelta del loop en vez de dejarle al Tutor una tarjeta que la
+   * API iba a rechazar.
+   */
+  private async armarPropuesta(
+    llamada: { nombre: string; argumentos: Record<string, unknown> },
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<{ paraElModelo: string; paraElLedger: string; propuestaId?: string }> {
+    const armado = await this.propuestas.armar(
+      llamada.nombre,
+      llamada.argumentos,
+      contexto,
+      conversacionId
+    );
+
+    if (!armado.ok) {
+      this.logger.debug(`Propuesta rechazada (${llamada.nombre}): ${armado.error}`);
+
+      return {
+        paraElModelo:
+          `La propuesta no se guardó porque tiene un error: ${armado.error} ` +
+          'Corregilo y volvé a llamar a la herramienta.',
+        paraElLedger: `rechazada: ${armado.error}`,
+      };
+    }
+
+    return {
+      paraElModelo: armado.mensaje,
+      paraElLedger: `propuesta ${armado.propuestaId} (${armado.cantidad} operaciones)`,
+      propuestaId: armado.propuestaId,
     };
   }
 

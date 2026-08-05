@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfiguracionModule } from '../configuracion/configuracion.module';
 import { HerramientasModule } from '../herramientas/herramientas.module';
 import { ProveedorModule } from '../proveedor/proveedor.module';
+import { PropuestasModule } from '../propuestas/propuestas.module';
 import { ConversacionesController } from './conversaciones.controller';
 import { ConversacionesService } from './conversaciones.service';
 import { LoopService } from './loop.service';
@@ -16,7 +17,7 @@ import { LoopService } from './loop.service';
  * cortaría distinto que el otro.
  */
 @Module({
-  imports: [ConfiguracionModule, HerramientasModule, ProveedorModule],
+  imports: [ConfiguracionModule, HerramientasModule, ProveedorModule, PropuestasModule],
   controllers: [ConversacionesController],
   providers: [ConversacionesService, LoopService],
 })

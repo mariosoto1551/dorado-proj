@@ -74,6 +74,8 @@ export interface ConversacionIaDto {
 
 export interface ConversacionIaDetalleDto extends ConversacionIaDto {
   mensajes: MensajeIaDto[];
+  /** Las propuestas armadas en esta conversación (fase-14-29 tanda 5). */
+  propuestas: PropuestaIaDto[];
 }
 
 /** `POST /api/ai/conversaciones`. */
@@ -98,3 +100,74 @@ export interface EnviarMensajeIaResponse {
   mensajes: MensajeIaDto[];
   tokensConsumidosMes: number;
 }
+
+// --- Propuestas (fase-14-29 tanda 5) ---
+
+export type TipoPropuestaIa =
+  | 'CREAR_ACTIVIDADES'
+  | 'EDITAR_ACTIVIDADES'
+  | 'PRECIOS_TIENDA'
+  | 'RENDIMIENTOS_MONEDAS';
+
+export type EstadoPropuestaIa =
+  | 'BORRADOR'
+  | 'APLICADA'
+  | 'APLICADA_PARCIAL'
+  | 'DESCARTADA'
+  | 'VENCIDA';
+
+/**
+ * Una operación de una propuesta, con la forma EXACTA del request del endpoint
+ * destino (fase-14-29 decisión 6): aplicar es un `for` sobre este array, no una
+ * traducción.
+ *
+ * **Las ejecuta el frontend con el JWT del Tutor**, contra los endpoints
+ * públicos que ya existen — `ai-service` no tiene ningún camino de escritura
+ * hacia otro servicio. Por eso el método y la ruta viajan en el DTO: el que va
+ * a llamar es el navegador.
+ */
+export interface OperacionPropuestaIaDto {
+  /** Id local de la operación, para reportar el resultado por fila. */
+  opId: string;
+  metodo: 'POST' | 'PATCH' | 'PUT';
+  /** Relativa a `/api`. Ej: `/activity/grupos/:id/actividades`. */
+  ruta: string;
+  body: unknown;
+  /** Una línea legible para la tarjeta. La pantalla no muestra JSON crudo. */
+  etiqueta: string;
+}
+
+/** Lo que el frontend informa por cada operación después de aplicar. */
+export interface ResultadoOperacionIa {
+  opId: string;
+  ok: boolean;
+  /** Id de lo creado o editado, si salió bien. */
+  entidadId?: string;
+  /** Motivo del fallo, si salió mal. Se muestra en la fila roja. */
+  error?: string;
+}
+
+export interface PropuestaIaDto {
+  id: string;
+  conversacionId: string;
+  grupoId: string;
+  tipo: TipoPropuestaIa;
+  operaciones: OperacionPropuestaIaDto[];
+  /**
+   * `VENCIDA` se DERIVA de `venceEn` al leer, no se persiste: no hay ningún
+   * job que recorra la tabla marcando filas viejas.
+   */
+  estado: EstadoPropuestaIa;
+  /** ISO-8601. 24 h desde que se armó (decisión 12). */
+  venceEn: string;
+  aplicadaEn: string | null;
+  resultado: ResultadoOperacionIa[] | null;
+  createdAt: string;
+}
+
+/** `POST /api/ai/propuestas/:id/aplicada`. */
+export interface RegistrarPropuestaAplicadaRequest {
+  resultado: ResultadoOperacionIa[];
+}
+
+export type RegistrarPropuestaAplicadaResponse = PropuestaIaDto;
