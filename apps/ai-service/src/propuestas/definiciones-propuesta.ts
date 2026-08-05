@@ -1,4 +1,8 @@
-import { DefinicionHerramienta, PropiedadEsquema } from '../herramientas/definiciones';
+import {
+  DefinicionHerramienta,
+  NombreHerramientaLectura,
+  PropiedadEsquema,
+} from '../herramientas/definiciones';
 
 /**
  * Las herramientas de PROPUESTA (fase-14-29 Parte D, tanda 5).
@@ -26,9 +30,36 @@ const NO_APLICA =
   'No aplica el cambio: arma una propuesta que la app le muestra al Tutor para que decida. ' +
   'Nunca digas que ya lo hiciste.';
 
-const uuidDe = (que: string): PropiedadEsquema => ({
+/**
+ * Un id que el modelo tiene que haber LEÍDO antes, con la lectura de la que
+ * sale escrita en la firma.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * LA DECISIÓN 1 DEL fase-14-30, en forma ejecutable:
+ *
+ *   **Ninguna herramienta de propuesta puede aceptar un id que ninguna
+ *   herramienta de lectura devuelva.**
+ *
+ * Nació de un agujero real: `proponer_precios_tienda` pedía un `productoId` y
+ * ninguna de las ocho lecturas del fase-14-29 devolvía uno, así que el modelo
+ * solo podía inventarlo y la propuesta moría al aplicar. Cada pieza estaba bien
+ * escrita; lo que faltaba era el cable, y nada lo verificaba.
+ *
+ * Declarar el origen hace dos cosas a la vez: `NombreHerramientaLectura` impide
+ * que compile un origen que no existe, y la descripción le dice al modelo qué
+ * llamar antes —o sea que la regla, además de tapar el agujero, mejora el
+ * prompt—. `definiciones.spec.ts` verifica que ninguna propiedad uuid se quede
+ * sin origen.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const uuidDe = (
+  que: string,
+  ...origen: [NombreHerramientaLectura, ...NombreHerramientaLectura[]]
+): PropiedadEsquema => ({
   type: 'string',
-  description: `id (uuid) de ${que}, tal como vino de una herramienta de lectura.`,
+  description: `id (uuid) de ${que}, tal como vino de ${origen.join(' o de ')}.`,
+  formato: 'uuid',
+  origen,
 });
 
 /**
@@ -140,19 +171,19 @@ function camposActividad(conNombre: boolean): Record<string, PropiedadEsquema> {
       description:
         'Ids de rol del grupo que pueden verla. Quien no tenga el rol NO la ve. ' +
         'Excluyente con usuariosPermitidos y equiposPermitidos: elegí un solo modo.',
-      items: uuidDe('un rol del grupo'),
+      items: uuidDe('un rol del grupo', 'listar_participantes'),
     },
     usuariosPermitidos: {
       type: 'array',
       description:
         'Ids de participantes concretos. A diferencia del rol, es una lista fija: quien ' +
         'entre mañana al grupo no queda incluido. Excluyente con los otros dos modos.',
-      items: uuidDe('un participante'),
+      items: uuidDe('un participante', 'listar_participantes'),
     },
     equiposPermitidos: {
       type: 'array',
       description: 'Ids de equipo. Exige alcance EQUIPO. Excluyente con los otros dos modos.',
-      items: uuidDe('un equipo'),
+      items: uuidDe('un equipo', 'listar_participantes'),
     },
     vigenteDesde: {
       type: 'string',
@@ -220,7 +251,7 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
             type: 'object',
             description: 'Un cambio sobre una actividad existente.',
             properties: {
-              actividadId: uuidDe('la actividad a editar'),
+              actividadId: uuidDe('la actividad a editar', 'listar_actividades'),
               ...camposActividad(true),
             },
             required: ['actividadId'],
@@ -251,7 +282,7 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
             type: 'object',
             description: 'El precio nuevo de un producto.',
             properties: {
-              productoId: uuidDe('el producto de la tienda'),
+              productoId: uuidDe('el producto de la tienda', 'listar_tienda'),
               precio: {
                 type: 'integer',
                 description: 'Precio nuevo en monedas. Siempre mayor que 0.',
@@ -296,7 +327,11 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
                   'Las conductas malas no pueden pagar.',
                 enum: ['ACTIVIDAD', 'CONDUCTA'],
               },
-              origenId: uuidDe('la actividad o conducta que paga'),
+              origenId: uuidDe(
+                'la actividad o conducta que paga',
+                'listar_actividades',
+                'listar_conductas'
+              ),
               monedas: {
                 type: 'integer',
                 description: 'Monedas por cada vez que se cumple. 0 = no paga. Nunca negativo.',

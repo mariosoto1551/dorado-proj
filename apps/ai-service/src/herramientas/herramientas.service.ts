@@ -41,6 +41,22 @@ const DIAS_CUMPLIMIENTO_MAX = 365;
  *
  * 2. **Ninguna herramienta escribe.** Todas terminan en un GET de
  *    `ClienteInternoBase`, que es el único método de red del servicio.
+ *
+ * 3. **Ninguna herramienta devuelve un DTO crudo** (fase-14-30 decisión 9).
+ *    Cada respuesta se arma campo por campo. La regla nació de un defecto:
+ *    cuatro de las ocho lecturas del fase-14-29 pasaban el DTO entero, y
+ *    `ActividadDto`, `ConductaDto`, `UmbralZonaDto` y `RecompensaDto` llevan
+ *    `organizacionId` y `grupoId` — o sea que **el id de organización salía en
+ *    claro hacia el proveedor**, justo lo que la Parte E de aquel ítem promete
+ *    que no pasa. Las dos que se armaban a mano nunca tuvieron el problema, y
+ *    esa es exactamente la diferencia: pasar el DTO entero es el camino corto y
+ *    nadie lo había cerrado. Cuatro `delete` habrían arreglado el caso y dejado
+ *    el camino abierto para la lectura número trece.
+ *
+ *    Moldear cobra además dos cosas que ya se estaban cobrando sin decirlo:
+ *    viaja solo lo que el modelo necesita (menos tokens de entrada en cada
+ *    llamada) y cada campo se nombra pensando en que lo lea un modelo.
+ *    `herramientas.service.spec.ts` lo verifica sobre la salida real.
  */
 @Injectable()
 export class HerramientasService {
@@ -73,34 +89,28 @@ export class HerramientasService {
 
     switch (nombre) {
       case 'listar_actividades':
-        return {
-          ok: true,
-          datos: await this.activity.actividades(grupoId, this.estado(argumentos)),
-        };
+        return { ok: true, datos: await this.actividades(grupoId, this.estado(argumentos)) };
 
       case 'listar_conductas':
-        return {
-          ok: true,
-          datos: await this.activity.conductas(grupoId, this.estado(argumentos)),
-        };
+        return { ok: true, datos: await this.conductas(grupoId, this.estado(argumentos)) };
 
       case 'listar_participantes':
         return { ok: true, datos: await this.participantes(grupoId) };
 
       case 'listar_umbrales_zona':
-        return { ok: true, datos: await this.scoring.umbrales(grupoId) };
+        return { ok: true, datos: await this.umbrales(grupoId) };
 
       case 'resumen_puntajes':
         return await this.resumenPuntajes(grupoId);
 
       case 'listar_recompensas':
-        return {
-          ok: true,
-          datos: await this.rewards.recompensas(grupoId, this.estado(argumentos)),
-        };
+        return { ok: true, datos: await this.recompensas(grupoId, this.estado(argumentos)) };
 
       case 'listar_rendimientos_monedas':
-        return { ok: true, datos: await this.rewards.rendimientos(grupoId) };
+        return { ok: true, datos: await this.rendimientos(grupoId) };
+
+      case 'listar_tienda':
+        return { ok: true, datos: await this.tienda(grupoId, this.estado(argumentos)) };
 
       case 'resumen_cumplimiento':
         return {
@@ -118,6 +128,149 @@ export class HerramientasService {
           error: `La herramienta "${nombre}" está declarada pero todavía no se puede ejecutar.`,
         };
     }
+  }
+
+  /**
+   * Catálogo de actividades, sin los dos campos de tenant y sin el autor.
+   *
+   * `creadaPorUsuarioId` se cae porque no hay nada que el asistente pueda hacer
+   * con él: `origen` ya le dice si la actividad es del catálogo del Tutor o
+   * personal de un integrante, que es la parte que cambia qué se puede proponer
+   * sobre ella.
+   */
+  private async actividades(grupoId: string, estado?: string): Promise<unknown> {
+    const actividades = await this.activity.actividades(grupoId, estado);
+
+    return actividades.map((actividad) => ({
+      actividadId: actividad.id,
+      nombre: actividad.nombre,
+      descripcion: actividad.descripcion,
+      tipoPuntaje: actividad.tipoPuntaje,
+      valorPuntos: actividad.valorPuntos,
+      puntosPorCumplir: actividad.puntosPorCumplir,
+      tipoLimiteTiempo: actividad.tipoLimiteTiempo,
+      deadlineHora: actividad.deadlineHora,
+      duracionCronometroMinutos: actividad.duracionCronometroMinutos,
+      repeticionesMaximasSesion: actividad.repeticionesMaximasSesion,
+      repeticionesMinimasSesion: actividad.repeticionesMinimasSesion,
+      repeticionesMaximasSeccion: actividad.repeticionesMaximasSeccion,
+      comportamientoAlCierre: actividad.comportamientoAlCierre,
+      alcance: actividad.alcance,
+      bonoJefePuntos: actividad.bonoJefePuntos,
+      origen: actividad.origen,
+      diasSemana: actividad.diasSemana,
+      siempreVisible: actividad.siempreVisible,
+      rolesPermitidos: actividad.rolesPermitidos,
+      usuariosPermitidos: actividad.usuariosPermitidos,
+      equiposPermitidos: actividad.equiposPermitidos,
+      vigenteDesde: actividad.vigenteDesde,
+      vigenteHasta: actividad.vigenteHasta,
+      estado: actividad.estado,
+    }));
+  }
+
+  private async conductas(grupoId: string, estado?: string): Promise<unknown> {
+    const conductas = await this.activity.conductas(grupoId, estado);
+
+    return conductas.map((conducta) => ({
+      conductaId: conducta.id,
+      nombre: conducta.nombre,
+      tipo: conducta.tipo,
+      valorPuntos: conducta.valorPuntos,
+      permiteAutoreporte: conducta.permiteAutoreporte,
+      estado: conducta.estado,
+    }));
+  }
+
+  private async umbrales(grupoId: string): Promise<unknown> {
+    const umbrales = await this.scoring.umbrales(grupoId);
+
+    return umbrales.map((umbral) => ({
+      umbralZonaId: umbral.id,
+      nombreZona: umbral.nombreZona,
+      orden: umbral.orden,
+      puntosMin: umbral.puntosMin,
+      // null = la zona más alta, la que no tiene techo.
+      puntosMax: umbral.puntosMax,
+      colorHex: umbral.colorHex,
+    }));
+  }
+
+  /**
+   * Recompensas con sus etiquetas. Las etiquetas también se moldean: son otro
+   * DTO con `organizacionId` y `grupoId` adentro, anidado dentro de este.
+   */
+  private async recompensas(grupoId: string, estado?: string): Promise<unknown> {
+    const recompensas = await this.rewards.recompensas(grupoId, estado);
+
+    return recompensas.map((recompensa) => ({
+      recompensaId: recompensa.id,
+      nombre: recompensa.nombre,
+      descripcion: recompensa.descripcion,
+      tipo: recompensa.tipo,
+      umbralZonaId: recompensa.umbralZonaId,
+      nombreZona: recompensa.nombreZonaSnapshot,
+      permiteSeleccion: recompensa.permiteSeleccion,
+      permiteAzar: recompensa.permiteAzar,
+      etiquetas: recompensa.etiquetas.map((etiqueta) => ({
+        etiquetaId: etiqueta.id,
+        nombre: etiqueta.nombre,
+      })),
+      estado: recompensa.estado,
+    }));
+  }
+
+  private async rendimientos(grupoId: string): Promise<unknown> {
+    const rendimientos = await this.rewards.rendimientos(grupoId);
+
+    return rendimientos.map((rendimiento) => ({
+      tipoAccion: rendimiento.tipoAccion,
+      origenId: rendimiento.origenId,
+      nombre: rendimiento.nombreSnapshot,
+      monedas: rendimiento.monedas,
+      monedasBonoJefe: rendimiento.monedasBonoJefe,
+    }));
+  }
+
+  /**
+   * Productos y bolsas (fase-14-30 tanda 1).
+   *
+   * **Es la lectura de la que sale el `productoId`** que
+   * `proponer_precios_tienda` pedía y que ninguna herramienta devolvía: el
+   * precio vive en el `ProductoTienda`, no en la `Recompensa`, así que
+   * `listar_recompensas` no alcanzaba y el modelo solo podía inventarlo.
+   *
+   * El filtro por estado se aplica acá y no en el endpoint interno porque vale
+   * para las dos listas por igual, y una bolsa archivada con productos activos
+   * es una combinación que el Tutor tiene que poder ver.
+   */
+  private async tienda(grupoId: string, estado?: string): Promise<unknown> {
+    const tienda = await this.rewards.tienda(grupoId);
+    const pasa = (suyo: string): boolean => estado === undefined || suyo === estado;
+
+    return {
+      productos: tienda.productos
+        .filter((producto) => pasa(producto.estado))
+        .map((producto) => ({
+          productoId: producto.id,
+          nombre: producto.nombre,
+          descripcion: producto.descripcion,
+          precio: producto.precio,
+          fuente: producto.fuente,
+          mecanica: producto.mecanica,
+          recompensaId: producto.recompensaId,
+          bolsaId: producto.bolsaId,
+          estado: producto.estado,
+        })),
+      bolsas: tienda.bolsas
+        .filter((bolsa) => pasa(bolsa.estado))
+        .map((bolsa) => ({
+          bolsaId: bolsa.id,
+          nombre: bolsa.nombre,
+          recompensaIds: bolsa.recompensaIds,
+          estado: bolsa.estado,
+        })),
+    };
   }
 
   /**
@@ -196,10 +349,27 @@ export class HerramientasService {
     };
   }
 
+  /**
+   * Cuánto se usa cada actividad. El DTO trae `grupoId` en la raíz y se cae acá
+   * — incluido el caso del servicio caído, que antes lo devolvía igual.
+   */
   private async resumenCumplimiento(grupoId: string, dias: number): Promise<unknown> {
     const resumen = await this.activity.resumenCumplimiento(grupoId, dias);
 
-    return resumen ?? { grupoId, dias, actividades: [] };
+    return {
+      dias: resumen?.dias ?? dias,
+      actividades: (resumen?.actividades ?? []).map((actividad) => ({
+        actividadId: actividad.actividadId,
+        nombre: actividad.nombre,
+        estado: actividad.estado,
+        tipoPuntaje: actividad.tipoPuntaje,
+        valorPuntos: actividad.valorPuntos,
+        vecesCompletada: actividad.vecesCompletada,
+        vecesNoHizo: actividad.vecesNoHizo,
+        participantesDistintos: actividad.participantesDistintos,
+        ultimaVezCompletada: actividad.ultimaVezCompletada,
+      })),
+    };
   }
 
   /** `estado` del modelo, aceptado solo si es uno de los dos válidos. */

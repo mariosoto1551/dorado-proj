@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { RecompensaDto, RendimientoAccionInternoDto } from '@dorado/shared-types';
+import {
+  RecompensaDto,
+  RendimientoAccionInternoDto,
+  TiendaInternaDto,
+} from '@dorado/shared-types';
 
 import { ClienteInternoBase } from './cliente-interno.base';
 
@@ -34,6 +38,23 @@ export class RewardsClientService extends ClienteInternoBase {
       (await this.get<RendimientoAccionInternoDto[]>(
         `/internal/rewards/grupos/${grupoId}/rendimientos`
       )) ?? []
+    );
+  }
+
+  /**
+   * Productos y bolsas (fase-14-30 tanda 1). Es la lectura de la que sale el
+   * `productoId` que `proponer_precios_tienda` pedía y nadie devolvía.
+   *
+   * La tienda vacía y la tienda que no se pudo leer se ven igual desde acá —
+   * como en las otras lecturas: el modelo se entera de que no hay nada para
+   * proponer, que es lo mismo que necesita saber en los dos casos.
+   */
+  async tienda(grupoId: string): Promise<TiendaInternaDto> {
+    return (
+      (await this.get<TiendaInternaDto>(`/internal/rewards/grupos/${grupoId}/tienda`)) ?? {
+        productos: [],
+        bolsas: [],
+      }
     );
   }
 }

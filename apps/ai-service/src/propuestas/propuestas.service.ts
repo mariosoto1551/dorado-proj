@@ -259,13 +259,31 @@ export class PropuestasService {
       return { ok: false, error: 'Mandá al menos un precio en "precios".' };
     }
 
+    // fase-14-30 decisión 2: la referencia se valida contra el estado REAL del
+    // grupo antes de guardar nada. La decisión 1 hace que el modelo tenga de
+    // dónde sacar el id; esto evita que mande uno de otra entidad —o de otro
+    // grupo— y que el Tutor se entere recién cuando la fila sale en rojo.
+    const tienda = await this.rewards.tienda(contexto.grupoId);
+    const productos = new Map(tienda.productos.map((producto) => [producto.id, producto]));
     const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ id: string; nombre: string; precio: number }> = [];
 
     for (const [indice, fila] of filas.entries()) {
       const { productoId, ...cambios } = fila as Record<string, unknown>;
 
       if (typeof productoId !== 'string' || !this.esUuid(productoId)) {
         return { ok: false, error: `precios.${indice}.productoId: falta o no es un uuid.` };
+      }
+
+      const existente = productos.get(productoId);
+
+      if (!existente) {
+        return {
+          ok: false,
+          error:
+            `precios.${indice}.productoId: no hay ningún producto con ese id en la tienda de ` +
+            'este grupo. Llamá a listar_tienda y usá un id de ahí.',
+        };
       }
 
       const parseado = esquemaEditarProducto.safeParse(limpiarVacios(cambios, false));
@@ -286,11 +304,19 @@ export class PropuestasService {
         // desviación registrada en docs/progreso.
         ruta: `/rewards/productos/${productoId}`,
         body: parseado.data,
-        etiqueta: `Precio nuevo: ${parseado.data.precio} monedas`,
+        etiqueta:
+          `«${existente.nombre}»: ${existente.precio} → ${parseado.data.precio} monedas`,
       });
+      snapshot.push({ id: existente.id, nombre: existente.nombre, precio: existente.precio });
     }
 
-    return await this.guardar('PRECIOS_TIENDA', operaciones, {}, contexto, conversacionId);
+    return await this.guardar(
+      'PRECIOS_TIENDA',
+      operaciones,
+      { productos: snapshot },
+      contexto,
+      conversacionId
+    );
   }
 
   /**

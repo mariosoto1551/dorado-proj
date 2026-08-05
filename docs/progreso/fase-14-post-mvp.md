@@ -1954,3 +1954,82 @@ Y lo que deja abierto el ítem ya terminado:
 15. **`OPENAI_BASE_URL` es la única variable nueva del ítem que producción NO define.** El default es la URL real; existe solo para la suite. Si algún día aparece en un `.env` de producción, es un error — no una configuración.
 16. **Los invariantes de `propuestas/invariantes.ts` siguen siendo un espejo de reglas de activity y pueden derivar** (pendiente 8, sin cambios). La suite nueva no los cubre: sus propuestas son válidas a propósito, porque lo que testea es el sistema y no el criterio del modelo.
 17. **El costo del piloto sigue sin revisarse** (pendiente 4): 2M tokens ≈ USD 3 por organización y por mes, contra un tope de USD 5 en el project `dorado-dev`. La suite ya no gasta nada, pero el número del plan sigue siendo el de la tanda 1.
+
+---
+
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tanda 1 de 9 (2026-08-05)
+
+> Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
+
+### Tanda 1 — las dos reglas, sobre lo que ya existía (2026-08-05)
+
+Es la tanda que la Parte F pone primero y describe como *«la que hay que hacer aunque el resto del ítem se posponga»*: no agrega ni una capacidad nueva al asistente, **arregla los dos defectos del #29 y escribe las dos reglas que los hacen irrepetibles**. Al terminarla, `proponer_precios_tienda` funciona por primera vez y el id de organización deja de salir hacia el proveedor, todo sobre el catálogo viejo.
+
+#### El primer defecto: el `productoId` que nadie devolvía
+
+`proponer_precios_tienda` pedía un `productoId`, lo validaba como uuid, y **ninguna de las ocho lecturas devolvía un id de producto** — el precio vive en `ProductoTienda`, no en `Recompensa`, así que `listar_recompensas` devolvía otra entidad. El modelo solo podía inventarlo y la propuesta moría cuando el Tutor apretaba «Aplicar».
+
+Arreglado con la lectura que faltaba: `listar_tienda`, con su endpoint interno nuevo (`GET /internal/rewards/grupos/:grupoId/tienda`, tercero de ese controller) y su método en `RewardsClientService`. Devuelve productos y bolsas **en una sola herramienta**, por el mismo criterio que `listar_participantes`: un producto de fuente BOLSA no se entiende sin saber qué hay adentro, y pedirlos por separado costaría una vuelta más del loop, o sea otra llamada al proveedor pagada para contestar una cosa.
+
+Pero el arreglo del caso no es lo que importa. **La regla es la decisión 1**, y quedó escrita así:
+
+- `uuidDe(qué, ...origen)` en `definiciones-propuesta.ts` **exige** declarar de qué herramienta de lectura sale cada id. El tipo `NombreHerramientaLectura` se deriva de la tupla literal de nombres, así que **un origen inventado no compila** — verificado a propósito: `uuidDe('el producto', 'listar_productos')` da `TS2345` con los nueve nombres válidos en el mensaje.
+- El origen viaja también en la descripción que lee el modelo (*«…tal como vino de listar_tienda»*), que es una mejora del prompt además de una defensa: le dice qué llamar antes.
+- Acepta **varios** orígenes, porque hay ids que salen de dos lados: el `origenId` de un rendimiento es una actividad o una conducta.
+- El test estructural recorre las dos familias hasta el fondo de los arrays y falla si una propiedad uuid no declara origen, o declara uno que no existe.
+
+Y un segundo test que es el que de verdad cierra la puerta: **ninguna propiedad puede hablar de un uuid en su descripción sin estar declarada como tal**. El primero solo ve lo que pasó por `uuidDe`; este ve el camino corto — una propiedad escrita a mano que pide un id igual. Verificado rompiéndolo: reemplazar `uuidDe(...)` por un objeto literal equivalente pone el test en rojo con el mensaje que explica por qué.
+
+#### El segundo defecto: el id de organización sí salía hacia el proveedor
+
+La medida 7 de la Parte E del #29 dice que el id de organización **no** sale en claro hacia OpenAI. Salía. `listar_actividades`, `listar_conductas`, `listar_umbrales_zona` y `listar_recompensas` devolvían **el DTO tal como venía del endpoint interno**, y los cuatro DTOs llevan `organizacionId` y `grupoId` justo después del `id`. Las dos lecturas que se armaban a mano campo por campo nunca tuvieron el problema, y esa es exactamente la diferencia: **pasar el DTO entero es el camino corto y nadie lo había cerrado**.
+
+Ahora **las nueve lecturas moldean su respuesta campo por campo** (decisión 9), y el molde cobra las dos cosas que `listar_participantes` ya se cobraba sin decirlo: viaja solo lo que el modelo necesita y cada campo se nombra pensando en que lo lea un modelo (`actividadId` en vez de `id`, `nombreZona` en vez de `nombreZonaSnapshot`).
+
+Tres cosas que aparecieron al moldear y que un `delete` sobre los cuatro DTOs no habría tocado:
+
+1. **Las etiquetas de una recompensa son otro DTO con tenant adentro**, anidado. Un molde de primer nivel las habría dejado pasar enteras.
+2. **`resumen_cumplimiento` era el quinto caso**, no uno de los cuatro: `ResumenCumplimientoDto` lleva `grupoId` en la raíz. La spec nombra cuatro lecturas porque contó las que devuelven entidades; contando la salida real son cinco.
+3. **El fallback del servicio caído también filtraba**: `resumen ?? { grupoId, dias, actividades: [] }` mandaba el grupo por la puerta del error. Es el mismo agujero, del lado que nadie mira.
+
+El test es el hermano exacto del estructural del #29 pero **sobre la salida**: ejecuta las nueve herramientas y falla si alguna clave —hasta el fondo de arrays y objetos— matchea `/organizacionId|grupoId|tenant/`, más el chequeo de que no viaje ningún `@` ni `username`. **Los mocks devuelven los DTOs con sus campos de tenant adentro a propósito**: con fixtures ya limpios el test pasaría sin verificar nada, que es precisamente cómo el defecto sobrevivió a la tanda 3. Y va con un contrapeso —un molde que devolviera `{}` también pasaría el otro— que verifica que lo que el modelo necesita sigue estando.
+
+#### La decisión 2, en su primera instancia
+
+`proponer_precios_tienda` ahora **valida el `productoId` contra la tienda real del grupo** antes de guardar nada: un id que no está devuelve el error al modelo nombrando el campo **y diciéndole qué llamar** (`listar_tienda`), en vez de una propuesta guardada que muere al aplicar. Sin esto, la decisión 1 evita que el modelo *no tenga* el id, pero no que confunda uno de otra entidad — y ahora que los ids abundan, ese es el error probable.
+
+Efecto colateral gratis: con la tienda leída, la etiqueta de la tarjeta ya puede decir el «antes» (`«Helado»: 20 → 30 monedas`) en vez de un número suelto, y el snapshot guarda nombre y precio viejo para el frontend de la tanda 8.
+
+#### Los metadatos no viajan al proveedor
+
+`formato` y `origen` **no son JSON Schema**. Podrían mandarse igual —el proveedor ignora las claves que no conoce— y por eso mismo no se mandan: que el catálogo funcione no puede depender de un detalle de la implementación de un tercero, y la Parte E promete que lo que sale se puede leer en un solo lugar. `aJsonSchema()` los saca recursivamente y `openai.service.ts` es el único que la llama. Tres tests: que saca los metadatos, que llega hasta los objetos anidados dentro de arrays (**donde viven todos los ids de este catálogo**, así que un limpiador de primer nivel los dejaría pasar todos) y que no le cambia nada más al esquema.
+
+#### El costo en tokens (criterio 12)
+
+Medido sobre lo que efectivamente viaja (`tools` serializado, con `aJsonSchema` aplicado):
+
+| | Herramientas | Caracteres | ≈ tokens |
+|---|---|---|---|
+| Antes (fase-14-29) | 12 | 16.591 | ~4.148 |
+| Después de la tanda 1 | 13 | 17.267 | ~4.317 |
+
+**+676 caracteres, ~+169 tokens (+4,1%)** por una herramienta, en línea con el promedio del catálogo existente. El bloque entra por caché vía `prompt_cache_key` (idéntico entre llamadas de una conversación), así que desde el segundo turno el costo real es ~10% de eso. El número queda acá para comparar contra el salto a 26 herramientas que va a producir el resto del ítem.
+
+#### Verificación
+
+- **`ai-service` 162/162** (+14: 7 en `definiciones.spec.ts`, 6 en `herramientas.service.spec.ts`, 1 en `propuestas.service.spec.ts`) y **`rewards-service` 206/206** sin regresiones.
+- **Lint 19/19 y build verdes**, sin warnings nuevos.
+- **Los dos lados del criterio 1 verificados rompiéndolos a propósito**: un origen inexistente no compila (`TS2345`), y una propiedad uuid escrita a mano sin `uuidDe` pone dos tests en rojo. Los dos se restauraron.
+- **El endpoint interno nuevo, contra Postgres real** (`infra/docker-compose.yml` + `nx serve rewards-service`, con los datos del piloto ya cargados): `200` con el secreto y `401` sin él; el producto de fuente BOLSA sale con su `bolsaId` y la bolsa con sus dos `recompensaIds`; **el aislamiento verificado con tres grupos** —cada uno ve solo lo suyo y un grupo inexistente devuelve las dos listas vacías—; y **ni una clave de tenant en la respuesta real**, no solo en el tipo.
+- **Sin migraciones**: la tanda no toca ningún schema.
+
+#### Qué falta de este ítem
+
+Las tandas 2 a 9 de la Parte F, en ese orden. La 2 (contratos en `shared-types` y sus `implements`) es la que puede romper builds ajenos y conviene aislada; las 4 a 7 son independientes entre sí y cada familia entregada funciona sola.
+
+Anotado para las que siguen:
+
+1. **La spec dice «cuatro lecturas que devuelven el DTO crudo» y son cinco** (`resumen_cumplimiento` incluida). No cambia ninguna decisión; el test cubre las nueve por igual, y las cuatro lecturas que se agreguen van a nacer cubiertas.
+2. **`NOMBRES_HERRAMIENTAS_LECTURA` se escribe a mano** (de un `.map()` no sale el tipo literal que hace cumplir la decisión 1). Hay un test que la mantiene pegada a las definiciones reales: agregar una herramienta y olvidarse de la lista pone eso en rojo, no algo lejano.
+3. **El endpoint interno de la tienda devuelve también las ARCHIVADAS** y el filtro por estado se aplica en `ai-service`, para las dos listas por igual. Una bolsa archivada con productos activos es una combinación que el Tutor tiene que poder ver.
+4. **La conversación real contra OpenAI queda pendiente para el final del ítem.** Esta tanda se verificó con unidad, build y el endpoint interno real; lo que no se ejerció es el modelo llamando a `listar_tienda` y proponiendo un precio de punta a punta. Es la clase de cable que esta fase viene encontrando rota siete veces, así que **no cuenta como verificado hasta correrlo**.

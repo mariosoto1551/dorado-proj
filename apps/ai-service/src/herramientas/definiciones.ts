@@ -26,9 +26,39 @@
  */
 
 /**
+ * Los nombres de las herramientas de LECTURA, como tupla literal.
+ *
+ * Se escriben acá y no se derivan de `HERRAMIENTAS_LECTURA` porque de un
+ * `.map()` no sale un tipo con los nombres adentro, y ese tipo es lo que hace
+ * cumplir la decisión 1 del fase-14-30: **una propiedad uuid de una herramienta
+ * de propuesta tiene que declarar de qué lectura sale ese id, y un origen
+ * inventado no compila.**
+ *
+ * `definiciones.spec.ts` verifica que esta lista y las definiciones de abajo no
+ * se separen.
+ */
+const NOMBRES = [
+  'listar_actividades',
+  'listar_conductas',
+  'listar_participantes',
+  'listar_umbrales_zona',
+  'resumen_puntajes',
+  'listar_recompensas',
+  'listar_rendimientos_monedas',
+  'listar_tienda',
+  'resumen_cumplimiento',
+] as const;
+
+export type NombreHerramientaLectura = (typeof NOMBRES)[number];
+
+/**
  * JSON Schema mínimo, recursivo. Las de lectura usan solo escalares; las de
  * propuesta (tanda 5) necesitan arrays de objetos — una propuesta es una lista
  * de operaciones, no un campo suelto.
+ *
+ * `formato` y `origen` son **metadatos nuestros, no JSON Schema**: los lee el
+ * test estructural de la decisión 1 y `aJsonSchema()` los saca antes de que
+ * esto viaje al proveedor.
  */
 export type PropiedadEsquema =
   | {
@@ -37,6 +67,14 @@ export type PropiedadEsquema =
       enum?: string[];
       minimum?: number;
       maximum?: number;
+      /** META: la propiedad es un id. Lo pone `uuidDe()`, nunca a mano. */
+      formato?: 'uuid';
+      /**
+       * META: de qué herramienta(s) de lectura sale ese id (decisión 1). Son
+       * varias cuando el id puede ser de dos entidades distintas — el `origenId`
+       * de un rendimiento, que es una actividad o una conducta.
+       */
+      origen?: readonly NombreHerramientaLectura[];
     }
   | {
       type: 'array';
@@ -154,6 +192,21 @@ export const HERRAMIENTAS_LECTURA: DefinicionHerramienta[] = [
     parametros: sinParametros(),
   },
   {
+    nombre: 'listar_tienda',
+    descripcion:
+      'Devuelve los productos de la tienda con su precio en monedas, de dónde sale lo que ' +
+      'entregan (un ítem suelto o una bolsa) y si se obtiene al azar o a elección, más las ' +
+      'bolsas con los ítems que contienen. **Es la única forma de conseguir el id de un ' +
+      'producto**: para proponer un precio hay que llamarla antes. Ojo que la tienda solo ' +
+      'funciona si el grupo está en modo TIENDA.',
+    parametros: {
+      type: 'object',
+      properties: { estado: ESTADO_CATALOGO },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     nombre: 'resumen_cumplimiento',
     descripcion:
       'Devuelve, por cada actividad del catálogo, cuántas veces se completó, cuántas se marcó ' +
@@ -176,7 +229,43 @@ export const HERRAMIENTAS_LECTURA: DefinicionHerramienta[] = [
   },
 ];
 
-/** Nombres válidos, para que el ejecutor rechace cualquier otro sin ramificar. */
-export const NOMBRES_HERRAMIENTAS_LECTURA: readonly string[] = HERRAMIENTAS_LECTURA.map(
-  (herramienta) => herramienta.nombre
-);
+/**
+ * Nombres válidos, para que el ejecutor rechace cualquier otro sin ramificar.
+ *
+ * Se tipa `readonly string[]` y no como la tupla: quien pregunta acá compara
+ * contra un nombre que mandó el modelo, o sea un `string` cualquiera. El tipo
+ * literal se exporta aparte (`NombreHerramientaLectura`) para lo único donde
+ * hace falta, que es declarar el origen de un id.
+ */
+export const NOMBRES_HERRAMIENTAS_LECTURA: readonly string[] = NOMBRES;
+
+/**
+ * Saca los metadatos que no son JSON Schema (`formato`, `origen`) antes de
+ * mandar el catálogo al proveedor.
+ *
+ * Podría no hacerse —hoy el proveedor ignora las claves que no conoce— y por
+ * eso mismo se hace: que el catálogo funcione depende de un detalle de la
+ * implementación de un tercero, y acá lo que viaja hacia afuera se decide de
+ * este lado. Además mantiene la promesa de la Parte E: lo que sale es
+ * exactamente lo que se puede leer en esta función.
+ */
+export function aJsonSchema<T extends EsquemaParametros | PropiedadEsquema>(esquema: T): T {
+  const copia: Record<string, unknown> = { ...esquema };
+
+  delete copia['formato'];
+  delete copia['origen'];
+
+  if (copia['properties']) {
+    copia['properties'] = Object.fromEntries(
+      Object.entries(copia['properties'] as Record<string, PropiedadEsquema>).map(
+        ([nombre, propiedad]) => [nombre, aJsonSchema(propiedad)]
+      )
+    );
+  }
+
+  if (copia['items']) {
+    copia['items'] = aJsonSchema(copia['items'] as PropiedadEsquema);
+  }
+
+  return copia as T;
+}

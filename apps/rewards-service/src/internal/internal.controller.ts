@@ -2,8 +2,11 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
 import {
+  FuenteProducto,
+  MecanicaProducto,
   RecompensaDto,
   RendimientoAccionInternoDto,
+  TiendaInternaDto,
   TipoAccionRendimiento,
 } from '@dorado/shared-types';
 
@@ -22,8 +25,8 @@ import { PrismaService } from '../prisma/prisma.service';
  * `listar_rendimientos_monedas` — el asistente tiene que ver los precios y lo
  * que paga cada acción para poder calibrar la economía.
  *
- * Los dos son de LECTURA y así se quedan: la decisión 6 del ítem dice que la
- * IA no escribe en ningún servicio, y una escritura interna nueva acá sería
+ * Los tres son de LECTURA y así se quedan: la decisión 6 de aquel ítem dice que
+ * la IA no escribe en ningún servicio, y una escritura interna nueva acá sería
  * exactamente la superficie que el diseño existe para no tener.
  */
 @Controller('internal/rewards')
@@ -88,5 +91,54 @@ export class InternalController {
       monedas: rendimiento.monedas,
       monedasBonoJefe: rendimiento.monedasBonoJefe,
     }));
+  }
+
+  /**
+   * Productos y bolsas del Grupo (fase-14-30 tanda 1).
+   *
+   * **Es el prerrequisito de que `proponer_precios_tienda` pueda funcionar**: el
+   * precio vive en el `ProductoTienda`, no en la `Recompensa`, así que sin este
+   * endpoint el asistente no tenía de dónde sacar un `productoId` y solo podía
+   * inventarlo — la propuesta moría cuando el Tutor apretaba «Aplicar».
+   *
+   * Devuelve también las ARCHIVADAS, por el mismo criterio que las recompensas:
+   * para calibrar precios hace falta ver qué se dejó de ofrecer.
+   *
+   * Sin `puedeComprar` ni `faltan`: se calculan contra el saldo de una persona
+   * y acá no hay ninguna.
+   */
+  @Get('grupos/:grupoId/tienda')
+  async tiendaDelGrupo(@Param('grupoId') grupoId: string): Promise<TiendaInternaDto> {
+    const [productos, bolsas] = await Promise.all([
+      this.prisma.client.productoTienda.findMany({
+        where: { grupoId },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.client.bolsaPremios.findMany({
+        where: { grupoId },
+        orderBy: { createdAt: 'asc' },
+        include: { items: { select: { recompensaId: true } } },
+      }),
+    ]);
+
+    return {
+      productos: productos.map((producto) => ({
+        id: producto.id,
+        nombre: producto.nombre,
+        descripcion: producto.descripcion,
+        precio: producto.precio,
+        fuente: producto.fuente as FuenteProducto,
+        mecanica: producto.mecanica as MecanicaProducto,
+        recompensaId: producto.recompensaId,
+        bolsaId: producto.bolsaId,
+        estado: producto.estado as 'ACTIVA' | 'ARCHIVADA',
+      })),
+      bolsas: bolsas.map((bolsa) => ({
+        id: bolsa.id,
+        nombre: bolsa.nombre,
+        estado: bolsa.estado as 'ACTIVA' | 'ARCHIVADA',
+        recompensaIds: bolsa.items.map((item) => item.recompensaId),
+      })),
+    };
   }
 }

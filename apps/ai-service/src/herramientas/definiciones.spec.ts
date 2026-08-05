@@ -5,6 +5,7 @@ import {
   NOMBRES_HERRAMIENTAS_PROPUESTA,
 } from '../propuestas/definiciones-propuesta';
 import {
+  aJsonSchema,
   DefinicionHerramienta,
   EsquemaParametros,
   HERRAMIENTAS_LECTURA,
@@ -14,6 +15,50 @@ import {
 
 /** Todas las herramientas que el modelo puede llamar, de las dos familias. */
 const TODAS = [...HERRAMIENTAS_LECTURA, ...HERRAMIENTAS_PROPUESTA];
+
+/**
+ * Recorre el esquema completo devolviendo la propiedad entera y su ruta, para
+ * los chequeos que miran el CONTENIDO de cada propiedad y no solo su nombre.
+ */
+function todasLasPropiedades(
+  esquema: EsquemaParametros
+): Array<{ ruta: string; propiedad: PropiedadEsquema }> {
+  const encontradas: Array<{ ruta: string; propiedad: PropiedadEsquema }> = [];
+  const visitar = (propiedades: Record<string, PropiedadEsquema>, prefijo: string): void => {
+    for (const [nombre, propiedad] of Object.entries(propiedades)) {
+      const ruta = `${prefijo}${nombre}`;
+
+      encontradas.push({ ruta, propiedad });
+
+      if (propiedad.type === 'array') {
+        encontradas.push({ ruta: `${ruta}[]`, propiedad: propiedad.items });
+
+        if (propiedad.items.type === 'object') {
+          visitar(propiedad.items.properties, `${ruta}[].`);
+        }
+      }
+
+      if (propiedad.type === 'object') {
+        visitar(propiedad.properties, `${ruta}.`);
+      }
+    }
+  };
+
+  visitar(esquema.properties, '');
+
+  return encontradas;
+}
+
+/** Una herramienta de propuesta por nombre; si no está, el test falla acá. */
+function propuesta(nombre: string): DefinicionHerramienta {
+  const encontrada = HERRAMIENTAS_PROPUESTA.find((herramienta) => herramienta.nombre === nombre);
+
+  if (!encontrada) {
+    throw new Error(`No existe la herramienta de propuesta "${nombre}".`);
+  }
+
+  return encontrada;
+}
 
 /**
  * Recorre el esquema COMPLETO, incluidos los objetos anidados dentro de
@@ -128,7 +173,8 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
     });
   });
 
-  it('están las ocho de la spec, con nombres únicos', () => {
+  it('están las nueve de la spec, con nombres únicos', () => {
+    // Las ocho del fase-14-29 más `listar_tienda` (fase-14-30 tanda 1).
     expect(NOMBRES_HERRAMIENTAS_LECTURA).toEqual([
       'listar_actividades',
       'listar_conductas',
@@ -137,9 +183,19 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
       'resumen_puntajes',
       'listar_recompensas',
       'listar_rendimientos_monedas',
+      'listar_tienda',
       'resumen_cumplimiento',
     ]);
     expect(new Set(NOMBRES_HERRAMIENTAS_LECTURA).size).toBe(HERRAMIENTAS_LECTURA.length);
+  });
+
+  it('la lista de nombres y las definiciones no se separan', () => {
+    // `NOMBRES_HERRAMIENTAS_LECTURA` se escribe a mano (de un `.map()` no sale
+    // el tipo literal que hace cumplir la decisión 1), así que hace falta algo
+    // que lo mantenga pegado a las definiciones reales.
+    expect(HERRAMIENTAS_LECTURA.map((herramienta) => herramienta.nombre)).toEqual([
+      ...NOMBRES_HERRAMIENTAS_LECTURA,
+    ]);
   });
 
   it('ninguna herramienta de esta lista escribe (todas son de lectura)', () => {
@@ -151,6 +207,110 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
     for (const herramienta of HERRAMIENTAS_LECTURA) {
       expect(verbosDeEscritura.test(herramienta.nombre), herramienta.nombre).toBe(false);
     }
+  });
+
+  /**
+   * TEST ESTRUCTURAL 3 (fase-14-30, decisión 1). Hermano del de arriba: aquel
+   * mira que no entre un dato que el modelo no debe poner, este que no se pida
+   * un dato que el modelo no puede tener.
+   *
+   * El defecto que lo motivó: `proponer_precios_tienda` pedía un `productoId`
+   * que ninguna de las ocho lecturas devolvía. Las dos piezas estaban bien
+   * escritas y entre ellas no había nadie. Esto es ese «nadie».
+   */
+  describe('todo id que se pide se puede haber leído antes (decisión 1 del fase-14-30)', () => {
+    it('cada propiedad uuid declara de qué herramienta de lectura sale', () => {
+      const sinOrigen: string[] = [];
+
+      for (const herramienta of TODAS) {
+        for (const { ruta, propiedad } of todasLasPropiedades(herramienta.parametros)) {
+          if (!('formato' in propiedad) || propiedad.formato !== 'uuid') {
+            continue;
+          }
+
+          const origen = propiedad.origen ?? [];
+          const desconocido = origen.some(
+            (nombre) => !NOMBRES_HERRAMIENTAS_LECTURA.includes(nombre)
+          );
+
+          if (origen.length === 0 || desconocido) {
+            sinOrigen.push(`${herramienta.nombre}.${ruta}`);
+          }
+        }
+      }
+
+      expect(
+        sinOrigen,
+        'Ninguna herramienta de propuesta puede aceptar un id que ninguna herramienta de ' +
+          'lectura devuelva (fase-14-30 decisión 1). Usá `uuidDe(qué, origen)` y, si el ' +
+          'origen todavía no existe, la herramienta que falta es la de LECTURA.'
+      ).toEqual([]);
+    });
+
+    it('ninguna propiedad habla de un uuid sin declararlo como tal', () => {
+      // El chequeo de arriba solo ve lo que pasó por `uuidDe`. Este ve el
+      // camino corto: una propiedad escrita a mano que pide un id igual, con la
+      // descripción como única pista. Sin esto la regla se saltea sin querer.
+      const aMano: string[] = [];
+
+      for (const herramienta of TODAS) {
+        for (const { ruta, propiedad } of todasLasPropiedades(herramienta.parametros)) {
+          const pareceId = /\buuid\b/i.test(propiedad.description);
+          const declarado = 'formato' in propiedad && propiedad.formato === 'uuid';
+
+          if (pareceId && !declarado) {
+            aMano.push(`${herramienta.nombre}.${ruta}`);
+          }
+        }
+      }
+
+      expect(
+        aMano,
+        'Una propiedad que pide un id se declara con `uuidDe()`, que es lo que la obliga a ' +
+          'nombrar su origen. Escribirla a mano saltea la decisión 1 sin que nada se ponga rojo.'
+      ).toEqual([]);
+    });
+
+    it('los ids de la tienda salen de listar_tienda, que es el defecto que cerró el ítem', () => {
+      const productoId = todasLasPropiedades(propuesta('proponer_precios_tienda').parametros).find(
+        ({ ruta }) => ruta === 'precios[].productoId'
+      );
+
+      expect(productoId?.propiedad).toMatchObject({ formato: 'uuid', origen: ['listar_tienda'] });
+      expect(NOMBRES_HERRAMIENTAS_LECTURA).toContain('listar_tienda');
+    });
+  });
+
+  describe('lo que viaja al proveedor', () => {
+    it('aJsonSchema saca los metadatos, que no son JSON Schema', () => {
+      const limpio = aJsonSchema(propuesta('proponer_precios_tienda').parametros);
+      const serializado = JSON.stringify(limpio);
+
+      expect(serializado).not.toContain('formato');
+      expect(serializado).not.toContain('origen');
+      // Lo que sí tiene que sobrevivir: el esquema propiamente dicho.
+      expect(serializado).toContain('productoId');
+      expect(serializado).toContain('minimum');
+    });
+
+    it('limpia también los objetos anidados adentro de los arrays', () => {
+      // Es donde viven TODOS los ids de este catálogo: un limpiador de primer
+      // nivel dejaría pasar cada uno de ellos.
+      for (const herramienta of TODAS) {
+        const serializado = JSON.stringify(aJsonSchema(herramienta.parametros));
+
+        expect(serializado, herramienta.nombre).not.toContain('"formato"');
+        expect(serializado, herramienta.nombre).not.toContain('"origen"');
+      }
+    });
+
+    it('no le cambia nada más al esquema', () => {
+      // Un limpiador que además reordene o pierda claves rompería el catálogo
+      // en silencio: el modelo dejaría de ver campos que sí existen.
+      const original = HERRAMIENTAS_LECTURA[0].parametros;
+
+      expect(aJsonSchema(original)).toEqual(original);
+    });
   });
 
   it('cada herramienta tiene una descripción útil para el modelo', () => {

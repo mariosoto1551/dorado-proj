@@ -372,6 +372,51 @@ export interface RendimientoAccionInternoDto {
   monedasBonoJefe: number;
 }
 
+/**
+ * La tienda del Grupo tal como la lee un servicio interno (fase-14-30 tanda 1,
+ * herramienta `listar_tienda`).
+ *
+ * **Existe para cerrar el primer defecto del fase-14-29**: `proponer_precios_tienda`
+ * pide un `productoId` y ninguna herramienta de lectura devolvía uno. El precio
+ * no vive en la `Recompensa` sino en el `ProductoTienda`, así que listar
+ * recompensas no alcanzaba y el modelo solo podía inventar el id.
+ *
+ * No es `ProductoTiendaDto`: aquel lleva `puedeComprar` y `faltan`, que se
+ * calculan contra el saldo de UNA persona y acá no hay ninguna — quien consume
+ * esto configura la tienda, no compra en ella.
+ */
+export interface ProductoTiendaInternoDto {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  precio: number;
+  fuente: FuenteProducto;
+  /** Se ignora cuando la fuente es ITEM. */
+  mecanica: MecanicaProducto;
+  recompensaId: string | null;
+  bolsaId: string | null;
+  estado: 'ACTIVA' | 'ARCHIVADA';
+}
+
+/** Una bolsa con lo que contiene, sin los campos de tenant. */
+export interface BolsaPremiosInternaDto {
+  id: string;
+  nombre: string;
+  estado: 'ACTIVA' | 'ARCHIVADA';
+  /** Ítems que contiene, siempre de tipo PREMIO. */
+  recompensaIds: string[];
+}
+
+/**
+ * Los dos lados de la tienda en una sola respuesta: un producto de fuente BOLSA
+ * no se entiende sin saber qué hay adentro de esa bolsa, y pedirlos por
+ * separado costaría dos vueltas del loop del asistente.
+ */
+export interface TiendaInternaDto {
+  productos: ProductoTiendaInternoDto[];
+  bolsas: BolsaPremiosInternaDto[];
+}
+
 // --- Contratos de request de la tienda (fase-14-29 tanda 5) ---
 // Ver la nota equivalente en activity.ts: la clase con decoradores de
 // rewards-service las `implements`, para que un cambio rompa el build.

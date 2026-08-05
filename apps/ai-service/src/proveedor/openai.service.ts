@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { ProveedorNoDisponibleException } from '../comun/excepciones';
+import { aJsonSchema } from '../herramientas/definiciones';
 import { PedidoAlProveedor, RespuestaDelProveedor } from './tipos';
 
 /**
@@ -75,7 +76,10 @@ export class OpenAiService {
         type: 'function',
         name: herramienta.nombre,
         description: herramienta.descripcion,
-        parameters: herramienta.parametros,
+        // Los metadatos internos (`formato`, `origen`, del fase-14-30) no son
+        // JSON Schema y no salen de acá: lo que viaja es exactamente lo que el
+        // proveedor sabe leer.
+        parameters: aJsonSchema(herramienta.parametros),
       })),
       max_output_tokens: pedido.maxTokensSalida,
       // Los dos parámetros que reemplazaron al viejo `user` (Parte E, punto 7):

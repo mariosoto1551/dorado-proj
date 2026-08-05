@@ -83,12 +83,30 @@ function crearMocks(opciones: Opciones = {}) {
     equipos: vi.fn(async () => [{ equipoId: EQUIPO_ID, nombre: 'Cocina', estado: 'ACTIVO' }]),
   } as unknown as IdentityClientService;
 
-  const rewards = {} as unknown as RewardsClientService;
+  const rewards = {
+    tienda: vi.fn(async () => ({
+      productos: [
+        {
+          id: PRODUCTO_ID,
+          nombre: 'Helado',
+          descripcion: null,
+          precio: 20,
+          fuente: 'ITEM',
+          mecanica: 'ELECCION',
+          recompensaId: 'r-1',
+          bolsaId: null,
+          estado: 'ACTIVA',
+        },
+      ],
+      bolsas: [],
+    })),
+  } as unknown as RewardsClientService;
 
   return {
     prisma,
     activity,
     identity,
+    rewards,
     creadas,
     servicio: new PropuestasService(prisma, activity, identity, rewards),
   };
@@ -327,6 +345,34 @@ describe('PropuestasService', () => {
 
       expect(operaciones[0].ruta).toBe(`/rewards/productos/${PRODUCTO_ID}`);
       expect(operaciones[0].body).toEqual({ precio: 30 });
+      // Con la tienda leída, la etiqueta ya puede decir el «antes»: el Tutor
+      // decide sobre 20 → 30, no sobre un número suelto.
+      expect(operaciones[0].etiqueta).toBe('«Helado»: 20 → 30 monedas');
+    });
+
+    /**
+     * Criterio 2 del fase-14-30, y la otra mitad de la decisión 1: aquella hace
+     * que el modelo TENGA de dónde sacar el id; esta, que no pueda mandar el de
+     * otra entidad —o el de otro grupo— y que la propuesta se guarde igual para
+     * morir recién cuando el Tutor aprieta «Aplicar».
+     */
+    it('un productoId que no es de la tienda de este grupo NO crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_precios_tienda',
+        // Un uuid válido y ajeno: es exactamente lo que devolvería una lectura
+        // de otra entidad, que es el error probable ahora que el id existe.
+        { precios: [{ productoId: ACTIVIDAD_ID, precio: 30 }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('productoId');
+      // El error le dice al modelo qué llamar, no solo que se equivocó.
+      expect((resultado as { error: string }).error).toContain('listar_tienda');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
     });
 
     it('rechaza un precio de 0 o negativo', async () => {
