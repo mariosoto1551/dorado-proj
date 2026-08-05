@@ -1568,10 +1568,10 @@ cd apps/<servicio> && npx prisma migrate diff --from-config-datasource --to-sche
 
 ---
 
-## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1, 2 y 3 EJECUTADAS (2026-08-04)
+## Ítem 29: Asistente de IA para el área del Tutor — TANDAS 1 a 4 EJECUTADAS (2026-08-04)
 
 > Spec: `docs/phases/fase-14-29-asistente-ia.md` (escrita antes de tocar código). Índice: entrada #29 de `fase-14-post-mvp.md`.
-> **Estado: 3 de 7 tandas.** Las cuatro restantes están enumeradas abajo con su punto de entrada exacto.
+> **Estado: 4 de 7 tandas.** Las tres restantes están enumeradas abajo con su punto de entrada exacto.
 
 ### Origen (pedido de José, 2026-08-04)
 
@@ -1692,11 +1692,57 @@ Las cuatro `*_INTERNAL_URL` nuevas son **requeridas** en el env schema, no opcio
 
 **Fuera del código**: `infra/render.yaml` sumó el **décimo servicio** (bloque `ai-service` completo, sin `RABBITMQ_URL` porque no toca eventos) y `AI_INTERNAL_URL` en el Gateway — no estaban, la tanda 2 no había llegado a ese archivo. `.env.production.example` sumó la sección de `ai-service`, que tampoco existía. `apps/ai-service/.env(.example)` sumaron las cuatro URLs internas.
 
-### Cómo seguir: las cuatro tandas que faltan
+### Tanda 4 — el loop con OpenAI (2026-08-04)
+
+Primera tanda que gasta dinero real. José cargó la key (`sk-proj-…`, de un service account como pedía la spec) y preguntó qué poner en `OPENAI_MODEL`, que la spec deliberadamente **no** ancló.
+
+**El modelo: `gpt-5.6-terra`.** Se verificó contra la doc del proveedor —tres modelos de frontera vigentes, los tres con function calling— y se probaron los tres con la key real. El criterio no fue «el del medio»: esta tarea **no necesita razonamiento de frontera** (hay que llenar veintipico de campos de forma consistente teniendo el schema a la vista, no resolver algo difícil), así que Sol se paga sin comprar nada; pero **tampoco es barata de verdad**, porque cada propuesta se valida contra el DTO real y **una que no valida vuelve al modelo para que reintente**, o sea que un modelo flojo no ahorra tokens, los gasta dos veces. Es una línea de `.env`: si el piloto muestra que Luna alcanza para lo conversacional, cambiarlo cuesta un deploy.
+
+#### Lo que encontró probar contra la API antes de escribir el loop
+
+Se hizo una llamada real **antes** de escribir una línea del loop, y trajo dos cosas que hubieran salido mal:
+
+1. **Un turno puede traer VARIAS `function_call`.** Una pregunta simple devolvió dos en la misma respuesta. Un loop que asume «una herramienta por iteración» descarta trabajo que el modelo pidió y deja un `call_id` sin responder, que es como se cuelga un loop de herramientas. Por eso **el tope de 8 cuenta TURNOS, no llamadas**: contar llamadas cortaría a la mitad un turno legítimo que pidió tres listados juntos.
+2. **Los tokens de razonamiento se facturan y compiten contra `max_output_tokens`.** Vienen dentro de `output_tokens` (13 de 72 en una respuesta corta), así que contabilizarlos aparte subestimaría justo los turnos que más piensan; y un `max_output_tokens` chico hace que el razonamiento se coma el presupuesto y salga `status: incomplete` con texto vacío — que en pantalla se ve como si el asistente no hubiera contestado, no como un error.
+
+#### EL BUG DE LA TANDA: la fórmula del `prompt_cache_key` de la spec no funciona
+
+La spec fija `prompt_cache_key = org:${organizacionId}:grupo:${grupoId}`. Con dos uuid eso mide **83 caracteres**, y el proveedor rechaza ese parámetro por encima de **64** (medido: 64 pasa, 65 devuelve `string_above_max_length`). Con la fórmula literal **toda conversación terminaba en 503** — no había forma de que el asistente funcionara una sola vez, y el síntoma era un `PROVEEDOR_NO_DISPONIBLE` genérico que no decía nada sobre la causa.
+
+Resuelto con un **sha-256 hex, que mide exactamente 64 y entra justo sin recortar**. Conserva lo único que la clave necesita cumplir (mismo grupo ⇒ misma clave, otro grupo ⇒ otra) y arregla de paso **una contradicción interna de la spec**: su Parte E punto 7 dice que el id de organización *no sale en claro* hacia el proveedor, y esa fórmula lo mandaba en claro en cada llamada. **Desviación registrada; la spec no se edita.**
+
+Es el **séptimo caso del mismo modo de falla en la Fase 14**: unidad, lint y build no podían verlo —el string se arma bien, lo rechaza el tercero—, lo destapó llamar de verdad.
+
+#### Decisiones propias de la tanda
+
+- **El historial que se le manda al modelo es solo el texto conversado: las llamadas a herramientas NO se reproducen.** El ledger guarda un resumen (`ok (2186 bytes)`), no los datos, así que no habría con qué rearmarlas — y no es una limitación sino lo correcto: si el Tutor pregunta algo dos horas después, conviene que el modelo **vuelva a leer** el catálogo en vez de razonar sobre una foto vieja. Es la decisión «memoria entre conversaciones: ninguna, el contexto lo dan las herramientas» aplicada también **entre turnos**.
+- **Las filas de herramienta se guardan con 0 tokens.** Lo que cuesta una herramienta es que su salida entre como *entrada* del turno siguiente, y eso ya lo contabiliza ese turno: cargarlo en los dos lados contaría doble.
+- **`ErrorConConsumo`**: un fallo del proveedor en la vuelta 3 no puede borrar la contabilidad de las vueltas 1 y 2. El error arrastra el parcial y el `finally` del service lo escribe igual, mientras hacia arriba viaja la causa real y no el envoltorio interno.
+- **Tarifa de un modelo desconocido: la más cara conocida, no cero.** Un modelo nuevo en el `.env` no puede reportar costo 0 —eso diría que el asistente es gratis justo cuando nadie sabe cuánto sale—. Sobreestimar es el error barato.
+- **El `POST /mensajes` todavía NO es SSE**, que es lo que pide la Parte C. Se difiere a la tanda 6 junto con la pantalla que lo consume y con el cable que la propia spec marca como riesgoso (que el proxy del Gateway no buffere `text/event-stream`): streamear contra un cliente que no existe habría dejado sin verificar justamente lo que puede romperse. **Anotado como pendiente explícito, no como olvido.**
+
+#### Verificación de la tanda 4
+
+| Proyecto | Antes | Después |
+|---|---|---|
+| `ai-service` | 47/47 | **82/82** (+35: 9 del loop, 7 del proveedor, 5 de tarifas, 14 de conversaciones) |
+| El resto del workspace | — | sin cambios (activity 357, rewards 206, app-web 159, session 74, scoring 63, identity 48, gateway 36, shared-ui 24, notification 22, shared-auth 20, e2e 17, billing 9) |
+
+- **`lint` 19/19** y **`build` 18/18** verdes. Sin migraciones: el schema de la tanda 2 ya tenía los cuatro modelos.
+- **Conversación real contra OpenAI, de punta a punta por el Gateway: 12/12 checks verdes**, cubriendo los criterios de aceptación 1, 2, 3, 4, 5 y 10 de la spec:
+  - FREE → 402 `FEATURE_NO_DISPONIBLE` al habilitar **y** al conversar.
+  - PRO con el switch apagado → 403 `IA_NO_HABILITADA`; habilitar sin aceptar → 400 `AVISO_NO_ACEPTADO`; con el aviso → `aceptoAvisoEn` escrito.
+  - **El modelo llamó herramientas de verdad** (`listar_actividades` + `listar_umbrales_zona` en el mismo turno) y contestó en castellano con el catálogo real del grupo.
+  - **Cuota agotada → 402 `CUOTA_IA_AGOTADA` y el proveedor NO se llamó** (llamadas antes = llamadas después): el pre-flight corta antes de gastar, no después.
+  - Un Tutor de otra organización PRO y habilitada → **404** sobre la conversación ajena.
+  - `GET /ai/configuracion` reporta exactamente la suma del ledger, y **no existe ninguna columna contador** (verificado contra `information_schema`).
+- **Costo medido** de una conversación de 2 mensajes con 4 llamadas al proveedor y un catálogo chico: **7.910 tokens, USD 0,0117**. Sin caché habrían sido USD 0,0188 → **el `prompt_cache_key` ahorró un 38%**, que es la razón por la que ese parámetro está en el diseño.
+- **Lo que eso implica para la cuota**: al ritmo medido (≈1,48 µUSD por token), una organización que queme los **2M tokens del plan PRO** cuesta **≈ USD 3**. El tope de gasto del project `dorado-dev` está hoy en **USD 5**, o sea que alcanza para desarrollo y el piloto pero **está por debajo de dos organizaciones a cuota llena** — hay que subirlo o bajar la cuota antes de vender el plan.
+
+### Cómo seguir: las tres tandas que faltan
 
 Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de la spec).
 
-4. **El loop con OpenAI** (`src/proveedor/`). Primera tanda que **necesita la API key** en `apps/ai-service/.env`. Incluye: tope de 8 iteraciones, `max_output_tokens`, contabilidad en `Mensaje` dentro de un `try/finally` (se escribe aunque la llamada falle: los tokens de entrada se pagan igual), corte por cuota **antes** de llamar al proveedor, y `safety_identifier`/`prompt_cache_key`. Acá se cumple la regla que dejó la tanda 1: el gate es `asistenteIa`, y la cuota se lee después. **El modelo se elige acá**, no está anclado en la spec: se usa el vigente al momento de implementar (`OPENAI_MODEL`).
 5. **Herramientas de propuesta** (`proponer_crear_actividades`, `proponer_editar_actividades`, `proponer_precios_tienda`, `proponer_rendimientos_monedas`) con validación Zod contra los DTOs reales y `Propuesta` con vencimiento a 24 h. Una operación que no valida **no se guarda**: el error vuelve al modelo para que reintente. Las operaciones se persisten con **la forma exacta del request del endpoint destino**, para que aplicar sea un `for` y no una traducción.
 6. **Frontend**: pantalla `/asistente` en el grupo Ajustes del menú (#23 T3), chat con streaming, tarjeta de propuesta con diff, aplicar por operación con resultado por fila. La lógica del diff va en `core/propuesta-ia.ts`, testeable sin montar Angular (mismo criterio que `core/termometro.ts` del #27).
 7. **E2E** (`asistente-ia.e2e.ts`) con el proveedor **stubbeado**: se testea el ruteo, la validación, la cuota, el aislamiento entre tenants y el aplicado parcial — no que el modelo proponga cosas buenas, que no es determinista ni es lo que se rompe en un deploy. Los dos cables que necesitan E2E de navegador son **el SSE a través del proxy** y **el «Aplicar» del frontend**.
@@ -1706,7 +1752,9 @@ Cada una se termina y se verifica antes de la siguiente (orden de la Parte H de 
 1. ~~Confirmar que el Gateway rutea `/api/ai`.~~ **Hecho en la tanda 3**: `401 NO_AUTENTICADO` emitido por ai-service a través del proxy, y `/api/health` reportando `ai: "up"` tras el fix del health controller que faltaba.
 2. **Que `ai_db` exista en el entorno donde se trabaje.** Se creó a mano con `CREATE DATABASE ai_db` en el contenedor que ya estaba corriendo, porque `infra/docker/init-databases.sh` **solo corre con el volumen vacío**. En una máquina limpia el script ya la incluye; en una con el volumen viejo, hay que crearla a mano.
 3. **La trampa de los puertos vale ahora para diez**, no nueve: 3000–3009. Antes de cualquier E2E, matar procesos `dist/` viejos (el #26 perdió una corrida entera de 6 minutos por esto y la falla no da ningún error al arrancar).
-4. **Que la cuota de 2M tokens/mes de PRO sigue siendo el número que se quiere.** Está en `seed-planes.ts` y todavía no lo validó ningún consumo real.
-5. **Que el `PUT /ai/configuracion` a través del Gateway responda 403 con un JWT de `TUTOR`** y 200 con uno de `ORG_ADMIN`. Está cubierto por unidad en el service, pero el guard de rol recién se ejerce de punta a punta con un token real. La tanda 3 ejercitó el proxy **sin token** (401), que prueba el ruteo pero no el guard de rol.
+4. **Que la cuota de 2M tokens/mes de PRO sigue siendo el número que se quiere**, ahora con un dato: al ritmo medido en la tanda 4, 2M tokens ≈ **USD 3 por organización y por mes**. El tope de gasto del project de OpenAI (**USD 5** en `dorado-dev`) está **por debajo de dos organizaciones a cuota llena**: alcanza para desarrollo y el piloto, no para vender el plan.
+5. **Que el `PUT /ai/configuracion` a través del Gateway responda 403 con un JWT de `TUTOR`** y 200 con uno de `ORG_ADMIN`. La tanda 4 lo ejerció con un `ORG_ADMIN` real (200) pero **no con un `TUTOR`**: falta el lado que rebota. Sigue cubierto por unidad.
 6. **Que `scripts/e2e-up.mjs` no levanta `ai-service`.** Sigue sin tocarse, **y ahora es una decisión y no un olvido**: el criterio de aceptación 9 pide correr la suite completa con `ai-service` abajo. Antes de la tanda 7 hay que sumarlo — con las cuatro `*_INTERNAL_URL` nuevas, que son requeridas.
 7. **Que el `resumen_cumplimiento` no se vuelva caro con un grupo grande.** Hoy trae todos los `RegistroActividad` de la ventana y agrupa en memoria. Con el grupo piloto (18 actividades, 90 días) son 4,7 KB y milisegundos; con un grupo de 40 personas y un año habría que pasarlo a un `groupBy` en SQL. No es un problema todavía y no se optimizó por adelantado — queda anotado para no descubrirlo en producción.
+8. **Que el `POST /ai/conversaciones/:id/mensajes` todavía NO es SSE.** La Parte C lo pide así; la tanda 4 lo dejó como request/response normal a propósito, y la tanda 6 tiene que convertirlo **y verificar que el proxy del Gateway no buferee `text/event-stream`** — la propia spec marca ese cable como riesgoso, y es de la misma familia que los siete casos de *la unidad verifica la pieza y lo que falla es el cable* que la fase ya lleva.
+9. **Que el rate limit por usuario sobre `/api/ai/conversaciones/*/mensajes` no existe todavía** (Parte E, punto 5c). El seam `RATE_LIMIT_*` del #23 T4 está, pero no se le puso una regla más estricta a este prefijo: hoy una conversación cae bajo el límite global, que es más flojo de lo que la spec pide para un endpoint que gasta dinero por request.

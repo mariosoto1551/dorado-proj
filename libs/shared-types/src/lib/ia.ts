@@ -44,3 +44,57 @@ export interface CambiarConfiguracionIaRequest {
 }
 
 export type CambiarConfiguracionIaResponse = ConfiguracionIaDto;
+
+// --- Conversaciones (fase-14-29 tanda 4) ---
+
+export type RolMensajeIa = 'USUARIO' | 'ASISTENTE' | 'HERRAMIENTA' | 'SISTEMA';
+
+/**
+ * Un mensaje del ledger. `contenido` de un mensaje HERRAMIENTA es un resumen
+ * («ok (1234 bytes)»), no los datos: el ledger existe para auditar qué se
+ * consultó, no para volver a servir el catálogo.
+ */
+export interface MensajeIaDto {
+  id: string;
+  rol: RolMensajeIa;
+  contenido: string;
+  /** `nombre(args)` cuando el rol es HERRAMIENTA; null en el resto. */
+  herramienta: string | null;
+  createdAt: string;
+}
+
+export interface ConversacionIaDto {
+  id: string;
+  grupoId: string;
+  titulo: string;
+  archivada: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversacionIaDetalleDto extends ConversacionIaDto {
+  mensajes: MensajeIaDto[];
+}
+
+/** `POST /api/ai/conversaciones`. */
+export interface CrearConversacionIaRequest {
+  grupoId: string;
+  primerMensaje: string;
+}
+
+export type CrearConversacionIaResponse = ConversacionIaDetalleDto;
+
+/** `POST /api/ai/conversaciones/:id/mensajes`. */
+export interface EnviarMensajeIaRequest {
+  texto: string;
+}
+
+/**
+ * Lo que devuelve mandar un mensaje. `tokensConsumidosMes` viaja en la
+ * respuesta para que la pantalla pueda mostrar el consumo sin una segunda
+ * llamada — es un número que cambia justamente en este momento.
+ */
+export interface EnviarMensajeIaResponse {
+  mensajes: MensajeIaDto[];
+  tokensConsumidosMes: number;
+}
