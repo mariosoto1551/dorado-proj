@@ -2,6 +2,8 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
 import {
+  ConfiguracionRecompensasInternaDto,
+  EtiquetaInternaDto,
   FuenteProducto,
   MecanicaProducto,
   RecompensaDto,
@@ -11,6 +13,7 @@ import {
 } from '@dorado/shared-types';
 
 import { recompensaADto } from '../comun/mapeadores';
+import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { EtiquetasService } from '../etiquetas/etiquetas.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -25,16 +28,17 @@ import { PrismaService } from '../prisma/prisma.service';
  * `listar_rendimientos_monedas` — el asistente tiene que ver los precios y lo
  * que paga cada acción para poder calibrar la economía.
  *
- * Los tres son de LECTURA y así se quedan: la decisión 6 de aquel ítem dice que
- * la IA no escribe en ningún servicio, y una escritura interna nueva acá sería
- * exactamente la superficie que el diseño existe para no tener.
+ * Los cinco son de LECTURA y así se quedan: la decisión 6 de aquel ítem dice
+ * que la IA no escribe en ningún servicio, y una escritura interna nueva acá
+ * sería exactamente la superficie que el diseño existe para no tener.
  */
 @Controller('internal/rewards')
 @UseGuards(InternalSecretGuard)
 export class InternalController {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly etiquetas: EtiquetasService
+    private readonly etiquetas: EtiquetasService,
+    private readonly configuracion: ConfiguracionService
   ) {}
 
   /**
@@ -91,6 +95,55 @@ export class InternalController {
       monedas: rendimiento.monedas,
       monedasBonoJefe: rendimiento.monedasBonoJefe,
     }));
+  }
+
+  /**
+   * Catálogo de etiquetas del Grupo (fase-14-30 tanda 3).
+   *
+   * Las etiquetas no tienen ningún efecto de negocio: organizan el catálogo del
+   * Tutor. Existe este endpoint porque **sin los ids no se puede asignar
+   * ninguna**, que es la única forma en que el asistente puede ofrecerlas.
+   */
+  @Get('grupos/:grupoId/etiquetas')
+  async etiquetasDelGrupo(
+    @Param('grupoId') grupoId: string,
+    @Query('estado') estado?: string
+  ): Promise<EtiquetaInternaDto[]> {
+    const etiquetas = await this.prisma.client.etiquetaCatalogo.findMany({
+      where: {
+        grupoId,
+        ...(estado === 'ACTIVA' || estado === 'ARCHIVADA' ? { estado } : {}),
+      },
+      orderBy: { nombre: 'asc' },
+    });
+
+    return etiquetas.map((etiqueta) => ({
+      id: etiqueta.id,
+      nombre: etiqueta.nombre,
+      colorHex: etiqueta.colorHex,
+      estado: etiqueta.estado as 'ACTIVA' | 'ARCHIVADA',
+    }));
+  }
+
+  /**
+   * Configuración de recompensas del Grupo (fase-14-30 tanda 3).
+   *
+   * El `modo` es el dato que evita el error más caro: proponer precios en un
+   * grupo `DIRECTO` es proponer sobre una tienda que nadie ve. Delega en el
+   * service que ya resuelve los defaults — un grupo sin fila es `DIRECTO`.
+   */
+  @Get('grupos/:grupoId/configuracion')
+  async configuracionDelGrupo(
+    @Param('grupoId') grupoId: string
+  ): Promise<ConfiguracionRecompensasInternaDto> {
+    const config = await this.configuracion.leer(grupoId);
+
+    return {
+      modo: config.modo,
+      modoPendiente: config.modoPendiente,
+      nombreMoneda: config.nombreMoneda,
+      iconoMoneda: config.iconoMoneda,
+    };
   }
 
   /**

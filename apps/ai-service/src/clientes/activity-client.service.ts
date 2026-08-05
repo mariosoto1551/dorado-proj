@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { ActividadDto, ConductaDto, ResumenCumplimientoDto } from '@dorado/shared-types';
+import {
+  ActividadDto,
+  ConductaDto,
+  ConfiguracionActividadInternaDto,
+  ResumenCumplimientoDto,
+  TurnoActividadInternoDto,
+} from '@dorado/shared-types';
 
 import { ClienteInternoBase } from './cliente-interno.base';
 
@@ -35,6 +41,26 @@ export class ActivityClientService extends ClienteInternoBase {
     return (
       (await this.get<ConductaDto[]>(`/internal/activity/grupos/${grupoId}/conductas${sufijo}`)) ??
       []
+    );
+  }
+
+  /**
+   * La configuración del Grupo que cambia qué significan otros campos
+   * (fase-14-30 tanda 3). `null` si no se pudo leer — un default inventado acá
+   * le diría al modelo que el plan del día está apagado cuando no se sabe.
+   */
+  async configuracion(grupoId: string): Promise<ConfiguracionActividadInternaDto | null> {
+    return await this.get<ConfiguracionActividadInternaDto>(
+      `/internal/activity/grupos/${grupoId}/configuracion`
+    );
+  }
+
+  /** Las rotaciones configuradas del Grupo (fase-14-30 tanda 3). */
+  async turnos(grupoId: string): Promise<TurnoActividadInternoDto[]> {
+    return (
+      (await this.get<TurnoActividadInternoDto[]>(
+        `/internal/activity/grupos/${grupoId}/turnos`
+      )) ?? []
     );
   }
 

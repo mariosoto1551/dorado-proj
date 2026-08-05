@@ -112,6 +112,15 @@ export class HerramientasService {
       case 'listar_tienda':
         return { ok: true, datos: await this.tienda(grupoId, this.estado(argumentos)) };
 
+      case 'listar_etiquetas':
+        return { ok: true, datos: await this.etiquetas(grupoId, this.estado(argumentos)) };
+
+      case 'listar_turnos':
+        return { ok: true, datos: await this.turnos(grupoId) };
+
+      case 'configuracion_del_grupo':
+        return await this.configuracionDelGrupo(grupoId);
+
       case 'resumen_cumplimiento':
         return {
           ok: true,
@@ -270,6 +279,82 @@ export class HerramientasService {
           recompensaIds: bolsa.recompensaIds,
           estado: bolsa.estado,
         })),
+    };
+  }
+
+  private async etiquetas(grupoId: string, estado?: string): Promise<unknown> {
+    const etiquetas = await this.rewards.etiquetas(grupoId, estado);
+
+    return etiquetas.map((etiqueta) => ({
+      etiquetaId: etiqueta.id,
+      nombre: etiqueta.nombre,
+      colorHex: etiqueta.colorHex,
+      estado: etiqueta.estado,
+    }));
+  }
+
+  private async turnos(grupoId: string): Promise<unknown> {
+    const turnos = await this.activity.turnos(grupoId);
+
+    return turnos.map((turno) => ({
+      actividadId: turno.actividadId,
+      modo: turno.modo,
+      frecuencia: turno.frecuencia,
+      activo: turno.activo,
+      // La secuencia ya viene ordenada del endpoint; el orden explícito viaja
+      // igual porque el modelo lee JSON, no confía en la posición del array.
+      posiciones: turno.posiciones.map((posicion) => ({
+        orden: posicion.orden,
+        usuarioId: posicion.usuarioId,
+      })),
+    }));
+  }
+
+  /**
+   * La configuración del Grupo: **una herramienta, tres servicios, una
+   * respuesta**.
+   *
+   * Son tres llamadas en paralelo y no tres herramientas por el mismo criterio
+   * que `listar_participantes`: el modelo la consulta para entender el terreno
+   * antes de proponer, y partirla en tres costaría tres vueltas del loop, o sea
+   * tres llamadas al proveedor pagadas para contestar una cosa.
+   *
+   * Un servicio que no contesta deja su parte en `null` en vez de un default
+   * inventado. La diferencia importa: decir «DIRECTO» sin saberlo haría que el
+   * asistente descarte la tienda de un grupo que sí la usa.
+   */
+  private async configuracionDelGrupo(grupoId: string): Promise<ResultadoHerramienta> {
+    const [actividad, scoring, recompensas] = await Promise.all([
+      this.activity.configuracion(grupoId),
+      this.scoring.configuracion(grupoId),
+      this.rewards.configuracion(grupoId),
+    ]);
+
+    if (!actividad && !scoring && !recompensas) {
+      return { ok: false, error: 'No se pudo leer la configuración del grupo en este momento.' };
+    }
+
+    return {
+      ok: true,
+      datos: {
+        planDelDiaActivo: actividad?.planDelDiaActivo ?? null,
+        contenidoCreadoPorIntegrantes: actividad
+          ? {
+              modo: actividad.modoCreacionUsuario,
+              maxPuntosPorActividad: actividad.maxPuntosActividadUsuario,
+              maxActividadesActivasPorPersona: actividad.maxActividadesActivasPorUsuario,
+            }
+          : null,
+        puntosIniciales: scoring?.puntosIniciales ?? null,
+        recompensas: recompensas
+          ? {
+              modo: recompensas.modo,
+              modoPendiente: recompensas.modoPendiente,
+              nombreMoneda: recompensas.nombreMoneda,
+              iconoMoneda: recompensas.iconoMoneda,
+            }
+          : null,
+      },
     };
   }
 

@@ -46,6 +46,9 @@ const NOMBRES = [
   'listar_recompensas',
   'listar_rendimientos_monedas',
   'listar_tienda',
+  'listar_etiquetas',
+  'listar_turnos',
+  'configuracion_del_grupo',
   'resumen_cumplimiento',
 ] as const;
 
@@ -205,6 +208,39 @@ export const HERRAMIENTAS_LECTURA: DefinicionHerramienta[] = [
       required: [],
       additionalProperties: false,
     },
+  },
+  {
+    nombre: 'listar_etiquetas',
+    descripcion:
+      'Devuelve las etiquetas con las que el Tutor organiza su catálogo de recompensas y ' +
+      'castigos (nombre y color). No tienen ningún efecto sobre el juego: sirven para agrupar ' +
+      'y para armar bolsas o publicar productos en masa. Llamala antes de proponer asignar ' +
+      'etiquetas: sin sus ids no se puede asignar ninguna.',
+    parametros: {
+      type: 'object',
+      properties: { estado: ESTADO_CATALOGO },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'listar_turnos',
+    descripcion:
+      'Devuelve las actividades que rotan entre participantes, con su modo (orden fijo o al ' +
+      'azar), cada cuánto rota (por día o por sección), si está activa y la secuencia de ' +
+      'posiciones en orden. Una persona puede aparecer varias veces en la secuencia: así se ' +
+      'le da más turnos que a otra. Las actividades que no rotan no aparecen.',
+    parametros: sinParametros(),
+  },
+  {
+    nombre: 'configuracion_del_grupo',
+    descripcion:
+      'Devuelve la configuración que cambia qué significan otros campos: si el plan del día ' +
+      'está activo, qué pueden crear los integrantes, con cuántos puntos arranca cada uno en ' +
+      'cada sección, y si las recompensas se dan directo por zona o se compran en una tienda ' +
+      'con monedas. **Consultala antes de proponer precios** (en modo DIRECTO no hay tienda) ' +
+      'y antes de usar el campo siempreVisible (solo hace algo con el plan del día activo).',
+    parametros: sinParametros(),
   },
   {
     nombre: 'resumen_cumplimiento',

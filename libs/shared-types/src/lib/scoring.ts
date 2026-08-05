@@ -133,3 +133,12 @@ export type EditarUmbralRequest = Partial<CrearUmbralRequest>;
 export interface GuardarConfiguracionScoringRequest {
   puntosIniciales: number;
 }
+
+/**
+ * La configuración de scoring por REST interno (fase-14-30 tanda 3). Sin
+ * campos de tenant y con el default aplicado: un grupo sin fila arranca cada
+ * Sección en 0, que es el comportamiento histórico.
+ */
+export interface ConfiguracionScoringInternaDto {
+  puntosIniciales: number;
+}

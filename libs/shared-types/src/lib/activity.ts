@@ -841,3 +841,38 @@ export interface CrearConductaRequest {
  * y el fase-14-30 (decisión 3) no propone archivados por ninguna vía.
  */
 export type EditarConductaRequest = Partial<CrearConductaRequest>;
+
+// --- Lecturas internas del asistente (fase-14-30 tanda 3) ---
+//
+// Sin campos de tenant, como `TiendaInternaDto`: quien las consume ya sabe de
+// qué grupo preguntó, y lo que vuelve viaja hacia un proveedor externo.
+
+/**
+ * La configuración del Grupo que cambia qué significan otros campos. Es el
+ * contexto sin el cual varias propuestas se arman a ciegas: `siempreVisible`
+ * solo hace algo con `planDelDiaActivo` prendido, y proponer contenido de
+ * integrantes no tiene sentido en modo RESTRICTIVO.
+ *
+ * Devuelve los DEFAULTS cuando el grupo no tiene fila, igual que el endpoint
+ * público: "sin configurar" es una configuración, no un dato que falta.
+ */
+export interface ConfiguracionActividadInternaDto {
+  planDelDiaActivo: boolean;
+  modoCreacionUsuario: `${ModoCreacionContenidoUsuario}`;
+  maxPuntosActividadUsuario: number;
+  maxActividadesActivasPorUsuario: number;
+}
+
+/**
+ * La rotación de una actividad, sin los nombres ni la previsión de la vuelta en
+ * curso que sí lleva `TurnoActividadDto`: resolverlos cuesta una llamada a
+ * identity y quien consume esto ya tiene su propia lectura de participantes.
+ */
+export interface TurnoActividadInternoDto {
+  actividadId: string;
+  modo: `${ModoTurno}`;
+  frecuencia: `${FrecuenciaTurno}`;
+  activo: boolean;
+  /** El ORDEN del array ES la secuencia. Se admiten repetidos a propósito. */
+  posiciones: Array<{ orden: number; usuarioId: string }>;
+}

@@ -1,7 +1,12 @@
 import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
-import { PuntajeResumidoDto, ResumenPuntajesGrupoDto, UmbralZonaDto } from '@dorado/shared-types';
+import {
+  ConfiguracionScoringInternaDto,
+  PuntajeResumidoDto,
+  ResumenPuntajesGrupoDto,
+  UmbralZonaDto,
+} from '@dorado/shared-types';
 
 import {
   resultadoAResponse,
@@ -90,6 +95,25 @@ export class InternalController {
    * arma el resumen ya tiene la lista de participantes y compone por ID
    * (regla 2 de CLAUDE.md).
    */
+  /**
+   * fase-14-30 (parte de la herramienta `configuracion_del_grupo`): la base con
+   * la que arranca cada participante en CADA Sección.
+   *
+   * Importa para calibrar: con 100 puntos iniciales, una actividad de 5 no pesa
+   * lo mismo que con 0. Un grupo sin fila devuelve 0, que es el comportamiento
+   * histórico — «sin configurar» es una configuración, no un dato que falta.
+   */
+  @Get('grupos/:grupoId/configuracion')
+  async configuracionDelGrupo(
+    @Param('grupoId') grupoId: string
+  ): Promise<ConfiguracionScoringInternaDto> {
+    const config = await this.prisma.client.configuracionScoringGrupo.findUnique({
+      where: { grupoId },
+    });
+
+    return { puntosIniciales: config?.puntosIniciales ?? 0 };
+  }
+
   @Get('grupos/:grupoId/resumen-puntajes')
   async resumenPuntajes(@Param('grupoId') grupoId: string): Promise<ResumenPuntajesGrupoDto> {
     const ultimo = await this.prisma.client.eventoPuntos.findFirst({

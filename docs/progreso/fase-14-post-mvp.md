@@ -1957,7 +1957,7 @@ Y lo que deja abierto el ítem ya terminado:
 
 ---
 
-## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 y 2 de 9 (2026-08-05)
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 3 de 9 (2026-08-05)
 
 > Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
 
@@ -2060,9 +2060,56 @@ Que este agujero apareciera en la tanda 2 y no en la 4 es exactamente lo que la 
 
 `docs/architecture/shared-types.md` no listaba **ninguno** de los contratos de request del #29 (actividades y producto), aunque sí los de equipos, roles y turnos de ítems anteriores. Se agregaron los del #29 junto con los de esta tanda, más el par de tipos de cobertura y los tres DTOs internos de la tienda. El `index.ts` de la librería dice *«no agregar ni quitar campos sin actualizar primero ese documento»*, así que dejarlo desactualizado era acumular la misma clase de deuda que el ítem vino a pagar.
 
+
+### Tanda 3 — las tres lecturas restantes (2026-08-05)
+
+`listar_etiquetas`, `listar_turnos` y `configuracion_del_grupo`, con **cinco endpoints internos nuevos** repartidos en tres servicios: configuración y turnos en activity, configuración en scoring, etiquetas y configuración en rewards. Con esto el catálogo de lectura queda en **doce**, que es el número final del ítem.
+
+Ninguna recibe `organizacionId` ni `grupoId` y todas son `GET`, así que los dos tests estructurales del #29 las cubrieron sin tocarles una línea.
+
+#### `configuracion_del_grupo`: una herramienta, tres servicios
+
+Es la única lectura que compone tres llamadas —activity, scoring y rewards, **en paralelo**— en una sola respuesta. El criterio es el mismo que llevó a juntar gente, roles y equipos en `listar_participantes`: el modelo la consulta para entender el terreno antes de proponer, y partirla en tres costaría dos vueltas más del loop, o sea **dos llamadas al proveedor pagadas para contestar una cosa**.
+
+Lo que trae es exactamente lo que hace que otros campos signifiquen algo: `planDelDiaActivo` (sin el cual `siempreVisible` es un campo que no se puede proponer con criterio), las reglas de contenido de los integrantes, `puntosIniciales` —con 100 de base una actividad de 5 no pesa lo mismo que con 0— y el **modo de recompensas**, que evita el error más caro de todos: proponer precios en un grupo `DIRECTO` es proponer sobre una tienda que nadie ve.
+
+**Un servicio que no contesta deja su parte en `null`, no en un default.** La diferencia no es cosmética: decir «DIRECTO» sin saberlo haría que el asistente descarte la tienda de un grupo que sí la usa. Si no contesta ninguno de los tres, es un error legible y no un objeto de nulls.
+
+#### Los defaults viven en un solo lugar
+
+Los tres endpoints de configuración tienen que devolver la config **efectiva**, y «sin fila» es una configuración, no un dato que falta: un grupo sin fila es `RESTRICTIVO`, arranca en 0 y está en modo `DIRECTO`. Esos defaults ya estaban resueltos en memoria por los services de cada ítem, así que los endpoints internos **delegan** en vez de repetirlos —`ConfiguracionContenidoService.resolver` en activity y `ConfiguracionService.leer` en rewards, que pasó de privado a público con la misma justificación que ya tenía `obtenerModo`—. Dos copias de un default se separan sin que nadie lo note, y el síntoma sería un asistente que razona sobre un grupo que no existe.
+
+Eso obligó a que `InternalModule` importe módulos de negocio en los dos servicios, cosa que antes no hacía en ninguno. Es el cableado que compila bien y falla al arrancar, así que se verificó levantando.
+
+#### Lo que decidió el molde
+
+- **Los turnos van sin nombres.** `TurnoActividadDto` lleva el nombre de cada participante y la previsión de la vuelta en curso; resolverlos cuesta una llamada a identity y quien consume esto ya tiene `listar_participantes`. El interno devuelve `usuarioId` y orden, nada más — y **solo las actividades que tienen turno**: la ausencia de fila es la respuesta de que esa actividad no rota.
+- **La secuencia conserva los repetidos.** Que la misma persona aparezca dos veces no es un error de datos: es cómo se le dan más turnos que a los demás (fase-14-21). Hay un test que lo fija, porque un molde que dedupliqué «para limpiar» rompería ese ítem entero sin que nada más se queje.
+- **Las etiquetas se piden por su id**, que es lo único que hace falta para poder asignarlas y lo único que no se podía obtener.
+
+#### Verificación
+
+- **`ai-service` 167/167** (+5), y activity 357, rewards 206, scoring 63 **sin una regresión**. Lint 19/19 y build 19/19.
+- **Los cinco endpoints internos contra el stack real**, con los datos del piloto: los cinco en `200`, `401` sin el secreto. El grupo real devolvió `planDelDiaActivo: true`, modo `LIBRE`, **100 puntos iniciales**, modo `TIENDA` con la moneda «perigreses» y **dos rotaciones con sus secuencias en orden** — o sea que el asistente ahora ve el grupo tal como está configurado, no un grupo genérico.
+- **Los defaults verificados contra un grupo inexistente**: `RESTRICTIVO`, `planDelDiaActivo: false`, `puntosIniciales: 0` y `DIRECTO`. Es el camino que corre en cualquier grupo que nunca tocó esa pantalla, o sea la mayoría.
+- **Aislamiento**: las etiquetas de un grupo con datos vuelven solo para ese grupo; el otro devuelve `[]`.
+- **Ni una clave de tenant ni un `@`** en las cinco respuestas reales, verificado sobre el JSON que sale, no sobre el tipo.
+- **El cableado nuevo de módulos arranca**: los tres servicios levantaron y los endpoints contestaron 200 —lo que además prueba que no eran procesos viejos escuchando en el puerto, la trampa que ya se cobró una corrida entera en el #26—.
+- **Sin migraciones.**
+
+#### El costo en tokens, actualizado (criterio 12)
+
+| | Herramientas | Caracteres | ≈ tokens |
+|---|---|---|---|
+| fase-14-29 | 12 | 16.591 | ~4.148 |
+| tanda 1 | 13 | 17.267 | ~4.317 |
+| tanda 3 | 16 | 18.937 | ~4.734 |
+
+**+14% sobre el catálogo original, con un tercio de las herramientas nuevas ya adentro.** Las tres lecturas de esta tanda costaron ~417 tokens entre las tres, o sea menos que una definición de propuesta: son las baratas del ítem, y las once que faltan son las caras. El bloque entra por caché, así que desde el segundo turno se paga ~10%.
+
 #### Qué falta de este ítem
 
-Las tandas 3 a 9 de la Parte F, en ese orden. Las 4 a 7 son independientes entre sí y cada familia entregada funciona sola: si hay que cortar el ítem por la mitad, se corta ahí.
+Las tandas 4 a 9 de la Parte F, en ese orden. Las 4 a 7 son independientes entre sí y cada familia entregada funciona sola: si hay que cortar el ítem por la mitad, se corta ahí.
 
 Anotado para las que siguen:
 

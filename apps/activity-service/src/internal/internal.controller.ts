@@ -7,12 +7,15 @@ import {
   CatalogoRendibleDto,
   ComportamientoAlCierre,
   ConductaDto,
+  ConfiguracionActividadInternaDto,
   CumplimientoActividadDto,
   ResumenCumplimientoDto,
   TipoPuntaje,
+  TurnoActividadInternoDto,
 } from '@dorado/shared-types';
 
 import { actividadADto, conductaADto } from '../comun/mapeadores';
+import { ConfiguracionContenidoService } from '../contenido-usuario/configuracion-contenido.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -37,7 +40,10 @@ const DIAS_CUMPLIMIENTO_MAX = 365;
 @Controller('internal/activity')
 @UseGuards(InternalSecretGuard)
 export class InternalController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configuracion: ConfiguracionContenidoService
+  ) {}
 
   @Get('actividades/:id')
   async actividad(@Param('id') id: string): Promise<ActividadDto> {
@@ -155,6 +161,60 @@ export class InternalController {
     });
 
     return conductas.map(conductaADto);
+  }
+
+  /**
+   * fase-14-30 (herramienta `configuracion_del_grupo`): la configuración que
+   * cambia qué significan otros campos.
+   *
+   * Sin esto, `siempreVisible` es un campo que el asistente no puede proponer
+   * con criterio —solo hace algo con el plan del día prendido— y las reglas de
+   * contenido de los integrantes son invisibles. Delega en el service que ya
+   * resuelve los defaults en memoria: duplicarlos acá es cómo se separan.
+   */
+  @Get('grupos/:grupoId/configuracion')
+  async configuracionDelGrupo(
+    @Param('grupoId') grupoId: string
+  ): Promise<ConfiguracionActividadInternaDto> {
+    const config = await this.configuracion.resolver(grupoId);
+
+    return {
+      planDelDiaActivo: config.planDelDiaActivo,
+      modoCreacionUsuario: config.modoCreacionUsuario,
+      maxPuntosActividadUsuario: config.maxPuntosActividadUsuario,
+      maxActividadesActivasPorUsuario: config.maxActividadesActivasPorUsuario,
+    };
+  }
+
+  /**
+   * fase-14-30 (herramienta `listar_turnos`): las rotaciones configuradas del
+   * Grupo, con su secuencia en orden.
+   *
+   * Solo las actividades que TIENEN turno: la ausencia de fila es la respuesta
+   * de que esa actividad no rota. Sin los nombres de los participantes —eso es
+   * una llamada a identity que quien consume ya hace por su cuenta— y sin la
+   * vuelta en curso, que es estado operativo y no configuración.
+   */
+  @Get('grupos/:grupoId/turnos')
+  async turnosDelGrupo(
+    @Param('grupoId') grupoId: string
+  ): Promise<TurnoActividadInternoDto[]> {
+    const turnos = await this.prisma.client.turnoActividad.findMany({
+      where: { grupoId },
+      include: { posiciones: { orderBy: { orden: 'asc' } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return turnos.map((turno) => ({
+      actividadId: turno.actividadId,
+      modo: turno.modo as TurnoActividadInternoDto['modo'],
+      frecuencia: turno.frecuencia as TurnoActividadInternoDto['frecuencia'],
+      activo: turno.activo,
+      posiciones: turno.posiciones.map((posicion) => ({
+        orden: posicion.orden,
+        usuarioId: posicion.usuarioId,
+      })),
+    }));
   }
 
   /**

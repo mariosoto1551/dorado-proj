@@ -173,8 +173,9 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
     });
   });
 
-  it('están las nueve de la spec, con nombres únicos', () => {
-    // Las ocho del fase-14-29 más `listar_tienda` (fase-14-30 tanda 1).
+  it('están las doce de la spec, con nombres únicos', () => {
+    // Las ocho del fase-14-29 más las cuatro del fase-14-30 (`listar_tienda` en
+    // la tanda 1; etiquetas, turnos y configuración en la tanda 3).
     expect(NOMBRES_HERRAMIENTAS_LECTURA).toEqual([
       'listar_actividades',
       'listar_conductas',
@@ -184,6 +185,9 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
       'listar_recompensas',
       'listar_rendimientos_monedas',
       'listar_tienda',
+      'listar_etiquetas',
+      'listar_turnos',
+      'configuracion_del_grupo',
       'resumen_cumplimiento',
     ]);
     expect(new Set(NOMBRES_HERRAMIENTAS_LECTURA).size).toBe(HERRAMIENTAS_LECTURA.length);

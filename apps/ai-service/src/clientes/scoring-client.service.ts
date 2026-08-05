@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { ResumenPuntajesGrupoDto, UmbralZonaDto } from '@dorado/shared-types';
+import {
+  ConfiguracionScoringInternaDto,
+  ResumenPuntajesGrupoDto,
+  UmbralZonaDto,
+} from '@dorado/shared-types';
 
 import { ClienteInternoBase } from './cliente-interno.base';
 
@@ -25,6 +29,17 @@ export class ScoringClientService extends ClienteInternoBase {
   async resumenPuntajes(grupoId: string): Promise<ResumenPuntajesGrupoDto | null> {
     return await this.get<ResumenPuntajesGrupoDto>(
       `/internal/scoring/grupos/${grupoId}/resumen-puntajes`
+    );
+  }
+
+  /**
+   * La base de puntos con la que arranca cada Sección (fase-14-30 tanda 3).
+   * `null` si no se pudo leer: la herramienta que la compone lo dice, en vez de
+   * inventar un 0 que el modelo tomaría por dato.
+   */
+  async configuracion(grupoId: string): Promise<ConfiguracionScoringInternaDto | null> {
+    return await this.get<ConfiguracionScoringInternaDto>(
+      `/internal/scoring/grupos/${grupoId}/configuracion`
     );
   }
 }

@@ -154,7 +154,13 @@ export class ConfiguracionService {
     return { modoPendiente: datos.modo };
   }
 
-  private async leer(grupoId: string): Promise<ConfiguracionRecompensasGrupoDto> {
+  /**
+   * Config vigente SIN contexto de tenant, con los defaults aplicados. Pública
+   * desde el fase-14-30: la usa también el endpoint interno, por el mismo
+   * criterio que `obtenerModo` — quien la llama ya validó el grupo, o es un
+   * llamador interno confiable.
+   */
+  async leer(grupoId: string): Promise<ConfiguracionRecompensasGrupoDto> {
     const config = await this.prisma.client.configuracionRecompensasGrupo.findUnique({
       where: { grupoId },
     });

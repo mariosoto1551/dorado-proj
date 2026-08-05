@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
+  ConfiguracionRecompensasInternaDto,
+  EtiquetaInternaDto,
   RecompensaDto,
   RendimientoAccionInternoDto,
   TiendaInternaDto,
@@ -55,6 +57,28 @@ export class RewardsClientService extends ClienteInternoBase {
         productos: [],
         bolsas: [],
       }
+    );
+  }
+
+  /** Catálogo de etiquetas (fase-14-30 tanda 3): sin ids no se asigna ninguna. */
+  async etiquetas(grupoId: string, estado?: string): Promise<EtiquetaInternaDto[]> {
+    const sufijo = estado ? `?estado=${encodeURIComponent(estado)}` : '';
+
+    return (
+      (await this.get<EtiquetaInternaDto[]>(
+        `/internal/rewards/grupos/${grupoId}/etiquetas${sufijo}`
+      )) ?? []
+    );
+  }
+
+  /**
+   * Modo de recompensas y moneda del Grupo (fase-14-30 tanda 3). `null` si no
+   * se pudo leer: decir «DIRECTO» sin saberlo haría que el asistente descarte
+   * la tienda de un grupo que sí la usa.
+   */
+  async configuracion(grupoId: string): Promise<ConfiguracionRecompensasInternaDto | null> {
+    return await this.get<ConfiguracionRecompensasInternaDto>(
+      `/internal/rewards/grupos/${grupoId}/configuracion`
     );
   }
 }

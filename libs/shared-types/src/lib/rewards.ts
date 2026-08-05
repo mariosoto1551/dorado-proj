@@ -507,3 +507,24 @@ export interface CrearProductoRequest {
   recompensaId?: string | null;
   bolsaId?: string | null;
 }
+
+/** Etiqueta del catálogo por REST interno (fase-14-30 tanda 3), sin tenant. */
+export interface EtiquetaInternaDto {
+  id: string;
+  nombre: string;
+  colorHex: string;
+  estado: 'ACTIVA' | 'ARCHIVADA';
+}
+
+/**
+ * La configuración de recompensas por REST interno (fase-14-30 tanda 3). El
+ * `modo` es lo que decide si la tienda existe: proponer precios en un grupo
+ * DIRECTO es proponer sobre algo que nadie ve.
+ */
+export interface ConfiguracionRecompensasInternaDto {
+  modo: `${ModoRecompensas}`;
+  /** No null = el modo cambia al abrir la próxima Sección. */
+  modoPendiente: `${ModoRecompensas}` | null;
+  nombreMoneda: string;
+  iconoMoneda: string;
+}

@@ -77,6 +77,26 @@ function crearMocks() {
         estado: 'ACTIVA',
       },
     ]),
+    configuracion: vi.fn(async () => ({
+      planDelDiaActivo: true,
+      modoCreacionUsuario: 'BAJO_APROBACION',
+      maxPuntosActividadUsuario: 5,
+      maxActividadesActivasPorUsuario: 5,
+    })),
+    turnos: vi.fn(async () => [
+      {
+        actividadId: 'act-1',
+        modo: 'ORDEN_FIJO',
+        frecuencia: 'SESION',
+        activo: true,
+        // José dos veces de cuatro posiciones: la repetición es el punto.
+        posiciones: [
+          { orden: 1, usuarioId: 'u-1' },
+          { orden: 2, usuarioId: 'u-2' },
+          { orden: 3, usuarioId: 'u-1' },
+        ],
+      },
+    ]),
     resumenCumplimiento: vi.fn(async (grupoId: string, dias: number) => ({
       grupoId,
       dias,
@@ -137,6 +157,7 @@ function crearMocks() {
         colorHex: '#22C55E',
       },
     ]),
+    configuracion: vi.fn(async () => ({ puntosIniciales: 10 })),
     resumenPuntajes: vi.fn(async () => ({
       grupoId: 'grupo-1',
       seccionId: 'sec-1',
@@ -174,6 +195,16 @@ function crearMocks() {
         monedasBonoJefe: 0,
       },
     ]),
+    etiquetas: vi.fn(async () => [
+      { id: 'et-1', nombre: 'Golosinas', colorHex: '#EAB308', estado: 'ACTIVA' },
+      { id: 'et-2', nombre: 'Viejas', colorHex: '#111111', estado: 'ARCHIVADA' },
+    ]),
+    configuracion: vi.fn(async () => ({
+      modo: 'TIENDA',
+      modoPendiente: null,
+      nombreMoneda: 'doradas',
+      iconoMoneda: '🪙',
+    })),
     tienda: vi.fn(async () => ({
       productos: [
         {
@@ -241,10 +272,18 @@ describe('HerramientasService', () => {
       await servicio.ejecutar('listar_recompensas', inyectado, CONTEXTO);
       await servicio.ejecutar('listar_rendimientos_monedas', inyectado, CONTEXTO);
       await servicio.ejecutar('listar_tienda', inyectado, CONTEXTO);
+      await servicio.ejecutar('listar_etiquetas', inyectado, CONTEXTO);
+      await servicio.ejecutar('listar_turnos', inyectado, CONTEXTO);
+      await servicio.ejecutar('configuracion_del_grupo', inyectado, CONTEXTO);
       await servicio.ejecutar('resumen_cumplimiento', inyectado, CONTEXTO);
 
       const llamadas = [
         ...vi.mocked(rewards.tienda).mock.calls,
+        ...vi.mocked(rewards.etiquetas).mock.calls,
+        ...vi.mocked(rewards.configuracion).mock.calls,
+        ...vi.mocked(activity.configuracion).mock.calls,
+        ...vi.mocked(activity.turnos).mock.calls,
+        ...vi.mocked(scoring.configuracion).mock.calls,
         ...vi.mocked(activity.conductas).mock.calls,
         ...vi.mocked(activity.resumenCumplimiento).mock.calls,
         ...vi.mocked(identity.participantes).mock.calls,
@@ -329,7 +368,7 @@ describe('HerramientasService', () => {
   describe('ninguna lectura manda el tenant hacia el proveedor (decisión 9 del fase-14-30)', () => {
     const PROHIBIDO = /organizacionId|grupoId|tenant/i;
 
-    it('las nueve lecturas devuelven respuestas sin ninguna clave de tenant', async () => {
+    it('las doce lecturas devuelven respuestas sin ninguna clave de tenant', async () => {
       const { servicio } = crearMocks();
       const infractoras: string[] = [];
 
@@ -353,7 +392,7 @@ describe('HerramientasService', () => {
       ).toEqual([]);
     });
 
-    it('tampoco viaja ningún dato de contacto en ninguna de las nueve', async () => {
+    it('tampoco viaja ningún dato de contacto en ninguna de las doce', async () => {
       const { servicio } = crearMocks();
 
       for (const nombre of NOMBRES_HERRAMIENTAS_LECTURA) {
@@ -454,6 +493,107 @@ describe('HerramientasService', () => {
       const resultado = await servicio.ejecutar('listar_tienda', {}, CONTEXTO);
 
       expect(resultado).toEqual({ ok: true, datos: { productos: [], bolsas: [] } });
+    });
+  });
+
+  describe('listar_etiquetas y listar_turnos', () => {
+    it('las etiquetas salen con su id, que es lo que hace falta para asignarlas', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.ejecutar('listar_etiquetas', {}, CONTEXTO);
+
+      expect(resultado).toEqual({
+        ok: true,
+        datos: [
+          { etiquetaId: 'et-1', nombre: 'Golosinas', colorHex: '#EAB308', estado: 'ACTIVA' },
+          { etiquetaId: 'et-2', nombre: 'Viejas', colorHex: '#111111', estado: 'ARCHIVADA' },
+        ],
+      });
+    });
+
+    it('el turno conserva el orden y las repeticiones de una persona', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.ejecutar('listar_turnos', {}, CONTEXTO);
+
+      // Que `u-1` aparezca dos veces NO es un error de datos: es cómo se le da
+      // más turnos que a los demás (fase-14-21). Un molde que deduplicara
+      // rompería el ítem entero sin que nada más se quejara.
+      expect(resultado).toEqual({
+        ok: true,
+        datos: [
+          {
+            actividadId: 'act-1',
+            modo: 'ORDEN_FIJO',
+            frecuencia: 'SESION',
+            activo: true,
+            posiciones: [
+              { orden: 1, usuarioId: 'u-1' },
+              { orden: 2, usuarioId: 'u-2' },
+              { orden: 3, usuarioId: 'u-1' },
+            ],
+          },
+        ],
+      });
+    });
+  });
+
+  describe('configuracion_del_grupo', () => {
+    it('compone los tres servicios en una sola respuesta', async () => {
+      const { servicio, activity, scoring, rewards } = crearMocks();
+
+      const resultado = await servicio.ejecutar('configuracion_del_grupo', {}, CONTEXTO);
+
+      expect(resultado).toEqual({
+        ok: true,
+        datos: {
+          planDelDiaActivo: true,
+          contenidoCreadoPorIntegrantes: {
+            modo: 'BAJO_APROBACION',
+            maxPuntosPorActividad: 5,
+            maxActividadesActivasPorPersona: 5,
+          },
+          puntosIniciales: 10,
+          recompensas: {
+            modo: 'TIENDA',
+            modoPendiente: null,
+            nombreMoneda: 'doradas',
+            iconoMoneda: '🪙',
+          },
+        },
+      });
+
+      // Una sola vuelta del loop y tres llamadas en paralelo, no tres
+      // herramientas: partirla costaría dos llamadas más al proveedor.
+      expect(activity.configuracion).toHaveBeenCalledTimes(1);
+      expect(scoring.configuracion).toHaveBeenCalledTimes(1);
+      expect(rewards.configuracion).toHaveBeenCalledTimes(1);
+    });
+
+    it('un servicio caído deja su parte en null y no inventa un default', async () => {
+      const { servicio, rewards } = crearMocks();
+
+      vi.mocked(rewards.configuracion).mockResolvedValueOnce(null);
+
+      const resultado = await servicio.ejecutar('configuracion_del_grupo', {}, CONTEXTO);
+      const datos = (resultado as { datos: Record<string, unknown> }).datos;
+
+      // Decir «DIRECTO» sin saberlo haría que el asistente descarte la tienda
+      // de un grupo que sí la usa: es peor que no contestar esa parte.
+      expect(datos['recompensas']).toBeNull();
+      expect(datos['puntosIniciales']).toBe(10);
+    });
+
+    it('si no contesta ninguno, es un error legible y no un objeto de nulls', async () => {
+      const { servicio, activity, scoring, rewards } = crearMocks();
+
+      vi.mocked(activity.configuracion).mockResolvedValueOnce(null);
+      vi.mocked(scoring.configuracion).mockResolvedValueOnce(null);
+      vi.mocked(rewards.configuracion).mockResolvedValueOnce(null);
+
+      const resultado = await servicio.ejecutar('configuracion_del_grupo', {}, CONTEXTO);
+
+      expect(resultado.ok).toBe(false);
     });
   });
 
