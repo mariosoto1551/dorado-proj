@@ -667,8 +667,15 @@ export interface TurnoActividadDto {
 }
 
 export interface ConfigurarTurnoRequest {
-  modo: ModoTurno;
-  frecuencia: FrecuenciaTurno;
+  /**
+   * `${Enum}` desde el fase-14-30 tanda 2, por el mismo motivo que en
+   * `CrearActividadRequest` (ver la nota larga ahí): la clase con decoradores de
+   * activity-service valida contra los enums que genera Prisma, y con el enum de
+   * esta librería el `implements` no compilaba. Es una ampliación del tipo, no
+   * un cambio de contrato: los miembros de los dos enums siguen siendo válidos.
+   */
+  modo: `${ModoTurno}`;
+  frecuencia: `${FrecuenciaTurno}`;
   activo?: boolean;
   /** El ORDEN del array ES la secuencia. Se admiten repetidos a propósito. */
   posiciones: Array<{ usuarioId: string }>;
@@ -813,3 +820,24 @@ export interface CrearActividadRequest {
 
 /** Todo opcional: es un PATCH. */
 export type EditarActividadRequest = Partial<CrearActividadRequest>;
+
+// --- Contratos de request de conductas (fase-14-30 tanda 2) ---
+//
+// Mismo criterio y misma nota sobre `${Enum}` que los de actividad: la clase
+// con decoradores de activity-service los `implements`, así que renombrarle un
+// campo rompe el build de quien arme un request con esta forma.
+
+export interface CrearConductaRequest {
+  nombre: string;
+  tipo: `${TipoConducta}`;
+  /** Siempre positivo: el signo lo aplica el registro según `tipo`. */
+  valorPuntos: number;
+  /** Solo relevante con `tipo = MALA`; en BUENA el servicio lo fuerza a false. */
+  permiteAutoreporte?: boolean;
+}
+
+/**
+ * PATCH: todo opcional. **Sin `estado`** — archivar es otro camino (`DELETE`),
+ * y el fase-14-30 (decisión 3) no propone archivados por ninguna vía.
+ */
+export type EditarConductaRequest = Partial<CrearConductaRequest>;

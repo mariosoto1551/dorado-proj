@@ -15,13 +15,17 @@ import {
 import {
   FuenteProducto,
   MecanicaProducto,
+  type ClavesNoCubiertas,
+  type Exhaustivo,
+  type CrearProductoRequest as ContratoCrearProducto,
   type EditarProductoRequest as ContratoEditarProducto,
+  type GuardarBolsaRequest as ContratoGuardarBolsa,
 } from '@dorado/shared-types';
 
 // Requests de la tienda (spec fase-14-22 Partes C y D). Los Response son
 // BolsaPremiosDto / ProductoTiendaDto / CompraDto de shared-types.
 
-export class GuardarBolsaRequest {
+export class GuardarBolsaRequest implements ContratoGuardarBolsa {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
@@ -38,7 +42,7 @@ export class GuardarBolsaRequest {
   recompensaIds!: string[];
 }
 
-export class CrearProductoRequest {
+export class CrearProductoRequest implements ContratoCrearProducto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
@@ -148,3 +152,16 @@ export class AnularCastigoRequest {
   @MaxLength(200)
   motivo!: string;
 }
+
+// Cobertura de claves (fase-14-30 tanda 2), ver `contratos.ts`.
+type _GuardarBolsaCubierta = Exhaustivo<
+  ClavesNoCubiertas<ContratoGuardarBolsa, GuardarBolsaRequest>
+>;
+
+type _CrearProductoCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoCrearProducto, CrearProductoRequest>
+>;
+
+type _EditarProductoCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoEditarProducto, EditarProductoRequest>
+>;

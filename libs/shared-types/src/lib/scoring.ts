@@ -104,3 +104,32 @@ export interface ResumenPuntajesGrupoDto {
   origen: 'SNAPSHOT' | 'EN_VIVO';
   puntajes: PuntajeResumidoDto[];
 }
+
+// --- Contratos de request de la escala (fase-14-30 tanda 2) ---
+//
+// Ver la nota equivalente en activity.ts: las clases con decoradores de
+// scoring-service los `implements`, para que un campo renombrado rompa el build
+// de quien arme un request con esta forma en vez de fallar al aplicarlo.
+
+export interface CrearUmbralRequest {
+  nombreZona: string;
+  /** 1 = la zona más baja. Define el orden de la escala, no el puntaje. */
+  orden: number;
+  puntosMin: number;
+  /**
+   * `null` = sin techo, y es **la zona más alta**. No es lo mismo que omitirlo:
+   * por eso el request lo acepta explícitamente (la clase usa `ValidateIf` y no
+   * `IsOptional`, que también saltearía el null).
+   */
+  puntosMax?: number | null;
+  /** "#RRGGBB" — el frontend nunca lo hardcodea, lo lee de la API. */
+  colorHex: string;
+}
+
+/** PATCH: todo opcional, `puntosMax: null` incluido con su significado. */
+export type EditarUmbralRequest = Partial<CrearUmbralRequest>;
+
+/** PUT /scoring/grupos/:grupoId/configuracion. 0 = arrancar en cero. */
+export interface GuardarConfiguracionScoringRequest {
+  puntosIniciales: number;
+}

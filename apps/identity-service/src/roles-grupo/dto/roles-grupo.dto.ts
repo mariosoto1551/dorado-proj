@@ -9,6 +9,14 @@ import {
   ValidateIf,
 } from 'class-validator';
 
+import type {
+  ClavesNoCubiertas,
+  Exhaustivo,
+  ActualizarRolGrupoRequest as ContratoActualizarRol,
+  AsignarRolGrupoRequest as ContratoAsignarRol,
+  CrearRolGrupoRequest as ContratoCrearRol,
+} from '@dorado/shared-types';
+
 // Roles del participante dentro del Grupo (fase-14-19).
 //
 // `nombre` va a 30 caracteres y no a 120 como el de Equipo: esto se pinta como
@@ -17,7 +25,7 @@ import {
 const COLOR_HEX = /^#[0-9A-Fa-f]{6}$/;
 
 // POST /identity/grupos/:grupoId/roles
-export class CrearRolGrupoRequest {
+export class CrearRolGrupoRequest implements ContratoCrearRol {
   @IsString()
   @IsNotEmpty()
   @MaxLength(30)
@@ -28,7 +36,7 @@ export class CrearRolGrupoRequest {
 }
 
 // PATCH /identity/roles/:rolGrupoId
-export class ActualizarRolGrupoRequest {
+export class ActualizarRolGrupoRequest implements ContratoActualizarRol {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
@@ -45,7 +53,7 @@ export class ActualizarRolGrupoRequest {
 }
 
 // PUT /identity/grupos/:grupoId/usuarios/:usuarioId/rol
-export class AsignarRolGrupoRequest {
+export class AsignarRolGrupoRequest implements ContratoAsignarRol {
   // `null` quita el rol — es un valor válido del contrato, no un campo ausente:
   // por eso ValidateIf en vez de IsOptional (que también aceptaría `undefined`
   // y dejaría ambiguo si el cliente quiso quitar el rol o no tocarlo).
@@ -53,3 +61,16 @@ export class AsignarRolGrupoRequest {
   @IsUUID()
   rolGrupoId!: string | null;
 }
+
+// Cobertura de claves (fase-14-30 tanda 2), ver `contratos.ts`.
+type _CrearRolCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoCrearRol, CrearRolGrupoRequest>
+>;
+
+type _ActualizarRolCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoActualizarRol, ActualizarRolGrupoRequest>
+>;
+
+type _AsignarRolCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoAsignarRol, AsignarRolGrupoRequest>
+>;

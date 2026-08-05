@@ -433,3 +433,77 @@ export interface EditarProductoRequest {
   recompensaId?: string | null;
   bolsaId?: string | null;
 }
+
+// --- Contratos de request del catálogo y la tienda (fase-14-30 tanda 2) ---
+//
+// Completan los que el fase-14-29 había llevado a `shared-types` para
+// actividades y precios. Misma regla: la clase con decoradores de
+// rewards-service los `implements`.
+
+export interface CrearRecompensaRequest {
+  /** Default PREMIO si se omite — retro-compatible con lo anterior al #22. */
+  tipo?: `${TipoItemCatalogo}`;
+  /**
+   * Obligatorio solo en modo DIRECTO, y lo valida el servicio (que es quien
+   * conoce el modo del Grupo). En modo TIENDA se ignora: ahí un ítem no está
+   * atado a una zona.
+   */
+  umbralZonaId?: string;
+  nombre: string;
+  descripcion?: string;
+  imagenUrl?: string;
+  /** Los dos solo los usa el modo DIRECTO. */
+  permiteSeleccion?: boolean;
+  permiteAzar?: boolean;
+}
+
+export interface EditarRecompensaRequest {
+  tipo?: `${TipoItemCatalogo}`;
+  umbralZonaId?: string;
+  nombre?: string;
+  descripcion?: string | null;
+  imagenUrl?: string | null;
+  permiteSeleccion?: boolean;
+  permiteAzar?: boolean;
+}
+
+export interface CrearEtiquetaRequest {
+  nombre: string;
+  /** "#RRGGBB", mismo criterio que `UmbralZona.colorHex`: lo decide el Tutor. */
+  colorHex: string;
+}
+
+export type EditarEtiquetaRequest = Partial<CrearEtiquetaRequest>;
+
+/**
+ * PUT /rewards/recompensas/:id/etiquetas — reemplazo COMPLETO, no incremental.
+ * Es un PUT sobre un sub-recurso y no un campo del PATCH de recompensa porque
+ * ahí un array vacío sería indistinguible de «no lo mandé».
+ */
+export interface AsignarEtiquetasRequest {
+  etiquetaIds: string[];
+}
+
+/**
+ * POST/PUT de bolsa. La lista de ítems es explícita y completa: al editar
+ * reemplaza, no agrega. Sin ítems no hay bolsa — una bolsa vacía fallaría
+ * recién al comprar, que es el peor momento para enterarse.
+ */
+export interface GuardarBolsaRequest {
+  nombre: string;
+  recompensaIds: string[];
+}
+
+export interface CrearProductoRequest {
+  nombre: string;
+  descripcion?: string | null;
+  imagenUrl?: string | null;
+  /** Siempre ≥ 1: un producto gratis no participa de ninguna economía. */
+  precio: number;
+  /** Eje 1: de dónde sale lo que entrega. */
+  fuente: `${FuenteProducto}`;
+  /** Eje 2: cómo se obtiene. Se ignora con `fuente = ITEM`. */
+  mecanica?: `${MecanicaProducto}`;
+  recompensaId?: string | null;
+  bolsaId?: string | null;
+}

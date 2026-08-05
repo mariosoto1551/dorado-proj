@@ -9,7 +9,13 @@ import {
   MaxLength,
 } from 'class-validator';
 
-import { TipoItemCatalogo } from '@dorado/shared-types';
+import {
+  TipoItemCatalogo,
+  type ClavesNoCubiertas,
+  type Exhaustivo,
+  type CrearRecompensaRequest as ContratoCrear,
+  type EditarRecompensaRequest as ContratoEditar,
+} from '@dorado/shared-types';
 
 import { EstadoCatalogo } from '../../generated/prisma/enums';
 
@@ -17,7 +23,7 @@ import { EstadoCatalogo } from '../../generated/prisma/enums';
 // shared-types. `imagenUrl` solo se guarda — el gating white-label es del
 // frontend (Fase 10/14), nunca de este backend.
 
-export class CrearRecompensaRequest {
+export class CrearRecompensaRequest implements ContratoCrear {
   /** fase-14-22 decisión 7. Default PREMIO — retro-compatible. */
   @IsOptional()
   @IsIn(Object.values(TipoItemCatalogo))
@@ -54,7 +60,7 @@ export class CrearRecompensaRequest {
   permiteAzar?: boolean;
 }
 
-export class EditarRecompensaRequest {
+export class EditarRecompensaRequest implements ContratoEditar {
   @IsOptional()
   @IsIn(Object.values(TipoItemCatalogo))
   tipo?: TipoItemCatalogo;
@@ -106,3 +112,12 @@ export class ListarRecompensasQuery {
   @IsUUID()
   etiquetaId?: string;
 }
+
+// Cobertura de claves (fase-14-30 tanda 2), ver `contratos.ts`.
+type _CrearRecompensaCubierta = Exhaustivo<
+  ClavesNoCubiertas<ContratoCrear, CrearRecompensaRequest>
+>;
+
+type _EditarRecompensaCubierta = Exhaustivo<
+  ClavesNoCubiertas<ContratoEditar, EditarRecompensaRequest>
+>;

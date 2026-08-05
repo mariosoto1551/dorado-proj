@@ -9,8 +9,17 @@ import {
   MaxLength,
 } from 'class-validator';
 
+import type {
+  ClavesNoCubiertas,
+  Exhaustivo,
+  AgregarMiembroEquipoRequest as ContratoAgregarMiembro,
+  CrearEquipoRequest as ContratoCrearEquipo,
+  EditarEquipoRequest as ContratoEditarEquipo,
+  SustituirJefeEquipoRequest as ContratoSustituirJefe,
+} from '@dorado/shared-types';
+
 // POST /identity/grupos/:grupoId/equipos
-export class CrearEquipoRequest {
+export class CrearEquipoRequest implements ContratoCrearEquipo {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
@@ -27,7 +36,7 @@ export class CrearEquipoRequest {
 }
 
 // PATCH /identity/equipos/:equipoId
-export class EditarEquipoRequest {
+export class EditarEquipoRequest implements ContratoEditarEquipo {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
@@ -40,13 +49,30 @@ export class EditarEquipoRequest {
 }
 
 // POST /identity/equipos/:equipoId/miembros
-export class AgregarMiembroEquipoRequest {
+export class AgregarMiembroEquipoRequest implements ContratoAgregarMiembro {
   @IsUUID()
   usuarioId!: string;
 }
 
 // POST /identity/equipos/:equipoId/jefe
-export class SustituirJefeEquipoRequest {
+export class SustituirJefeEquipoRequest implements ContratoSustituirJefe {
   @IsUUID()
   nuevoJefeUsuarioId!: string;
 }
+
+// Cobertura de claves (fase-14-30 tanda 2), ver `contratos.ts`.
+type _CrearEquipoCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoCrearEquipo, CrearEquipoRequest>
+>;
+
+type _EditarEquipoCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoEditarEquipo, EditarEquipoRequest>
+>;
+
+type _AgregarMiembroCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoAgregarMiembro, AgregarMiembroEquipoRequest>
+>;
+
+type _SustituirJefeCubierto = Exhaustivo<
+  ClavesNoCubiertas<ContratoSustituirJefe, SustituirJefeEquipoRequest>
+>;

@@ -84,7 +84,7 @@ export interface PosicionTurnoDto { orden: number; usuarioId: string; nombre: st
 export interface TurnoDeHoyDto { usuarioIdAsignado: string | null; nombreAsignado: string | null; esMio: boolean; }
 export interface AsignacionTurnoDto { actividadId: string; usuarioId: string; nombre: string; vueltaNumero: number; indice: number; usuarioOriginalId: string | null; nombreOriginal: string | null; reasignadoEn: string | null; motivoReasignacion: string | null; }
 export interface TurnoActividadDto { actividadId: string; modo: ModoTurno; frecuencia: FrecuenciaTurno; activo: boolean; posiciones: PosicionTurnoDto[]; asignacionVigente: AsignacionTurnoDto | null; proximos: Array<{ usuarioId: string; nombre: string }>; }
-export interface ConfigurarTurnoRequest { modo: ModoTurno; frecuencia: FrecuenciaTurno; activo?: boolean; posiciones: Array<{ usuarioId: string }>; } // el ORDEN del array ES la secuencia
+export interface ConfigurarTurnoRequest { modo: `${ModoTurno}`; frecuencia: `${FrecuenciaTurno}`; activo?: boolean; posiciones: Array<{ usuarioId: string }>; } // el ORDEN del array ES la secuencia
 export type ConfigurarTurnoResponse = TurnoActividadDto;
 export interface ReasignarTurnoRequest { usuarioId: string; motivo?: string; }
 export interface TurnoDeHoyDelGrupoDto { actividadId: string; actividadNombre: string; frecuencia: FrecuenciaTurno; asignacion: AsignacionTurnoDto | null; }
@@ -124,6 +124,43 @@ export interface CanjeRecompensaDto { id: string; organizacionId: string; grupoI
 // `RecompensaDto.etiquetas` viaja denormalizado (nombre + color) y es SIEMPRE [] para Rol.USUARIO.
 export interface EtiquetaCatalogoDto { id: string; organizacionId: string; grupoId: string; nombre: string; colorHex: string; estado: 'ACTIVA' | 'ARCHIVADA'; }
 export interface ProductosDesdeEtiquetaDto { creados: ProductoTiendaDto[]; salteados: Array<{ recompensaId: string; nombre: string; motivo: 'YA_TIENE_PRODUCTO' | 'ES_CASTIGO' }>; }
+
+// ---------- Contratos de request del asistente de IA (fase-14-29 y fase-14-30) ----------
+// Estas interfaces son la MISMA forma que el body de su endpoint destino, y la clase con
+// decoradores del servicio las `implements` + verifica cobertura de claves (ver contratos.ts).
+// Existen porque `ai-service` arma propuestas con la forma exacta del request: aplicar una
+// propuesta es un `for` sobre el array, no una traducción. Un campo renombrado en un servicio
+// tiene que ROMPER EL BUILD, no deteriorar la propuesta en silencio.
+// Los enums van como `${Enum}` porque cada servicio valida contra los que genera su Prisma.
+
+export type Exhaustivo<T extends never> = T; // falla a compilar si T no es never
+export type ClavesNoCubiertas<TContrato, TClase> = Exclude<keyof TContrato, keyof TClase>;
+
+// activity
+export interface CrearActividadRequest { nombre: string; descripcion?: string | null; tipoPuntaje: `${TipoPuntaje}`; valorPuntos: number; puntosPorCumplir?: number; tipoLimiteTiempo: `${TipoLimiteTiempo}`; deadlineHora?: string | null; duracionCronometroMinutos?: number | null; repeticionesMaximasSesion?: number; repeticionesMinimasSesion?: number; repeticionesMaximasSeccion?: number | null; comportamientoAlCierre?: `${ComportamientoAlCierre}`; alcance?: `${AlcanceActividad}`; bonoJefePuntos?: number; diasSemana?: number[]; siempreVisible?: boolean; rolesPermitidos?: string[]; usuariosPermitidos?: string[]; equiposPermitidos?: string[]; vigenteDesde?: string | null; vigenteHasta?: string | null; }
+export type EditarActividadRequest = Partial<CrearActividadRequest>;
+export interface CrearConductaRequest { nombre: string; tipo: `${TipoConducta}`; valorPuntos: number; permiteAutoreporte?: boolean; }
+export type EditarConductaRequest = Partial<CrearConductaRequest>; // sin `estado`: archivar es otro camino
+
+// scoring
+export interface CrearUmbralRequest { nombreZona: string; orden: number; puntosMin: number; puntosMax?: number | null; colorHex: string; } // puntosMax null = zona más alta, sin techo
+export type EditarUmbralRequest = Partial<CrearUmbralRequest>;
+export interface GuardarConfiguracionScoringRequest { puntosIniciales: number; }
+
+// rewards
+export interface CrearRecompensaRequest { tipo?: `${TipoItemCatalogo}`; umbralZonaId?: string; nombre: string; descripcion?: string; imagenUrl?: string; permiteSeleccion?: boolean; permiteAzar?: boolean; }
+export interface EditarRecompensaRequest { tipo?: `${TipoItemCatalogo}`; umbralZonaId?: string; nombre?: string; descripcion?: string | null; imagenUrl?: string | null; permiteSeleccion?: boolean; permiteAzar?: boolean; }
+export interface CrearEtiquetaRequest { nombre: string; colorHex: string; }
+export type EditarEtiquetaRequest = Partial<CrearEtiquetaRequest>;
+export interface AsignarEtiquetasRequest { etiquetaIds: string[]; } // PUT sobre sub-recurso: reemplazo completo
+export interface GuardarBolsaRequest { nombre: string; recompensaIds: string[]; }
+export interface CrearProductoRequest { nombre: string; descripcion?: string | null; imagenUrl?: string | null; precio: number; fuente: `${FuenteProducto}`; mecanica?: `${MecanicaProducto}`; recompensaId?: string | null; bolsaId?: string | null; }
+export interface EditarProductoRequest { nombre?: string; descripcion?: string | null; imagenUrl?: string | null; precio?: number; fuente?: `${FuenteProducto}`; mecanica?: `${MecanicaProducto}`; recompensaId?: string | null; bolsaId?: string | null; } // el precio vive acá, NO en Recompensa
+
+// La tienda por REST interno (fase-14-30): de acá sale el productoId que el asistente necesita.
+export interface ProductoTiendaInternoDto { id: string; nombre: string; descripcion: string | null; precio: number; fuente: FuenteProducto; mecanica: MecanicaProducto; recompensaId: string | null; bolsaId: string | null; estado: 'ACTIVA' | 'ARCHIVADA'; }
+export interface BolsaPremiosInternaDto { id: string; nombre: string; estado: 'ACTIVA' | 'ARCHIVADA'; recompensaIds: string[]; }
+export interface TiendaInternaDto { productos: ProductoTiendaInternoDto[]; bolsas: BolsaPremiosInternaDto[]; }
 
 // ---------- Notification / Audit ----------
 export interface NotificacionDto { id: string; organizacionId: string; grupoId: string; destinatarioId: string; destinatarioTipo: PrincipalType; tipo: string; mensaje: string; leida: boolean; createdAt: string; }

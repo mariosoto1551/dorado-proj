@@ -12,6 +12,14 @@ import {
   Min,
 } from 'class-validator';
 
+import type {
+  ClavesNoCubiertas,
+  Exhaustivo,
+  AsignarEtiquetasRequest as ContratoAsignar,
+  CrearEtiquetaRequest as ContratoCrear,
+  EditarEtiquetaRequest as ContratoEditar,
+} from '@dorado/shared-types';
+
 import { EstadoCatalogo } from '../../generated/prisma/enums';
 
 // Requests de etiquetas (spec fase-14-26 Parte B). Los Response son
@@ -24,7 +32,7 @@ import { EstadoCatalogo } from '../../generated/prisma/enums';
  */
 export const MAX_ETIQUETAS_POR_ITEM = 5;
 
-export class CrearEtiquetaRequest {
+export class CrearEtiquetaRequest implements ContratoCrear {
   @IsString()
   @IsNotEmpty()
   @MaxLength(40)
@@ -35,7 +43,7 @@ export class CrearEtiquetaRequest {
   colorHex!: string;
 }
 
-export class EditarEtiquetaRequest {
+export class EditarEtiquetaRequest implements ContratoEditar {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
@@ -60,7 +68,7 @@ export class ListarEtiquetasQuery {
  * queda. Por eso es un PUT sobre un sub-recurso y no un campo del PATCH de
  * recompensa, donde un array vacío sería indistinguible de «no lo mandé».
  */
-export class AsignarEtiquetasRequest {
+export class AsignarEtiquetasRequest implements ContratoAsignar {
   @IsArray()
   @ArrayMaxSize(MAX_ETIQUETAS_POR_ITEM)
   @IsUUID('4', { each: true })
@@ -81,3 +89,16 @@ export class ProductosDesdeEtiquetaRequest {
   @Min(1)
   precio!: number;
 }
+
+// Cobertura de claves (fase-14-30 tanda 2), ver `contratos.ts`.
+type _CrearEtiquetaCubierta = Exhaustivo<
+  ClavesNoCubiertas<ContratoCrear, CrearEtiquetaRequest>
+>;
+
+type _EditarEtiquetaCubierta = Exhaustivo<
+  ClavesNoCubiertas<ContratoEditar, EditarEtiquetaRequest>
+>;
+
+type _AsignarEtiquetasCubierta = Exhaustivo<
+  ClavesNoCubiertas<ContratoAsignar, AsignarEtiquetasRequest>
+>;

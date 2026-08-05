@@ -1957,7 +1957,7 @@ Y lo que deja abierto el ítem ya terminado:
 
 ---
 
-## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tanda 1 de 9 (2026-08-05)
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 y 2 de 9 (2026-08-05)
 
 > Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
 
@@ -2023,13 +2023,52 @@ Medido sobre lo que efectivamente viaja (`tools` serializado, con `aJsonSchema` 
 - **El endpoint interno nuevo, contra Postgres real** (`infra/docker-compose.yml` + `nx serve rewards-service`, con los datos del piloto ya cargados): `200` con el secreto y `401` sin él; el producto de fuente BOLSA sale con su `bolsaId` y la bolsa con sus dos `recompensaIds`; **el aislamiento verificado con tres grupos** —cada uno ve solo lo suyo y un grupo inexistente devuelve las dos listas vacías—; y **ni una clave de tenant en la respuesta real**, no solo en el tipo.
 - **Sin migraciones**: la tanda no toca ningún schema.
 
+
+### Tanda 2 — los contratos en `shared-types` y sus `implements` (2026-08-05)
+
+La tanda que la Parte F pide aislada porque **es la que puede romper builds ajenos**: toca DTOs de cuatro servicios ya cerrados y **no cambia ni un comportamiento**. Son anotaciones de tipo sobre clases que ya tenían esos campos.
+
+Doce contratos nuevos: conductas (crear y editar) en `activity.ts`; umbrales (crear y editar) y configuración de scoring en `scoring.ts`; recompensas (crear y editar), etiquetas (crear, editar y asignar), bolsa y producto-crear en `rewards.ts`.
+
+#### Lo que el relevamiento corrigió de la spec
+
+La Parte C lista nueve contratos como *«ya existen y se reusan tal cual»*, y es cierto — **pero ninguna de sus clases los `implements`**. Los siete de identity (equipos y roles, del #9 y el #19) y el de turnos (#21) nacieron como interfaces para el frontend, y desde entonces las dos mitades podían derivar sin que nada se pusiera rojo. O sea que la garantía que este ítem necesita —*renombrar un campo en un servicio rompe el build de quien arme ese request*— **no valía para ninguno de los ocho**.
+
+Quedaron enganchados en esta tanda. Por eso el alcance real fue **8 archivos de DTO en 4 servicios**, y no los «siete DTOs de tres servicios» que anticipaba la spec: identity no estaba en la cuenta porque se la daba por hecha.
+
+`ConfigurarTurnoRequest` necesitó además un cambio en el contrato: sus dos campos de enum pasaron a **tipo plantilla** (`` `${ModoTurno}` ``), por el mismo motivo documentado en `CrearActividadRequest` — la clase valida contra los enums que genera Prisma y TypeScript los trata como tipos distintos. **Es una ampliación, no un cambio de contrato**: los miembros de los dos enums siguen siendo válidos, y `app-web` (su único consumidor) compila sin tocar una línea.
+
+#### El agujero que apareció al escribirla: `implements` sola no alcanza
+
+**`implements` no detecta un campo OPCIONAL renombrado.** Por tipado estructural, una clase a la que le falta una propiedad opcional del contrato le sigue siendo asignable. Renombrar `permiteAutoreporte` en activity habría pasado el build entero, y el asistente simplemente habría dejado de poder configurarlo: un deterioro silencioso.
+
+Es **el mismo agujero exacto que el #29 encontró del otro lado del cable** —allá con `z.ZodType<Contrato>` y los esquemas Zod— y se cierra igual: comparando las **claves**, que es lo que la asignabilidad no mira. Vive en `libs/shared-types/src/lib/contratos.ts` (`Exhaustivo` + `ClavesNoCubiertas`) y se aplica en una línea por clase, **20 en total**.
+
+Van como **dos tipos y no como uno solo** —la forma obvia, un `SinClavesFaltantes<A, B>` que envuelva a los dos— porque no compila: la restricción `extends never` no se puede verificar sobre parámetros genéricos, hace falta aplicarla donde los dos tipos ya son concretos. Se intentó primero de la forma obvia y el compilador lo rechazó en los seis servicios a la vez.
+
+Que este agujero apareciera en la tanda 2 y no en la 4 es exactamente lo que la Parte F buscaba al pedirla aislada.
+
+#### Verificación
+
+- **Los dos chequeos verificados rompiéndolos a propósito.** Renombrar un campo **opcional** en el contrato deja el build en rojo nombrando la clave: `TS2344: Type '"permiteAutoreporteRenombrado"' does not satisfy the constraint 'never'`, en los dos usos (crear y editar). Sin la cobertura de claves eso pasaba en verde. Restaurado.
+- **Suite completa del workspace**: activity 357, rewards 206, app-web 205, session 74, scoring 63, gateway 49, identity 48, notification 22, ai-service 162 — **todo verde y sin un solo test tocado**, que es lo que se espera de una tanda que no cambia comportamiento.
+- **Lint 19/19 y build de los 6 proyectos afectados** (incluido `app-web`, el consumidor del contrato de turnos).
+- `admin-web:test` falla por **no tener ningún `.spec.ts`** — deuda declarada del #5, no una regresión (verificado corriéndolo aparte: «No tests found»).
+- **Sin migraciones y sin tocar ninguna regla de negocio.**
+
+#### Fuera de la spec, hecho igual
+
+`docs/architecture/shared-types.md` no listaba **ninguno** de los contratos de request del #29 (actividades y producto), aunque sí los de equipos, roles y turnos de ítems anteriores. Se agregaron los del #29 junto con los de esta tanda, más el par de tipos de cobertura y los tres DTOs internos de la tienda. El `index.ts` de la librería dice *«no agregar ni quitar campos sin actualizar primero ese documento»*, así que dejarlo desactualizado era acumular la misma clase de deuda que el ítem vino a pagar.
+
 #### Qué falta de este ítem
 
-Las tandas 2 a 9 de la Parte F, en ese orden. La 2 (contratos en `shared-types` y sus `implements`) es la que puede romper builds ajenos y conviene aislada; las 4 a 7 son independientes entre sí y cada familia entregada funciona sola.
+Las tandas 3 a 9 de la Parte F, en ese orden. Las 4 a 7 son independientes entre sí y cada familia entregada funciona sola: si hay que cortar el ítem por la mitad, se corta ahí.
 
 Anotado para las que siguen:
 
 1. **La spec dice «cuatro lecturas que devuelven el DTO crudo» y son cinco** (`resumen_cumplimiento` incluida). No cambia ninguna decisión; el test cubre las nueve por igual, y las cuatro lecturas que se agreguen van a nacer cubiertas.
 2. **`NOMBRES_HERRAMIENTAS_LECTURA` se escribe a mano** (de un `.map()` no sale el tipo literal que hace cumplir la decisión 1). Hay un test que la mantiene pegada a las definiciones reales: agregar una herramienta y olvidarse de la lista pone eso en rojo, no algo lejano.
 3. **El endpoint interno de la tienda devuelve también las ARCHIVADAS** y el filtro por estado se aplica en `ai-service`, para las dos listas por igual. Una bolsa archivada con productos activos es una combinación que el Tutor tiene que poder ver.
-4. **La conversación real contra OpenAI queda pendiente para el final del ítem.** Esta tanda se verificó con unidad, build y el endpoint interno real; lo que no se ejerció es el modelo llamando a `listar_tienda` y proponiendo un precio de punta a punta. Es la clase de cable que esta fase viene encontrando rota siete veces, así que **no cuenta como verificado hasta correrlo**.
+4. **La conversación real contra OpenAI queda pendiente para el final del ítem.** La tanda 1 se verificó con unidad, build y el endpoint interno real; lo que no se ejerció es el modelo llamando a `listar_tienda` y proponiendo un precio de punta a punta. Es la clase de cable que esta fase viene encontrando rota siete veces, así que **no cuenta como verificado hasta correrlo**.
+5. **Los esquemas Zod de `ai-service` todavía no usan los doce contratos nuevos.** La tanda 2 dejó el contrato y su `implements` del lado del servicio; el `implements` del lado del esquema —con su `Exhaustivo`/`ClavesNoCubiertas`, que es lo que cierra el cable entero— entra con cada familia, en las tandas 4 a 7. Hasta entonces los contratos nuevos no tienen ningún consumidor: **están escritos y no probados por nadie**.
+6. **La cobertura de claves vale para lo que se agregue.** Toda clase de request nueva que quiera ser proponible necesita las dos cosas —`implements` y su línea de `Exhaustivo<ClavesNoCubiertas<…>>`—; con una sola, un campo opcional renombrado sigue pasando en verde. No hay test que lo obligue: es una convención con un archivo que la explica (`libs/shared-types/src/lib/contratos.ts`).
