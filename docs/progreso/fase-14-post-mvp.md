@@ -2441,3 +2441,61 @@ Anotado, además de lo que sigue valiendo:
 17. **El catálogo está cerrado**: 12 lecturas y 14 propuestas, los dos números que la spec fija. Cualquier herramienta nueva de acá en adelante es otro ítem.
 18. **La tanda 9 tiene ahora tres casos de orden que verificar**, no uno: la escala (los pasos intermedios), el equipo donde alguien se suma y asciende en el mismo cambio, y las bolsas antes que los productos. Los tres dependen de que el frontend aplique `operaciones` **en orden**, y eso hoy no lo verifica nada.
 19. **Mudar una persona de equipo es imposible para el asistente** y está bien que así sea (decisión 3), pero es la limitación que más se va a notar usándolo. Si molesta, la salida NO es habilitar el `DELETE`: es que la pantalla de equipos lo haga cómodo.
+
+
+### Tanda 8 — frontend: las entradas de contexto y el repaso de la Parte D (2026-08-06)
+
+La tanda más chica del ítem, porque las cuatro anteriores le fueron sacando el trabajo: cada familia entró con su tarjeta, su fila de diff y sus valores traducidos, así que de la Parte D quedaban **las cuatro entradas de contexto** y revisar que lo demás estuviera entero. Lo está, y el repaso está anotado abajo.
+
+#### Seis copias del mismo `@if` no llegaron a existir
+
+El #29 dejó el patrón en dos pantallas —Actividades y Rendimientos— escrito dos veces: el mismo `@if (asistenteDisponible())`, el mismo `computed` sobre `IaApiService`, el mismo `routerLink` con `queryParams`. Sumar cuatro pantallas más significaba seis copias de una regla que **se cumple por acordarse**: si el asistente no está usable, el atajo no existe.
+
+Entró un componente, `componentes/entrada-asistente.component.ts`, con las dos variantes que ya existían (`tarjeta` para la pantalla vacía, `enlace` para la que ya tiene contenido) y las dos pantallas viejas migradas a él. No es una refactorización de paso: es que la condición que hace correcto al atajo pasa a estar en un lugar y no en seis, y ahora tiene test propio — **con la configuración en `null` no se dibuja nada**, que es el caso real de `ai-service` apagado y el criterio de aceptación 14.
+
+Ese criterio, además, **se cumple por construcción y conviene dejarlo escrito**: la entrada no hace ninguna llamada propia. Lee el cache que el shell cargó una vez por sesión, y `cargarConfiguracion()` ante un fallo deja el cache como estaba (`null`). Con el servicio caído las seis pantallas se dibujan enteras y sin el atajo; no hay un estado intermedio donde la pantalla espere una respuesta que no va a llegar.
+
+#### Las cuatro entradas, y las dos condiciones que no son obvias
+
+| Pantalla | Variante | Cuándo |
+|---|---|---|
+| Conductas | tarjeta | Lista vacía. |
+| Recompensas (catálogo) | tarjeta | Catálogo vacío, **sin filtro puesto** y **con la creación posible**. |
+| Tienda | tarjeta | Tienda vacía. |
+| Zonas | tarjeta / enlace | Sin zonas / con zonas. |
+
+Las dos condiciones de más son del catálogo de recompensas y las dos salen de mirar la pantalla, no la spec:
+
+- **Con un filtro de etiqueta puesto el catálogo no está vacío**: le sobra un chip, no le faltan ítems. El estado vacío de esa pantalla es el mismo `@else if` para los dos casos, así que ofrecer «armame el catálogo» ahí era ofrecerlo cuando ya hay uno.
+- **En modo `DIRECTO` sin ninguna zona, la propuesta muere al aplicar**: `umbralZonaId` es obligatorio. Es la misma razón por la que el botón «Nuevo» está deshabilitado ahí, y el atajo usa exactamente la misma condición — un atajo a una propuesta que no se puede aplicar es la versión cara del atajo a una pantalla que no funciona.
+
+Y el catálogo lleva **dos preguntas y no una**, elegidas por modo: en `DIRECTO` cada premio cuelga de una zona, en `TIENDA` no cuelga de ninguna y los castigos son el sorteo de la bancarrota. El modelo lo averiguaría solo con `configuracion_del_grupo`, pero el primer mensaje **también lo lee el Tutor**: decirlo en el texto es gratis y deja la conversación empezada donde corresponde.
+
+#### Zonas es la única pantalla con las dos variantes
+
+Y es deliberado. En las otras tres el asistente sirve para **empezar**: con contenido cargado, el Tutor ya sabe lo que quiere y el atajo sería ruido. Zonas no: un grupo se crea sin ninguna zona —nada las siembra, se verificó— pero una vez armada la escala, la pregunta que queda es la otra, «¿sigue sirviendo?», y es la única del ítem que el asistente contesta **mirando los puntajes reales** en vez del catálogo.
+
+Ahí paga el aviso de la decisión 6 que la tanda 6 dejó en el backend: la propuesta que sale de ese enlace llega con el conteo de cuántos cambian de zona, que es justamente el número que desde esa pantalla no se puede calcular a mano.
+
+La revisión de precios, que sería el equivalente para Tienda, **ya existe y no se duplicó**: el enlace de Rendimientos («¿cuánto debería pagar cada cosa?») nombra los precios de la tienda en su pregunta, y desde la tanda 1 puede terminar en `proponer_editar_productos` de verdad.
+
+#### El repaso de la Parte D: lo demás está entero
+
+Verificado uno por uno, sin cambios necesarios:
+
+- **Los tres mapas y el `switch`**: `ETIQUETAS`, `VALORES` con los once valores nuevos y un `case` por cada uno de los **14 `TipoPropuesta`**. El `switch` es exhaustivo por tipo, que es la razón por la que el frontend entró con cada familia en vez de quedar para esta tanda.
+- **`ContextoPropuesta`**: las doce lecturas del contexto están, con roles, participantes y umbrales enteros (tandas 6 y 7) y equipos, bolsas y etiquetas como mapas, que es lo correcto porque solo se los referencia por id.
+- **El aviso de umbrales**: en la tarjeta, genérico (`PropuestaIaDto.aviso`), como lo dejó la tanda 6.
+- **`herramientas-ia.ts`**: las 26 con su nombre legible.
+
+#### Verificación de la tanda 8
+
+- **`app-web` 224/224** (+4, los del componente nuevo), **lint limpio** y **build de producción ok**.
+- Sin backend tocado: esta tanda no agrega ni una línea a `ai-service`, así que el resto del workspace no se movió y el catálogo sigue en 26 herramientas / ~10.962 caracteres (criterio 12, medido en la tanda 7).
+- **Lo que NO se verificó**: que las seis entradas naveguen y disparen la pregunta en un navegador real. Es de la tanda 9, junto con el resto del punta a punta.
+
+#### Qué falta de este ítem
+
+**La tanda 9 (E2E)**, y nada más. Sigue valiendo todo lo anotado, en particular los pendientes 15 y 18 (los tres casos de orden de aplicado). Se suma uno:
+
+20. **Las entradas de contexto no tienen ninguna verificación de navegación.** El componente tiene test de que aparece y de a dónde apunta, pero que la pregunta llegue armada al asistente y se mande sola es un cable entre dos pantallas — exactamente la clase de cosa que este ítem viene encontrando rota (la nota de los dos defectos del #29). Va en la E2E de la tanda 9.

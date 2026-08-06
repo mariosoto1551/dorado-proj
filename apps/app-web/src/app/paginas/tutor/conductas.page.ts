@@ -17,6 +17,7 @@ import {
 } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { EntradaAsistenteComponent } from '../../componentes/entrada-asistente.component';
 import { IconoComponent } from '../../componentes/icono.component';
 import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
@@ -44,6 +45,7 @@ const FORM_VACIO: FormConducta = {
   imports: [
     FormsModule,
     EncabezadoPaginaComponent,
+    EntradaAsistenteComponent,
     IconoComponent,
     ConfirmDialogComponent,
     EstadoVacioComponent,
@@ -69,6 +71,19 @@ const FORM_VACIO: FormConducta = {
         <ui-estado-vacio class="mt-6">
           Todavía no hay conductas.
         </ui-estado-vacio>
+
+        <!--
+          fase-14-30 tanda 8: misma entrada que Actividades y por lo mismo. Acá
+          además el asistente tiene con qué: ve el catálogo, las zonas y quiénes
+          son, que es exactamente lo que hay que mirar para saber si «contestar
+          mal» vale −5 o −20 en este grupo.
+        -->
+        <app-entrada-asistente
+          class="mt-3 block"
+          [grupoId]="grupoId()"
+          [pregunta]="PREGUNTA_CONDUCTAS"
+          detalle="Te propone conductas buenas y malas con sus puntos. Vos decidís qué se aplica."
+        />
       } @else {
         <ul class="mt-5 grid gap-3 sm:grid-cols-2">
           @for (c of conductas(); track c.id) {
@@ -200,6 +215,11 @@ const FORM_VACIO: FormConducta = {
 })
 export class ConductasPage {
   readonly grupoId = input.required<string>();
+
+  /** fase-14-30 tanda 8: la entrada de contexto, con la lista vacía. */
+  protected readonly PREGUNTA_CONDUCTAS =
+    'Este grupo no tiene conductas cargadas. Mirá las actividades, las zonas y ' +
+    'quiénes son los integrantes, y proponeme conductas buenas y malas para arrancar.';
 
   protected readonly TC = TipoConducta;
 

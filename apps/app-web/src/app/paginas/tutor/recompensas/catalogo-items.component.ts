@@ -19,6 +19,7 @@ import {
 } from '@dorado/shared-types';
 import { ConfirmDialogComponent, EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
+import { EntradaAsistenteComponent } from '../../../componentes/entrada-asistente.component';
 import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import type { CrearRecompensaRequest } from '../../../core/api/api.types';
@@ -70,6 +71,7 @@ const MAX_ETIQUETAS = 5;
     CampoComponent,
     EstadoVacioComponent,
     FormsModule,
+    EntradaAsistenteComponent,
     IconoComponent,
     ConfirmDialogComponent,
     EtiquetaChipComponent,
@@ -149,6 +151,21 @@ const MAX_ETIQUETAS = 5;
             : 'Todavía no hay nada en el catálogo.'
         }}
       </ui-estado-vacio>
+
+      <!--
+        fase-14-30 tanda 8. Dos condiciones y las dos importan: con un filtro
+        puesto el catálogo NO está vacío (le sobra un chip, no le faltan ítems),
+        y en DIRECTO sin zonas el atajo llevaría a una propuesta que muere al
+        aplicar — es la misma razón por la que «Nuevo» está deshabilitado ahí.
+      -->
+      @if (!filtro() && (esTienda() || umbrales().length > 0)) {
+        <app-entrada-asistente
+          class="mt-3 block"
+          [grupoId]="grupoId()"
+          [pregunta]="esTienda() ? PREGUNTA_CATALOGO_TIENDA : PREGUNTA_CATALOGO_DIRECTO"
+          detalle="Te propone premios y castigos para este grupo. Vos decidís qué se aplica."
+        />
+      }
     } @else {
       <ul class="mt-5 grid gap-3 sm:grid-cols-2">
         @for (r of visibles(); track r.id) {
@@ -365,6 +382,23 @@ export class CatalogoItemsComponent {
   readonly grupoId = input.required<string>();
 
   readonly modo = input.required<ModoRecompensas>();
+
+  /**
+   * fase-14-30 tanda 8: dos preguntas y no una, porque el modo cambia qué es un
+   * ítem. En `DIRECTO` cada premio cuelga de una zona; en `TIENDA` no cuelga de
+   * ninguna y los castigos son el sorteo de la bancarrota. Una sola pregunta
+   * genérica haría que el modelo lo averigüe con `configuracion_del_grupo`,
+   * pero el primer mensaje es también lo que el Tutor lee: decirlo acá es
+   * gratis y deja la conversación empezada donde corresponde.
+   */
+  protected readonly PREGUNTA_CATALOGO_DIRECTO =
+    'El catálogo de premios y castigos de este grupo está vacío. Mirá las zonas y ' +
+    'quiénes son los integrantes, y proponeme qué se gana al llegar a cada zona.';
+
+  protected readonly PREGUNTA_CATALOGO_TIENDA =
+    'El catálogo de premios y castigos de este grupo está vacío y la tienda está ' +
+    'activa. Mirá quiénes son los integrantes y proponeme premios para vender y ' +
+    'castigos para el sorteo de la bancarrota.';
 
   private readonly api = inject(RewardsApiService);
 

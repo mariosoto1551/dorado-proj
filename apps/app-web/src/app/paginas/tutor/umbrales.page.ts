@@ -13,6 +13,7 @@ import type { UmbralZonaDto } from '@dorado/shared-types';
 import { ConfirmDialogComponent, ZonaBadgeComponent, EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { EntradaAsistenteComponent } from '../../componentes/entrada-asistente.component';
 import { IconoComponent } from '../../componentes/icono.component';
 import { ToastService } from '../../componentes/toast.service';
 import type { CrearUmbralRequest } from '../../core/api/api.types';
@@ -44,6 +45,7 @@ const FORM_VACIO: FormUmbral = {
   imports: [ModalComponent, CampoComponent, EstadoVacioComponent, 
     FormsModule,
     EncabezadoPaginaComponent,
+    EntradaAsistenteComponent,
     IconoComponent,
     ConfirmDialogComponent,
     ZonaBadgeComponent,
@@ -96,6 +98,19 @@ const FORM_VACIO: FormUmbral = {
         <ui-estado-vacio class="mt-6">
           Todavía no hay zonas definidas.
         </ui-estado-vacio>
+
+        <!--
+          fase-14-30 tanda 8. Un grupo nuevo llega acá sin ninguna zona y sin
+          nada trabado: es la pantalla que hay que resolver ANTES que el
+          catálogo de recompensas en modo DIRECTO, y la escala es contra lo que
+          se calibra después cada valor en puntos.
+        -->
+        <app-entrada-asistente
+          class="mt-3 block"
+          [grupoId]="grupoId()"
+          [pregunta]="PREGUNTA_ESCALA_VACIA"
+          detalle="Te propone una escala de zonas con sus rangos. Vos decidís qué se aplica."
+        />
       } @else {
         <ul class="mt-5 space-y-2">
           @for (u of umbralesOrdenados(); track u.id) {
@@ -128,6 +143,22 @@ const FORM_VACIO: FormUmbral = {
             </li>
           }
         </ul>
+
+        <!--
+          Con zonas ya cargadas la pregunta cambia de «armámela» a «¿está bien?»,
+          que es la única pantalla del ítem donde el asistente revisa en vez de
+          crear. Y es deliberado que el atajo exista igual: mover un rango
+          recalcula la zona de todos en el acto (decisión 6), así que la
+          propuesta llega con el aviso de cuántos cambian de zona — un número
+          que desde acá no se puede calcular a mano.
+        -->
+        <app-entrada-asistente
+          class="mt-4 block"
+          variante="enlace"
+          [grupoId]="grupoId()"
+          [pregunta]="PREGUNTA_ESCALA_REVISION"
+          titulo="¿La escala está bien para este grupo? Preguntale a la IA"
+        />
       }
     </section>
 
@@ -230,6 +261,17 @@ const FORM_VACIO: FormUmbral = {
 })
 export class UmbralesPage {
   readonly grupoId = input.required<string>();
+
+  /** fase-14-30 tanda 8: sin escala todavía, la escala es lo que falta. */
+  protected readonly PREGUNTA_ESCALA_VACIA =
+    'Este grupo todavía no tiene zonas. Mirá las actividades, las conductas y ' +
+    'quiénes son los integrantes, y proponeme una escala de zonas con sus rangos ' +
+    'de puntos y sus colores.';
+
+  /** Con escala cargada la pregunta es la otra: si sigue sirviendo. */
+  protected readonly PREGUNTA_ESCALA_REVISION =
+    'Mirá los puntajes de esta semana y el catálogo del grupo, y decime si la ' +
+    'escala de zonas está bien calibrada. Si no, proponeme los cambios.';
 
   private readonly api = inject(ScoringApiService);
 

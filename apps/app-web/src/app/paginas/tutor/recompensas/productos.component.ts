@@ -21,6 +21,7 @@ import {
   type RendimientoZonaDto,
 } from '@dorado/shared-types';
 
+import { EntradaAsistenteComponent } from '../../../componentes/entrada-asistente.component';
 import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
@@ -69,6 +70,7 @@ const FORM_VACIO: FormProducto = {
     CampoComponent,
     EstadoVacioComponent,
     FormsModule,
+    EntradaAsistenteComponent,
     IconoComponent,
     EtiquetaChipComponent,
   ],
@@ -98,6 +100,18 @@ const FORM_VACIO: FormProducto = {
       <ui-estado-vacio class="mt-5">
         La tienda está vacía.
       </ui-estado-vacio>
+
+      <!--
+        fase-14-30 tanda 8. La tienda vacía es el caso donde el atajo más paga:
+        poner un precio a mano obliga a cruzar lo que rinde una semana con lo
+        que cuesta cada cosa, y ese cruce el asistente ya lo tiene leído.
+      -->
+      <app-entrada-asistente
+        class="mt-3 block"
+        [grupoId]="grupoId()"
+        [pregunta]="PREGUNTA_TIENDA"
+        detalle="Te propone productos con sus precios, calibrados contra lo que rinde una semana."
+      />
     } @else {
       <ul class="mt-5 grid gap-3 sm:grid-cols-2">
         @for (p of productos(); track p.id) {
@@ -349,6 +363,11 @@ const FORM_VACIO: FormProducto = {
 })
 export class ProductosComponent {
   readonly grupoId = input.required<string>();
+
+  /** fase-14-30 tanda 8: la entrada de contexto, con la tienda vacía. */
+  protected readonly PREGUNTA_TIENDA =
+    'La tienda de este grupo está vacía. Mirá el catálogo de premios, lo que paga ' +
+    'cada acción y las zonas, y proponeme productos con sus precios.';
 
   private readonly api = inject(RewardsApiService);
 
