@@ -13,6 +13,7 @@ import type {
 
 import { environment } from '../../../environments/environment';
 import type {
+  AjustarPuntosRequest,
   CorregirEventoPuntosRequest,
   CrearUmbralRequest,
   DescalificarUsuarioRequest,
@@ -92,6 +93,24 @@ export class ScoringApiService {
   ): Observable<DescalificacionDto> {
     return this.http.post<DescalificacionDto>(
       `${this.base}/secciones/${seccionId}/usuarios/${usuarioId}/descalificar`,
+      datos
+    );
+  }
+
+  /**
+   * Ajuste manual de puntos (fase-14-31). Espeja `ajustarMonedas` de
+   * `rewards-api.service.ts` porque es la misma operación sobre el otro número
+   * del participante — con dos diferencias que vienen del backend: acá el
+   * ajuste **puede dejar el puntaje en negativo** (la zona Rojo existe) y
+   * **necesita una sesión abierta** donde caer (409 si no hay).
+   */
+  ajustarPuntos(
+    grupoId: string,
+    usuarioId: string,
+    datos: AjustarPuntosRequest
+  ): Observable<EventoPuntosDto> {
+    return this.http.post<EventoPuntosDto>(
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/ajuste`,
       datos
     );
   }

@@ -33,6 +33,7 @@ import { ActivityApiService } from '../../core/api/activity-api.service';
 import type { SeccionConSesionesResponse } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
+import { ScoringApiService } from '../../core/api/scoring-api.service';
 import { SessionApiService } from '../../core/api/session-api.service';
 import {
   filasDeRegistro,
@@ -292,6 +293,47 @@ type VistaPanel = 'registrar' | 'historial';
                       Registrar
                     </button>
                   </div>
+
+                  <!-- Puntos a mano (fase-14-31): lo que pasó fuera del
+                       catálogo. Va acá y no en una pantalla propia porque la
+                       persona ya está elegida arriba, y elegirla dos veces era
+                       justamente lo que el #23 sacó de esta página. -->
+                  <div class="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                    <h4 class="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                      Puntos a mano
+                    </h4>
+                    <div class="mt-2 flex flex-wrap items-end gap-2">
+                      <ui-campo etiqueta="Puntos (negativo para restar)">
+                        <input
+                          type="number"
+                          [(ngModel)]="puntosAjuste"
+                          name="puntosAjuste"
+                          class="w-32 campo"
+                        />
+                      </ui-campo>
+                      <ui-campo etiqueta="Motivo" class="min-w-48 flex-1">
+                        <input
+                          [(ngModel)]="motivoAjuste"
+                          name="motivoAjuste"
+                          maxlength="200"
+                          placeholder="Ej: ayudó con la mudanza"
+                          class="campo"
+                        />
+                      </ui-campo>
+                      <button
+                        type="button"
+                        (click)="ajustarPuntos()"
+                        [disabled]="procesando() || puntosAjuste === 0 || motivoAjuste.trim().length === 0"
+                        class="boton boton-primario"
+                      >
+                        Ajustar
+                      </button>
+                    </div>
+                    <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                      Queda como una fila más del historial, con su motivo. Puede dejar el puntaje
+                      en negativo — a diferencia de las monedas, un puntaje negativo es una zona.
+                    </p>
+                  </div>
                 }
               </div>
             } @else {
@@ -388,6 +430,8 @@ export class PanelOperativoPage {
 
   private readonly identity = inject(IdentityApiService);
 
+  private readonly scoring = inject(ScoringApiService);
+
   private readonly toasts = inject(ToastService);
 
   private readonly router = inject(Router);
@@ -429,6 +473,11 @@ export class PanelOperativoPage {
   );
 
   protected conductaSel = '';
+
+  /** fase-14-31: el ajuste manual de puntos, del integrante ya elegido arriba. */
+  protected puntosAjuste = 0;
+
+  protected motivoAjuste = '';
 
   /** fase-14-23 T4: se elige UNA vez y vale para todo lo de abajo. */
   protected readonly usuarioSel = signal<string | null>(null);
@@ -685,6 +734,39 @@ export class PanelOperativoPage {
       next: () => {
         this.toasts.exito('Conducta registrada.');
         this.conductaSel = '';
+        this.procesando.set(false);
+      },
+      error: (e) => {
+        this.toasts.error(mensajeDeError(e));
+        this.procesando.set(false);
+      },
+    });
+  }
+
+  /**
+   * Ajuste manual de puntos (fase-14-31).
+   *
+   * No pide confirmación como el «no hizo» o el «quitar»: **es reversible por
+   * el mismo camino** —otro ajuste con el signo contrario— y no le quema al
+   * integrante ningún intento del día. La confirmación existe donde algo se
+   * pierde, no donde algo se suma.
+   */
+  protected ajustarPuntos(): void {
+    const usuarioId = this.usuarioSel();
+    const motivo = this.motivoAjuste.trim();
+
+    if (!usuarioId || this.puntosAjuste === 0 || motivo === '') {
+      return;
+    }
+
+    const puntos = this.puntosAjuste;
+
+    this.procesando.set(true);
+    this.scoring.ajustarPuntos(this.grupoId(), usuarioId, { puntos, motivo }).subscribe({
+      next: () => {
+        this.toasts.exito(`${puntos > 0 ? '+' : ''}${puntos} puntos registrados.`);
+        this.puntosAjuste = 0;
+        this.motivoAjuste = '';
         this.procesando.set(false);
       },
       error: (e) => {

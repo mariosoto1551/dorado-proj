@@ -5,6 +5,8 @@ export enum TipoOrigenPuntos {
   NO_HIZO = 'NO_HIZO',
   CONDUCTA = 'CONDUCTA',
   CORRECCION = 'CORRECCION',
+  /** fase-14-31: el Tutor suma o resta a mano, por algo de fuera del catálogo. */
+  AJUSTE_MANUAL = 'AJUSTE_MANUAL',
 }
 
 export interface EventoPuntosDto {
@@ -15,7 +17,8 @@ export interface EventoPuntosDto {
   seccionId: string;
   sesionId: string;
   tipoOrigen: TipoOrigenPuntos;
-  origenId: string;
+  /** `null` solo en `AJUSTE_MANUAL`: no hay fila de origen a la que apuntar. */
+  origenId: string | null;
   puntosSnapshot: number;
   registradoPorId: string;
   registradoPorTipo: PrincipalType;
@@ -132,6 +135,24 @@ export type EditarUmbralRequest = Partial<CrearUmbralRequest>;
 /** PUT /scoring/grupos/:grupoId/configuracion. 0 = arrancar en cero. */
 export interface GuardarConfiguracionScoringRequest {
   puntosIniciales: number;
+}
+
+/**
+ * `POST /scoring/grupos/:grupoId/usuarios/:usuarioId/ajuste` (fase-14-31).
+ *
+ * Espeja `AjustarMonedasRequest` campo por campo **salvo el nombre del
+ * número**: puntos y monedas son dos cosas independientes (decisión 1 del
+ * #28) y llamarle `monto` a los puntos las confundiría en la primera lectura.
+ *
+ * La otra diferencia deliberada con las monedas no está acá sino en el
+ * servicio: **no hay piso en 0**. Un puntaje negativo es un estado legítimo
+ * —la zona Rojo existe y `puntosMin` puede ser negativo—; un saldo negativo no.
+ */
+export interface AjustarPuntosRequest {
+  /** Con signo: positivo suma, negativo resta. Nunca 0. */
+  puntos: number;
+  /** Obligatorio: un movimiento manual sin explicación es inauditable. */
+  motivo: string;
 }
 
 /**

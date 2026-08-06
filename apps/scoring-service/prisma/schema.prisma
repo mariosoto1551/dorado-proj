@@ -19,6 +19,10 @@ enum TipoOrigenPuntos {
   NO_HIZO
   CONDUCTA
   CORRECCION
+  // fase-14-31: ajuste a mano del Tutor por algo que pasó fuera del catálogo.
+  // El puntaje se deriva con un aggregate sin filtrar por origen, así que este
+  // valor suma solo, sin tocar ninguna consulta existente.
+  AJUSTE_MANUAL
 }
 
 model EventoPuntos {
@@ -32,7 +36,12 @@ model EventoPuntos {
   // id del RegistroActividad/RegistroConducta de origen, o del EventoPuntos
   // original si es CORRECCION (el registroId permite ubicar el asiento a
   // compensar cuando llega ConductaRegistroEliminado — ver progreso fase-07).
-  origenId       String
+  //
+  // NULL solo en AJUSTE_MANUAL (fase-14-31): no hay fila de origen a la que
+  // apuntar, y meterle un id prestado sería mentir en el único ledger del
+  // sistema. Todas las consultas por origenId filtran por un valor concreto,
+  // así que ninguna cambia de resultado.
+  origenId       String?
   // con signo ya aplicado (positivo suma, negativo resta)
   puntosSnapshot Int
   registradoPorId   String

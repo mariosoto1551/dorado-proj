@@ -2,17 +2,24 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 
 import { getCorrelationId } from '@dorado/shared-logging';
-import { ConfiguracionSesionDto } from '@dorado/shared-types';
+import { ConfiguracionSesionDto, SeccionDto, SesionDto } from '@dorado/shared-types';
 
 const TIMEOUT_MS = 2000;
+
+/** Shape del interno `secciones/actual` (fase-06): la Sección no-CERRADA más
+ * reciente CON sus sesiones; cuerpo vacío = null. Mismo tipo que el de
+ * activity-service — el endpoint es uno solo. */
+export type SeccionActualInterna = SeccionDto & { sesiones: SesionDto[] };
 
 /**
  * Cliente REST interno hacia session-service (ADR-00 §4): header
  * `x-internal-secret`, nunca a través del Gateway público.
  *
- * Uso en esta fase (spec fase-07): `evaluarUmbralesEn` del grupo al consumir
- * SesionCerrada — session devuelve los defaults de modelo si el grupo nunca
- * configuró nada (fase-06), así que nunca hay 404.
+ * Usos: `evaluarUmbralesEn` del grupo al consumir SesionCerrada (spec fase-07)
+ * — session devuelve los defaults de modelo si el grupo nunca configuró nada
+ * (fase-06), así que nunca hay 404 — y la Sesión abierta donde cae un ajuste
+ * manual de puntos (fase-14-31), que es la misma resolución que hace activity
+ * al registrar.
  */
 @Injectable()
 export class SessionClientService {
@@ -28,7 +35,33 @@ export class SessionClientService {
   }
 
   async configuracionDelGrupo(grupoId: string): Promise<ConfiguracionSesionDto> {
-    const ruta = `/internal/session/grupos/${grupoId}/configuracion`;
+    return await this.obtener<ConfiguracionSesionDto>(
+      `/internal/session/grupos/${grupoId}/configuracion`
+    );
+  }
+
+  /**
+   * Sección vigente (no-CERRADA) del grupo con sus sesiones, o `null` si no hay
+   * ninguna — session responde 200 con cuerpo vacío en ese caso, y por eso el
+   * `null` se distingue leyendo el texto y no por el status.
+   */
+  async obtenerSeccionActual(grupoId: string): Promise<SeccionActualInterna | null> {
+    const crudo = await this.obtenerTexto(
+      `/internal/session/grupos/${grupoId}/secciones/actual`
+    );
+
+    if (crudo.trim() === '') {
+      return null;
+    }
+
+    return JSON.parse(crudo) as SeccionActualInterna;
+  }
+
+  private async obtener<T>(ruta: string): Promise<T> {
+    return JSON.parse(await this.obtenerTexto(ruta)) as T;
+  }
+
+  private async obtenerTexto(ruta: string): Promise<string> {
     const correlationId = getCorrelationId();
 
     let respuesta: Response;
@@ -59,6 +92,6 @@ export class SessionClientService {
       );
     }
 
-    return (await respuesta.json()) as ConfiguracionSesionDto;
+    return await respuesta.text();
   }
 }

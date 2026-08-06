@@ -153,6 +153,16 @@ export interface CorregirEventoPuntosRequest {
   puntosAjuste: number;
 }
 
+/**
+ * fase-14-31: `POST /scoring/grupos/:g/usuarios/:u/ajuste`. Con signo y nunca
+ * 0; el motivo es obligatorio porque un movimiento manual sin explicación es
+ * inauditable.
+ */
+export interface AjustarPuntosRequest {
+  puntos: number;
+  motivo: string;
+}
+
 // ---- Rewards ----
 export interface CrearRecompensaRequest {
   /** fase-14-22: obligatorio solo en modo DIRECTO. */

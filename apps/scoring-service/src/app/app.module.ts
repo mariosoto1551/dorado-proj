@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { SharedLoggingModule } from '@dorado/shared-logging';
 
+import { AjustesModule } from '../ajustes/ajustes.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { validarEnv } from '../config/env.schema';
 import { ConsumoModule } from '../consumo/consumo.module';
@@ -32,6 +33,7 @@ import { UmbralesModule } from '../umbrales/umbrales.module';
     UmbralesModule,
     DescalificacionesModule,
     CorreccionesModule,
+    AjustesModule,
     InternalModule,
   ],
 })
