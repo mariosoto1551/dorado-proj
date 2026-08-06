@@ -403,6 +403,17 @@ function camposZona(): Record<string, PropiedadEsquema> {
   };
 }
 
+/**
+ * La nota que llevan las dos herramientas destructivas (fase-14-31 decisión 2).
+ *
+ * El modelo tiene que saber **que casi todo es soft** para poder decírselo al
+ * Tutor en la conversación, no solo en la tarjeta: el que pregunta «¿si archivo
+ * esa actividad pierdo los puntos que dio?» lo pregunta en el chat.
+ */
+const ARCHIVAR_ES_SOFT =
+  'Archivar saca el ítem de la lista y NO borra nada de lo ya pasado: el historial queda y los ' +
+  'puntos que dio siguen contando. Se puede desarchivar desde la pantalla del Tutor.';
+
 export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
   {
     nombre: 'proponer_crear_actividades',
@@ -1067,6 +1078,116 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
         resumen: { type: 'string', description: 'Una línea con el criterio del armado.' },
       },
       required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_archivar',
+    descripcion:
+      `Propone sacar del catálogo lo que ya no se usa: actividades, conductas, premios y ` +
+      `castigos, productos de la tienda, bolsas, etiquetas, y la rotación de una actividad. ` +
+      `${NO_APLICA} ` +
+      `${ARCHIVAR_ES_SOFT} ` +
+      'Es la contracara de crear: usá resumen_cumplimiento para saber QUÉ no usa nadie antes de ' +
+      'proponer nada. No sirve para sacar a una persona del grupo ni de un equipo — eso lo hace ' +
+      'el Tutor, y no hay herramienta que lo proponga. ' +
+      'Para borrar una ZONA de la escala está proponer_umbrales_zona: sacar una del medio casi ' +
+      'siempre exige ensanchar a la vecina en el mismo movimiento.',
+    parametros: {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          description: 'Lo que se archiva. Entre 1 y 25 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Un ítem del catálogo a archivar.',
+            properties: {
+              tipo: {
+                type: 'string',
+                description:
+                  'Qué clase de ítem es el id. TURNO no archiva la actividad: le saca la ' +
+                  'rotación y la actividad vuelve a ser de todos.',
+                enum: [
+                  'ACTIVIDAD',
+                  'CONDUCTA',
+                  'RECOMPENSA',
+                  'PRODUCTO',
+                  'BOLSA',
+                  'ETIQUETA',
+                  'TURNO',
+                ],
+              },
+              id: uuidDe(
+                'el ítem a archivar (con TURNO, el id de la actividad que rota)',
+                'listar_actividades',
+                'listar_conductas',
+                'listar_recompensas',
+                'listar_tienda',
+                'listar_etiquetas',
+                'listar_turnos'
+              ),
+            },
+            required: ['tipo', 'id'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: {
+          type: 'string',
+          description:
+            'Una línea con el criterio: por qué estos y no otros. La lee el Tutor arriba de la ' +
+            'lista, y en una propuesta que borra es lo primero que mira.',
+        },
+      },
+      required: ['items'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_quitar_marcas',
+    descripcion:
+      `Propone corregir lo anotado HOY: quitar una actividad marcada como hecha, deshacer una ` +
+      `marca de "no hizo", o quitar una conducta registrada. ${NO_APLICA} ` +
+      'Los ids salen de estado_de_hoy y **solo existen mientras la sesión está abierta**: no se ' +
+      'puede corregir un día ya cerrado por acá. ' +
+      'OJO con el sentido: quitar una hecha le RESTA los puntos que había ganado; deshacer un ' +
+      '"no hizo" se los DEVUELVE. Decile al Tutor cuál de las dos cosas estás proponiendo.',
+    parametros: {
+      type: 'object',
+      properties: {
+        marcas: {
+          type: 'array',
+          description: 'Las marcas a corregir. Entre 1 y 50 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Una marca de hoy.',
+            properties: {
+              registroId: uuidDe('la marca a corregir', 'estado_de_hoy'),
+              tipo: {
+                type: 'string',
+                description:
+                  'El mismo `tipo` con el que vino de estado_de_hoy. COMPLETADA la quita; ' +
+                  'NO_HIZO y REPETICION_QUITADA la deshacen; CONDUCTA quita el registro.',
+                enum: ['COMPLETADA', 'NO_HIZO', 'REPETICION_QUITADA', 'CONDUCTA'],
+              },
+              motivo: {
+                type: 'string',
+                description:
+                  'Por qué se quita. **Lo lee el integrante en su pantalla**, así que escribilo ' +
+                  'para él y no para el Tutor. Solo se usa al quitar una COMPLETADA. Máximo 200.',
+              },
+            },
+            required: ['registroId', 'tipo'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 50,
+        },
+        resumen: { type: 'string', description: 'Una línea con qué se corrige y por qué.' },
+      },
+      required: ['marcas'],
       additionalProperties: false,
     },
   },

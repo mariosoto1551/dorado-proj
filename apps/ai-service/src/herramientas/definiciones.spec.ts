@@ -168,6 +168,11 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         // fase-14-30 tanda 7 — familia personas.
         'proponer_roles_grupo',
         'proponer_equipos',
+        // fase-14-31 tanda 4 — familia destructiva. Siguen empezando con
+        // `proponer_`: que la operación sea un DELETE no cambia que la IA
+        // propone y aplica un humano.
+        'proponer_archivar',
+        'proponer_quitar_marcas',
       ]);
 
       for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {

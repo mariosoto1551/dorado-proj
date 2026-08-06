@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
   PrincipalType,
@@ -44,6 +44,11 @@ const CONDUCTA_MALA_ID = '66666666-6666-4666-8666-666666666666';
 const ACTIVIDAD_OPCIONAL_ID = '77777777-7777-4777-8777-777777777777';
 
 const OTRO_USUARIO_ID = '88888888-8888-4888-8888-888888888888';
+
+/** fase-14-31: las marcas de hoy, que solo salen de `estado_de_hoy`. */
+const REGISTRO_COMPLETADA_ID = '99999999-9999-4999-8999-999999999999';
+
+const REGISTRO_NO_HIZO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 /** El único participante que no está en ningún equipo (fase-14-30 tanda 7). */
 const SIN_EQUIPO_ID = '77777777-8888-4999-8aaa-bbbbbbbbbbbb';
@@ -192,6 +197,55 @@ function crearMocks(opciones: Opciones = {}) {
       },
     ]),
     turnos: vi.fn(async () => [] as Array<{ actividadId: string }>),
+    // fase-14-31: la sesión de hoy, con una marca viva de cada clase — es la
+    // única fuente posible de un `registroId` (decisión 1 del #30).
+    estadoDeHoy: vi.fn(async () => ({
+      sesionAbierta: true,
+      participantes: [
+        {
+          usuarioId: USUARIO_ID,
+          nombre: 'Luciana',
+          actividades: [
+            {
+              actividadId: ACTIVIDAD_OPCIONAL_ID,
+              nombre: 'Leer un rato',
+              tipoPuntaje: 'OPCIONAL',
+              valorPuntos: 5,
+              vecesHechas: 0,
+              vecesQueAdmite: 1,
+              puedeMarcarHizo: true,
+              puedeMarcarNoHizo: false,
+              motivoNoDisponible: null,
+            },
+            {
+              actividadId: ACTIVIDAD_ID,
+              nombre: 'Tender la cama',
+              tipoPuntaje: 'OBLIGATORIA',
+              valorPuntos: 10,
+              vecesHechas: 0,
+              vecesQueAdmite: 0,
+              puedeMarcarHizo: false,
+              puedeMarcarNoHizo: true,
+              motivoNoDisponible: 'hoy no es uno de sus días',
+            },
+          ],
+          marcas: [
+            {
+              registroId: REGISTRO_COMPLETADA_ID,
+              tipo: 'COMPLETADA',
+              descripcion: '«Leer un rato» hecha',
+              puntos: 5,
+            },
+            {
+              registroId: REGISTRO_NO_HIZO_ID,
+              tipo: 'NO_HIZO',
+              descripcion: '«Tender la cama» marcada como no hecha',
+              puntos: -10,
+            },
+          ],
+        },
+      ],
+    })),
   } as unknown as ActivityClientService;
 
   const identity = {
@@ -804,6 +858,13 @@ describe('PropuestasService', () => {
           { nombre: 'Cocina', jefeParticipanteId: SIN_EQUIPO_ID, participantesIds: [] },
         ],
       },
+      // fase-14-31: las dos que SÍ pueden llevar DELETE. Entran a la misma
+      // tabla que el resto justamente para que la lista blanca se verifique
+      // sobre ellas y no solo sobre las que nunca borran.
+      proponer_archivar: { items: [{ tipo: 'ACTIVIDAD', id: ACTIVIDAD_ID }] },
+      proponer_quitar_marcas: {
+        marcas: [{ registroId: REGISTRO_COMPLETADA_ID, tipo: 'COMPLETADA' }],
+      },
     };
 
     it('la tabla cubre TODAS las herramientas de propuesta del catálogo', () => {
@@ -843,6 +904,157 @@ describe('PropuestasService', () => {
         'QUITAR_MARCAS',
         'UMBRALES_ZONA',
       ]);
+    });
+  });
+
+  /**
+   * FAMILIA DESTRUCTIVA (fase-14-31 tanda 4).
+   *
+   * Lo que estos tests cuidan no es que el `DELETE` salga —eso es una línea—
+   * sino las dos cosas que hacen que un borrado propuesto por un modelo sea
+   * aprobable: que el id **sea de la entidad que dice ser** (decisión 2 del
+   * #30, y acá el error se descubre cuando la cosa ya no está) y que la
+   * etiqueta **diga qué se pierde y qué no** (decisión 2 de este ítem).
+   */
+  describe('archivar del catálogo', () => {
+    it('arma un DELETE contra la ruta de la entidad, con lo que NO se pierde en la etiqueta', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_archivar',
+        { items: [{ tipo: 'ACTIVIDAD', id: ACTIVIDAD_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones[0]).toMatchObject({
+        metodo: 'DELETE',
+        ruta: `/activity/actividades/${ACTIVIDAD_ID}`,
+        body: null,
+      });
+      // Un Tutor que cree que archivar borra los puntos no aprieta nunca.
+      expect(operaciones[0].etiqueta).toContain('los puntos que dio quedan');
+    });
+
+    it('un id real de OTRA entidad no crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      // El id existe —es una actividad— pero se declara como conducta. Sin esta
+      // validación, el DELETE saldría contra `/activity/conductas/:id` y el 404
+      // aparecería recién con el Tutor mirando.
+      const resultado = await servicio.armar(
+        'proponer_archivar',
+        { items: [{ tipo: 'CONDUCTA', id: ACTIVIDAD_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('listar_conductas');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('sacarle la rotación a una actividad que no rota no crea propuesta', async () => {
+      const { servicio } = crearMocks();
+
+      // `turnos` viene vacío en los mocks: no hay rotación que sacar, y el
+      // DELETE no haría nada. Proponer un no-op es peor que rechazarlo.
+      const resultado = await servicio.armar(
+        'proponer_archivar',
+        { items: [{ tipo: 'TURNO', id: ACTIVIDAD_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+    });
+  });
+
+  describe('quitar marcas de hoy', () => {
+    it('quitar una completada es DELETE con el motivo en la query, no en el body', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_quitar_marcas',
+        {
+          marcas: [
+            { registroId: REGISTRO_COMPLETADA_ID, tipo: 'COMPLETADA', motivo: 'no la hizo' },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      // fase-14-12: un DELETE con cuerpo pasa por intermediarios que tienen
+      // derecho a descartarlo, y el Gateway es uno.
+      expect(operaciones[0].metodo).toBe('DELETE');
+      expect(operaciones[0].ruta).toContain('motivo=no%20la%20hizo');
+      expect(operaciones[0].body).toBeNull();
+      expect(operaciones[0].etiqueta).toContain('pierde');
+    });
+
+    it('deshacer un «no hizo» es POST a revertir, y la etiqueta dice que RECUPERA', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_quitar_marcas',
+        { marcas: [{ registroId: REGISTRO_NO_HIZO_ID, tipo: 'NO_HIZO' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      // Las dos correcciones tienen sentidos OPUESTOS y la etiqueta es lo único
+      // que lo dice: aprobar una creyendo que es la otra es el error a evitar.
+      expect(operaciones[0].metodo).toBe('POST');
+      expect(operaciones[0].ruta).toBe(`/activity/registros-actividad/${REGISTRO_NO_HIZO_ID}/revertir`);
+      expect(operaciones[0].etiqueta).toContain('recupera los puntos');
+    });
+
+    it('el tipo equivocado sobre un registroId real no crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_quitar_marcas',
+        { marcas: [{ registroId: REGISTRO_COMPLETADA_ID, tipo: 'NO_HIZO' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('COMPLETADA');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('sin sesión abierta no se arma nada, y el error lo explica', async () => {
+      const { servicio, activity, prisma } = crearMocks();
+
+      (activity.estadoDeHoy as unknown as Mock).mockResolvedValue({
+        sesionAbierta: false,
+        participantes: [],
+      });
+
+      const resultado = await servicio.armar(
+        'proponer_quitar_marcas',
+        { marcas: [{ registroId: REGISTRO_COMPLETADA_ID, tipo: 'COMPLETADA' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('sesión abierta');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
     });
   });
 

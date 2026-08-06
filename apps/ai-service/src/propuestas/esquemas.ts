@@ -522,6 +522,30 @@ export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesReques
   rendimientos;
 
 /**
+ * Los dos únicos esquemas del archivo **sin `z.ZodType<Contrato>`**, y no es un
+ * descuido (fase-14-31).
+ *
+ * El resto está tipado contra el request del endpoint destino porque tiene un
+ * body que ese endpoint valida. Estos dos no tienen body: un `DELETE` de
+ * catálogo no manda nada, y el motivo de quitar una completada viaja como query
+ * param (fase-14-12: un `DELETE` con cuerpo pasa por intermediarios que tienen
+ * derecho a descartarlo). O sea que **no hay contrato contra el cual tipar** —
+ * lo que se valida acá es la forma de lo que dijo el modelo, no la de un
+ * request. Si algún día uno de estos endpoints acepta body, este comentario se
+ * borra y el esquema se tipa como todos los demás.
+ */
+export const esquemaArchivar = z.object({
+  tipo: z.enum(['ACTIVIDAD', 'CONDUCTA', 'RECOMPENSA', 'PRODUCTO', 'BOLSA', 'ETIQUETA', 'TURNO']),
+  id: z.string().uuid(),
+});
+
+export const esquemaQuitarMarca = z.object({
+  registroId: z.string().uuid(),
+  tipo: z.enum(['COMPLETADA', 'NO_HIZO', 'REPETICION_QUITADA', 'CONDUCTA']),
+  motivo: z.string().min(1).max(200).optional(),
+});
+
+/**
  * Un error de validación con la ruta del campo, para devolvérselo al modelo.
  *
  * El formato importa: `rendimientos.0.monedas: expected number` le dice al

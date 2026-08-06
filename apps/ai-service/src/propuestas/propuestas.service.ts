@@ -20,6 +20,7 @@ import {
 } from './escala';
 import {
   esquemaAgregarMiembro,
+  esquemaArchivar,
   esquemaAsignarEtiquetas,
   esquemaAsignarRol,
   esquemaConfiguracionScoring,
@@ -40,6 +41,7 @@ import {
   esquemaEditarRol,
   esquemaEditarUmbral,
   esquemaGuardarBolsa,
+  esquemaQuitarMarca,
   esquemaRendimientos,
   esquemaSustituirJefe,
   explicarError,
@@ -48,6 +50,60 @@ import { limpiarVacios, normalizarLimiteTiempo, violacionDeInvariantes } from '.
 
 /** Decisión 12: una propuesta vence a las 24 h de armada. */
 const HORAS_DE_VIGENCIA = 24;
+
+/** Lo que `proponer_archivar` sabe archivar (fase-14-31). */
+export type TipoArchivable =
+  | 'ACTIVIDAD'
+  | 'CONDUCTA'
+  | 'RECOMPENSA'
+  | 'PRODUCTO'
+  | 'BOLSA'
+  | 'ETIQUETA'
+  | 'TURNO';
+
+const RUTA_DE_ARCHIVADO: Record<TipoArchivable, (id: string) => string> = {
+  ACTIVIDAD: (id) => `/activity/actividades/${id}`,
+  CONDUCTA: (id) => `/activity/conductas/${id}`,
+  RECOMPENSA: (id) => `/rewards/recompensas/${id}`,
+  PRODUCTO: (id) => `/rewards/productos/${id}`,
+  BOLSA: (id) => `/rewards/bolsas/${id}`,
+  ETIQUETA: (id) => `/rewards/etiquetas/${id}`,
+  // No archiva la actividad: le saca la rotación y vuelve a ser de todos.
+  TURNO: (id) => `/activity/actividades/${id}/turno`,
+};
+
+/**
+ * Qué se pierde y qué NO, una por tipo (fase-14-31 decisión 2).
+ *
+ * Escritas a mano y no generadas de una plantilla porque **la consecuencia es
+ * distinta en cada una**: archivar una bolsa deja mudos a los productos que la
+ * venden, y archivar una etiqueta no rompe nada. Una plantilla del estilo
+ * «Archivar «X»» sería más corta y no diría lo único que hay que saber para
+ * decidir.
+ */
+const ETIQUETA_DE_ARCHIVADO: Record<TipoArchivable, (nombre: string) => string> = {
+  ACTIVIDAD: (nombre) =>
+    `Archivar «${nombre}» — deja de aparecer; su historial y los puntos que dio quedan`,
+  CONDUCTA: (nombre) =>
+    `Archivar la conducta «${nombre}» — deja de poder registrarse; lo registrado queda`,
+  RECOMPENSA: (nombre) => `Archivar «${nombre}» — lo ya entregado no se toca`,
+  PRODUCTO: (nombre) => `Sacar «${nombre}» de la vitrina — lo ya comprado queda`,
+  BOLSA: (nombre) =>
+    `Archivar la bolsa «${nombre}» — los productos que la venden dejan de poder entregar`,
+  ETIQUETA: (nombre) => `Archivar la etiqueta «${nombre}» — los ítems que la tienen la sueltan`,
+  TURNO: (nombre) => `Sacarle la rotación a «${nombre}» — vuelve a ser de todos, todos los días`,
+};
+
+/** De dónde tiene que sacar el modelo cada id, para el mensaje de error. */
+const ORIGEN_DE: Record<TipoArchivable, string> = {
+  ACTIVIDAD: 'listar_actividades',
+  CONDUCTA: 'listar_conductas',
+  RECOMPENSA: 'listar_recompensas',
+  PRODUCTO: 'listar_tienda',
+  BOLSA: 'listar_tienda',
+  ETIQUETA: 'listar_etiquetas',
+  TURNO: 'listar_turnos',
+};
 
 /** Lo que se guarda por operación: el request destino + cómo aplicarlo. */
 export interface OperacionPropuesta {
@@ -190,6 +246,12 @@ export class PropuestasService {
 
       case 'proponer_equipos':
         return await this.armarEquipos(argumentos, contexto, conversacionId);
+
+      case 'proponer_archivar':
+        return await this.armarArchivar(argumentos, contexto, conversacionId);
+
+      case 'proponer_quitar_marcas':
+        return await this.armarQuitarMarcas(argumentos, contexto, conversacionId);
 
       default:
         return { ok: false, error: `No existe una herramienta llamada "${nombreHerramienta}".` };
@@ -1892,6 +1954,253 @@ export class PropuestasService {
   }
 
   // ── Interno ───────────────────────────────────────────────────────────────
+
+  /**
+   * Archivar del catálogo (fase-14-31 tanda 4).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * LA PRIMERA PROPUESTA DEL ASISTENTE QUE USA `DELETE`, Y LO QUE CAMBIA:
+   *
+   * Nada del mecanismo. La operación sigue llevando método, ruta y body
+   * exactos, y la aplica el frontend con el JWT del Tutor. Lo que cambia es la
+   * **etiqueta**, que acá tiene un trabajo que no tenía en ninguna otra
+   * familia: decir qué se pierde *y qué no*. Casi todos estos `DELETE` son
+   * soft, y un Tutor que cree que archivar una actividad borra sus puntos no
+   * aprieta nunca; uno que cree lo contrario aprieta de más.
+   *
+   * Por eso las etiquetas están escritas una por tipo y no generadas de una
+   * plantilla: lo que se pierde al archivar una bolsa (los productos que la
+   * venden dejan de entregar) no se parece a lo que se pierde al archivar una
+   * etiqueta (los premios que la tienen la sueltan).
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarArchivar(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'items');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos un ítem en "items".' };
+    }
+
+    const [actividades, conductas, recompensas, tienda, etiquetas, turnos] = await Promise.all([
+      this.activity.actividades(contexto.grupoId),
+      this.activity.conductas(contexto.grupoId),
+      this.rewards.recompensas(contexto.grupoId),
+      this.rewards.tienda(contexto.grupoId),
+      this.rewards.etiquetas(contexto.grupoId),
+      this.activity.turnos(contexto.grupoId),
+    ]);
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ tipo: string; id: string; nombre: string }> = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const parseado = esquemaArchivar.safeParse(fila);
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('items', indice, parseado.error) };
+      }
+
+      const { tipo, id } = parseado.data;
+      const nombre = this.nombreDelItem(tipo, id, {
+        actividades,
+        conductas,
+        recompensas,
+        tienda,
+        etiquetas,
+        turnos,
+      });
+
+      // Decisión 2 del #30, y acá pesa más que en ninguna otra familia: un id
+      // confundido de entidad en una propuesta que borra es la clase de error
+      // que el Tutor descubre cuando ya no está.
+      if (nombre === null) {
+        return {
+          ok: false,
+          error:
+            `items.${indice}.id: no hay ningún ${tipo.toLowerCase()} con ese id en este grupo. ` +
+            `Sacá el id de ${ORIGEN_DE[tipo]} y fijate que el "tipo" coincida con la entidad.`,
+        };
+      }
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: 'DELETE',
+        ruta: RUTA_DE_ARCHIVADO[tipo](id),
+        body: null,
+        etiqueta: ETIQUETA_DE_ARCHIVADO[tipo](nombre),
+      });
+      snapshot.push({ tipo, id, nombre });
+    }
+
+    return await this.guardar(
+      'ARCHIVAR_CATALOGO',
+      operaciones,
+      { archivados: snapshot },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /** El nombre legible del ítem, o `null` si ese id no es de ese tipo en este grupo. */
+  private nombreDelItem(
+    tipo: TipoArchivable,
+    id: string,
+    catalogo: {
+      actividades: Array<{ id: string; nombre: string }>;
+      conductas: Array<{ id: string; nombre: string }>;
+      recompensas: Array<{ id: string; nombre: string }>;
+      tienda: { productos: Array<{ id: string; nombre: string }>; bolsas: Array<{ id: string; nombre: string }> };
+      etiquetas: Array<{ id: string; nombre: string }>;
+      turnos: Array<{ actividadId: string }>;
+    }
+  ): string | null {
+    switch (tipo) {
+      case 'ACTIVIDAD':
+        return catalogo.actividades.find((fila) => fila.id === id)?.nombre ?? null;
+
+      case 'CONDUCTA':
+        return catalogo.conductas.find((fila) => fila.id === id)?.nombre ?? null;
+
+      case 'RECOMPENSA':
+        return catalogo.recompensas.find((fila) => fila.id === id)?.nombre ?? null;
+
+      case 'PRODUCTO':
+        return catalogo.tienda.productos.find((fila) => fila.id === id)?.nombre ?? null;
+
+      case 'BOLSA':
+        return catalogo.tienda.bolsas.find((fila) => fila.id === id)?.nombre ?? null;
+
+      case 'ETIQUETA':
+        return catalogo.etiquetas.find((fila) => fila.id === id)?.nombre ?? null;
+
+      // El id de un TURNO es el de su actividad, y la rotación tiene que
+      // existir: sacarle el turno a una actividad que no rota no hace nada.
+      case 'TURNO':
+        return catalogo.turnos.some((fila) => fila.actividadId === id)
+          ? (catalogo.actividades.find((fila) => fila.id === id)?.nombre ?? 'la actividad')
+          : null;
+    }
+  }
+
+  /**
+   * Corregir lo anotado hoy (fase-14-31 tanda 4).
+   *
+   * Las tres correcciones tienen **sentidos opuestos** y por eso la etiqueta
+   * las nombra por lo que le pasa al integrante y no por el verbo técnico:
+   * quitar una hecha le resta lo que había ganado, deshacer un «no hizo» se lo
+   * devuelve. Aprobar la primera creyendo que es la segunda es el error que
+   * esta familia tiene que hacer difícil.
+   *
+   * `estado_de_hoy` es la única fuente de estos ids y también de su `tipo`, así
+   * que se valida el par completo: un `registroId` real con el `tipo`
+   * equivocado apuntaría a otro endpoint y fallaría al aplicar.
+   */
+  private async armarQuitarMarcas(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'marcas');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una marca en "marcas".' };
+    }
+
+    const estado = await this.activity.estadoDeHoy(contexto.grupoId);
+
+    if (!estado.sesionAbierta) {
+      return {
+        ok: false,
+        error:
+          'no hay ninguna sesión abierta en este grupo, así que no hay marcas de hoy que ' +
+          'corregir. Decíselo al Tutor: lo de días ya cerrados no se toca desde acá.',
+      };
+    }
+
+    const porId = new Map(
+      estado.participantes.flatMap((participante) =>
+        participante.marcas.map((marca) => [marca.registroId, { marca, participante }] as const)
+      )
+    );
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ registroId: string; descripcion: string }> = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const parseado = esquemaQuitarMarca.safeParse(limpiarVacios(fila as Record<string, unknown>, true));
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('marcas', indice, parseado.error) };
+      }
+
+      const encontrada = porId.get(parseado.data.registroId);
+
+      if (!encontrada) {
+        return {
+          ok: false,
+          error:
+            `marcas.${indice}.registroId: no hay ninguna marca viva con ese id en la sesión de ` +
+            'hoy. Llamá a estado_de_hoy y usá un id de ahí.',
+        };
+      }
+
+      if (encontrada.marca.tipo !== parseado.data.tipo) {
+        return {
+          ok: false,
+          error:
+            `marcas.${indice}.tipo: esa marca es ${encontrada.marca.tipo}, no ` +
+            `${parseado.data.tipo}. Mandá el mismo tipo con el que vino de estado_de_hoy — de ` +
+            'él depende si se quita o se deshace.',
+        };
+      }
+
+      const quien = encontrada.participante.nombre;
+      const { marca } = encontrada;
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: marca.tipo === 'COMPLETADA' || marca.tipo === 'CONDUCTA' ? 'DELETE' : 'POST',
+        ruta: this.rutaDeMarca(marca.tipo, marca.registroId, parseado.data.motivo),
+        body: null,
+        etiqueta:
+          marca.tipo === 'COMPLETADA'
+            ? `${quien}: quitarle ${marca.descripcion} — pierde ${marca.puntos} puntos`
+            : marca.tipo === 'CONDUCTA'
+              ? `${quien}: quitarle ${marca.descripcion} — se le revierten ${marca.puntos} puntos`
+              : `${quien}: deshacer ${marca.descripcion} — recupera los puntos`,
+      });
+      snapshot.push({ registroId: marca.registroId, descripcion: `${quien}: ${marca.descripcion}` });
+    }
+
+    return await this.guardar(
+      'QUITAR_MARCAS',
+      operaciones,
+      { marcas: snapshot },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /**
+   * El motivo viaja como **query param** y no en el body: un `DELETE` con
+   * cuerpo pasa por demasiados intermediarios que tienen derecho a
+   * descartarlo, y el Gateway es uno (fase-14-12).
+   */
+  private rutaDeMarca(tipo: string, registroId: string, motivo: string | undefined): string {
+    if (tipo === 'CONDUCTA') {
+      return `/activity/registros-conducta/${registroId}`;
+    }
+
+    if (tipo === 'COMPLETADA') {
+      const sufijo = motivo ? `?motivo=${encodeURIComponent(motivo)}` : '';
+
+      return `/activity/registros-actividad/${registroId}${sufijo}`;
+    }
+
+    return `/activity/registros-actividad/${registroId}/revertir`;
+  }
 
   private async guardar(
     tipo: TipoPropuesta,
