@@ -2499,3 +2499,62 @@ Verificado uno por uno, sin cambios necesarios:
 **La tanda 9 (E2E)**, y nada más. Sigue valiendo todo lo anotado, en particular los pendientes 15 y 18 (los tres casos de orden de aplicado). Se suma uno:
 
 20. **Las entradas de contexto no tienen ninguna verificación de navegación.** El componente tiene test de que aparece y de a dónde apunta, pero que la pregunta llegue armada al asistente y se mande sola es un cable entre dos pantallas — exactamente la clase de cosa que este ítem viene encontrando rota (la nota de los dos defectos del #29). Va en la E2E de la tanda 9.
+
+
+### Tanda 9 — la E2E: los cables que la unidad no puede ver (2026-08-06)
+
+La última del ítem. Ocho tests nuevos en `asistente-ia.e2e.ts` —que pasa de 17 a **25**— y una suite de navegador propia, `asistente-entradas.e2e.ts`, con los tres que solo existen en la pantalla.
+
+El criterio de qué entra fue el mismo que fijó el #29 y no se movió: **el proveedor está stubbeado, así que acá no se testea que el modelo proponga cosas buenas**. Se testea lo que se rompe en un deploy, y en este ítem eso tiene nombre: los **cables**. Que el id que valida el armador sea el mismo que devuelve la lectura, que lo que sale hacia el proveedor no lleve el tenant, y que el orden en que se guardan las operaciones sea el orden en que se pueden aplicar. Los dos defectos que el ítem encontró leyendo código eran cables, y ninguno de los dos tenía un test rojo.
+
+#### El primer hallazgo fue la propia suite
+
+`asistente-ia.e2e.ts` afirmaba `expect(nombres).toHaveLength(12)` sobre el catálogo que recibe el modelo. Desde la **tanda 1** ese número dejó de ser cierto, y la afirmación quedó **falsa durante siete tandas** sin que nadie se enterara, por dos razones que se suman:
+
+- la E2E **no corre sola**: necesita el stack levantado a mano (`e2e-up.mjs`), así que no está en el `nx run-many` que se corre al cerrar cada tanda;
+- y el job de E2E en CI (Fase 13) **no la vio nunca**, porque la rama va 16 commits adelante del remoto.
+
+Es el modo de falla del ítem un piso más arriba, y conviene decirlo así: *la unidad verifica la pieza, la E2E verifica el cable, y nada verifica que la E2E se corra*. El arreglo del número es una línea; lo que queda anotado es la otra mitad.
+
+#### Los ocho tests, y qué criterio cierra cada uno
+
+| Test | Criterio |
+|---|---|
+| Las cuatro lecturas nuevas traen lo del grupo y **nada de la otra organización** | 7 |
+| **Ninguna de las doce lecturas** manda `organizacionId`, `grupoId`, `tenant` ni un email | 11 |
+| Ocho ids **reales de otra organización**, uno por familia: ninguno crea `Propuesta` y el error nombra el campo | 2 |
+| Una escala con un hueco no se guarda, y el error dice **dónde** está el hueco | 5 |
+| Un producto que apunta a una bolsa de la misma propuesta: rechazo que **explica el orden** | 6 |
+| Tres conductas, falla la segunda: quedan 2 y `APLICADA_PARCIAL` | 9 |
+| La escala: el aviso cuenta a quién le cambia la zona, **y el orden de aplicado no es decorativo** | 10 + pendiente 15 |
+| Sumar a alguien al equipo y ascenderlo a jefe en el mismo cambio | pendiente 18 |
+| (navegador) Sin el asistente usable, las pantallas se dibujan enteras y sin atajo | 14 |
+| (navegador) Con el asistente prendido, cada pantalla ofrece la entrada que le toca | tanda 8 |
+| (navegador) El atajo llega al asistente con la pregunta **ya escrita y mandada** | pendiente 20 |
+
+Tres merecen una línea propia:
+
+- **El de las doce lecturas** es el que convierte la medida 7 de la Parte E en algo ejecutable. Afirma sobre la **respuesta real** de cada herramienta —lo que efectivamente viaja hacia OpenAI— y no sobre su tipo: era exactamente el agujero por el que cuatro lecturas mandaban el `organizacionId` sin que ningún test lo viera, porque ninguno miraba ahí. Y afirma también que las doce **corrieron sin error**, porque un error también es una salida «limpia» y sin eso el test pasaría con doce herramientas rotas.
+- **El de los ocho ids** usa ids **reales de la otra organización**, no uuids inventados. Es el caso que la validación de shape deja pasar sin despeinarse y que termina en una fila roja después de que el Tutor apretó «Aplicar».
+- **El de la escala** verifica el orden de las dos maneras: que la propuesta traiga `PATCH` antes que `POST`, y que **al revés falle de verdad** contra scoring (400). Después aplica en orden y comprueba que el participante que estaba en Dorado quedó en Platino **sin haber sumado un solo punto** — que es el número que el aviso prometía, comprobado contra el estado y no contra sí mismo.
+
+#### El rate limiter no es flakiness
+
+El test de los ocho ids abre ocho conversaciones seguidas y se come el presupuesto del limiter del Gateway (100/min por IP). El siguiente se comió la ventana entera y **se pasó del timeout de 60s** en la primera corrida. La salida no es subir el límite —es una defensa real— ni reducir los casos: es `test.slow()`, que ya es el patrón que `support/api.ts` documenta para exactamente esto. Los dos tests que van detrás lo llevan.
+
+#### Verificación de la tanda 9
+
+- **Suite del asistente 25/25**, dos corridas seguidas.
+- **Suite completa con los dos frontends servidos: 101 passed, 1 skipped — dos corridas seguidas** (`E2E_UI=1`, `app-web` en :4200 y `public-site` en :4321). Sin UI: **80 passed, 21 skipped**, también dos corridas.
+- **Sin una regresión**: ninguna suite ajena tocada, y las de navegador de las fases 12 a 14 pasan con el componente de la tanda 8 adentro de Actividades y Rendimientos.
+- **`ai-service` 250/250** sin cambios: esta tanda no toca una línea de backend ni de frontend, solo tests.
+- **Lo que sí se verificó por primera vez de punta a punta** y las tandas 4 a 7 dejaban anotado como pendiente: el **apply con un JWT de Tutor** contra activity, rewards, scoring e identity. Las operaciones se ejecutan tal como salen del DTO —método, ruta y body sin traducir— y los cuatro servicios las aceptan.
+
+#### Con esto el ítem 30 está completo
+
+Las nueve tandas, y los catorce criterios de aceptación cubiertos: el 1 y el 12 en la tanda 1 y en cada medición del catálogo, el 3 y el 4 como tests estructurales de `ai-service`, el 8 en las tandas 1 y 3, y los diez restantes acá.
+
+Queda anotado para el que siga:
+
+21. **La E2E no corre sola y eso es deuda, no una decisión.** Necesita el stack levantado a mano y el job de CI solo la ve al pushear. Siete tandas con una afirmación falsa adentro es el costo medido de eso. La salida barata: correrla al cerrar cada ítem, no cada tanda.
+22. **Las suites de navegador están gateadas por `E2E_UI=1`** y no corren en CI (los frontends no se sirven ahí). Las tres nuevas heredan esa condición: si algún día se sirve `app-web` en CI, se prenden solas.
