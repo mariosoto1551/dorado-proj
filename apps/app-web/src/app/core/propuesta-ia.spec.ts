@@ -8,8 +8,10 @@ import type {
   PropuestaIaDto,
   RecompensaDto,
   RendimientoAccionDto,
+  RolGrupoDto,
   TipoPropuestaIa,
   UmbralZonaDto,
+  UsuarioDto,
 } from '@dorado/shared-types';
 
 import { armarFilas, estaCerrada, horasHastaVencer } from './propuesta-ia';
@@ -182,7 +184,7 @@ describe('armarFilas', () => {
             body: { rolesPermitidos: ['rol-1', 'rol-2'] },
           },
         ]),
-        { ...contexto, roles: new Map([['rol-1', 'Cocina']]) }
+        { ...contexto, roles: [{ id: 'rol-1', nombre: 'Cocina' }] as RolGrupoDto[] }
       );
 
       // El id que no está en el mapa se muestra recortado en vez de
@@ -258,10 +260,10 @@ describe('armarFilas', () => {
         ]),
         {
           actividades: [actividad({ id: 'act-1', nombre: 'Poner la mesa' })],
-          personas: new Map([
-            ['u-1', 'Luciana'],
-            ['u-2', 'Alejandra'],
-          ]),
+          personas: [
+            { id: 'u-1', nombre: 'Luciana' },
+            { id: 'u-2', nombre: 'Alejandra' },
+          ] as UsuarioDto[],
         }
       );
 
@@ -462,6 +464,106 @@ describe('armarFilas', () => {
       expect(filas[0].titulo).toBe('Puntos con los que arranca cada sección');
       expect(filas[0].cambios).toEqual([
         { campo: 'Arranca con', antes: '100 puntos', despues: '0 puntos' },
+      ]);
+    });
+  });
+
+  describe('familia personas (fase-14-30 tanda 7)', () => {
+    const GENTE = [
+      { id: 'u-1', nombre: 'Luciana', rolGrupo: { id: 'rol-1', nombre: 'cocina' } },
+      { id: 'u-2', nombre: 'Alejandra', rolGrupo: null },
+    ] as UsuarioDto[];
+
+    const ROLES = [
+      { id: 'rol-1', nombre: 'cocina', colorHex: '#22C55E' },
+      { id: 'rol-2', nombre: 'mascotas', colorHex: '#EAB308' },
+    ] as RolGrupoDto[];
+
+    it('el rol de una persona muestra el que tenía al lado del nuevo', () => {
+      const filas = armarFilas(
+        propuesta('ROLES_GRUPO', [
+          {
+            metodo: 'PUT',
+            ruta: '/identity/grupos/grupo-1/usuarios/u-1/rol',
+            body: { rolGrupoId: 'rol-2' },
+          },
+        ]),
+        { personas: GENTE, roles: ROLES }
+      );
+
+      expect(filas[0].titulo).toBe('Rol de Luciana');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Rol', antes: 'cocina', despues: 'mascotas' },
+      ]);
+    });
+
+    it('quitarle el rol a alguien se lee «sin rol», no «—»', () => {
+      const filas = armarFilas(
+        propuesta('ROLES_GRUPO', [
+          {
+            metodo: 'PUT',
+            ruta: '/identity/grupos/grupo-1/usuarios/u-1/rol',
+            body: { rolGrupoId: null },
+          },
+        ]),
+        { personas: GENTE, roles: ROLES }
+      );
+
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Rol', antes: 'cocina', despues: 'sin rol' },
+      ]);
+    });
+
+    it('el alta de un equipo traduce los ids a nombres', () => {
+      const filas = armarFilas(
+        propuesta('EQUIPOS', [
+          {
+            metodo: 'POST',
+            ruta: '/identity/grupos/grupo-1/equipos',
+            body: { nombre: 'Mascotas', jefeUsuarioId: 'u-1', miembrosIds: ['u-2'] },
+          },
+        ]),
+        { personas: GENTE }
+      );
+
+      expect(filas[0].titulo).toBe('Crear equipo «Mascotas»');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Jefe', antes: null, despues: 'Luciana' },
+        { campo: 'Integrantes', antes: null, despues: 'Alejandra' },
+      ]);
+    });
+
+    it('sumar un integrante dice a quién y a qué equipo, en el título', () => {
+      const filas = armarFilas(
+        propuesta('EQUIPOS', [
+          {
+            metodo: 'POST',
+            ruta: '/identity/equipos/eq-1/miembros',
+            body: { usuarioId: 'u-2' },
+          },
+        ]),
+        { personas: GENTE, equipos: new Map([['eq-1', 'Cocina']]) }
+      );
+
+      expect(filas[0].titulo).toBe('Sumar a Alejandra al equipo «Cocina»');
+      expect(filas[0].cambios).toEqual([]);
+    });
+
+    it('el cambio de jefe nombra al equipo y a la persona', () => {
+      const filas = armarFilas(
+        propuesta('EQUIPOS', [
+          {
+            metodo: 'POST',
+            ruta: '/identity/equipos/eq-1/jefe',
+            body: { nuevoJefeUsuarioId: 'u-2' },
+          },
+        ]),
+        { personas: GENTE, equipos: new Map([['eq-1', 'Cocina']]) }
+      );
+
+      expect(filas[0].titulo).toBe('Nuevo jefe del equipo «Cocina»');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Nuevo jefe', antes: null, despues: 'Alejandra' },
       ]);
     });
   });

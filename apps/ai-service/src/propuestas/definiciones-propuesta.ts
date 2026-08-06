@@ -63,6 +63,34 @@ const uuidDe = (
 });
 
 /**
+ * Un participante del grupo. Se llama `participante` y no `usuario` **a
+ * propósito**, y la razón merece las líneas que ocupa (fase-14-30 tanda 7).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * El test estructural de la decisión 9 del fase-14-29 prohíbe que una propiedad
+ * de una herramienta se llame como el tenant, y su regex incluye `usuarioId` y
+ * `grupo` — o sea que `usuarioId`, `jefeUsuarioId` y hasta `rolGrupoId`, que son
+ * los nombres de los campos en los contratos de identity, **no compilan ese
+ * test**. La familia personas es la primera que los necesita.
+ *
+ * Hay dos salidas y esta es la elegida: el catálogo usa su propio vocabulario
+ * (`participanteId`, `rolId`, `equipoId`) y **el armador traduce a los nombres
+ * del contrato**, igual que la tanda 4 con `posiciones`. La otra era aflojar la
+ * regex, y no vale la pena: es una defensa que no depende de que el modelo se
+ * porte bien, el costo de mantenerla es una línea de mapeo, y el nombre que ve
+ * el modelo ya venía siendo una decisión propia (decisión 9 del fase-14-30:
+ * cada campo se nombra pensando en que lo lea un modelo).
+ *
+ * Lo que garantiza que el id sea el correcto **no es su nombre**: es que se
+ * declara con `uuidDe` —así tiene origen (decisión 1)— y que el armador lo
+ * valida contra los participantes reales del grupo antes de guardar nada
+ * (decisión 2).
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const participante = (que: string): PropiedadEsquema =>
+  uuidDe(`${que} (el usuarioId que devuelve la lectura)`, 'listar_participantes');
+
+/**
  * Los campos de una actividad tal como los ve el modelo.
  *
  * Es un subconjunto deliberado del request real: están los que un asistente
@@ -890,6 +918,153 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
           type: 'string',
           description: 'Una línea con la escala que proponés y por qué.',
         },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_roles_grupo',
+    descripcion:
+      `Propone los roles del grupo —las etiquetas funcionales tipo "cocina" o "mascotas"— y a ` +
+      `quién le toca cada uno. ${NO_APLICA} ` +
+      'Un rol sirve para dos cosas: se ve como chip junto al nombre y permite dirigir una ' +
+      'actividad a "los de cocina" sin nombrar a nadie. Cada participante tiene un rol o ' +
+      'ninguno, nunca dos. ' +
+      'Mirá antes listar_participantes: trae los roles que ya existen y quién tiene cada uno. ' +
+      'IMPORTANTE: un rol que proponés acá TODAVÍA NO EXISTE, así que no lo podés asignar en ' +
+      'esta misma propuesta — primero se crean, después se asignan. ' +
+      'No sirve para archivar un rol ni para sacar a nadie del grupo.',
+    parametros: {
+      type: 'object',
+      properties: {
+        crear: {
+          type: 'array',
+          description: 'Roles nuevos del catálogo. Podés mandar la lista vacía.',
+          items: {
+            type: 'object',
+            description: 'Un rol del grupo.',
+            properties: {
+              nombre: {
+                type: 'string',
+                description: 'Corto y en minúscula ("cocina", "mascotas"). Máximo 40 caracteres.',
+              },
+              colorHex: {
+                type: 'string',
+                description: 'Color "#RRGGBB" del chip (ej. "#22C55E").',
+              },
+            },
+            required: ['nombre', 'colorHex'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        editar: {
+          type: 'array',
+          description: 'Cambios de nombre o color sobre roles que ya existen. Lista vacía si no.',
+          items: {
+            type: 'object',
+            description: 'Un cambio sobre un rol existente.',
+            properties: {
+              rolId: uuidDe('el rol a cambiar', 'listar_participantes'),
+              nombre: { type: 'string', description: 'El nombre nuevo. Máximo 40 caracteres.' },
+              colorHex: { type: 'string', description: 'El color nuevo, "#RRGGBB".' },
+            },
+            required: ['rolId'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        asignar: {
+          type: 'array',
+          description:
+            'Qué rol le queda a cada participante. REEMPLAZA el que tuviera: cada uno tiene ' +
+            'uno solo. Lista vacía si no asignás ninguno.',
+          items: {
+            type: 'object',
+            description: 'El rol que le queda a un participante.',
+            properties: {
+              participanteId: participante('el participante'),
+              rolId: uuidDe(
+                'el rol que le queda; **null lo deja sin rol** (el rol sigue en el catálogo)',
+                'listar_participantes'
+              ),
+            },
+            required: ['participanteId', 'rolId'],
+            additionalProperties: false,
+          },
+          maxItems: 50,
+        },
+        resumen: { type: 'string', description: 'Una línea con el criterio de la organización.' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_equipos',
+    descripcion:
+      `Propone los equipos de trabajo del grupo: quiénes lo forman y quién es el jefe. ` +
+      `${NO_APLICA} ` +
+      'Un equipo hace actividades de alcance EQUIPO: las marca el jefe una vez y el puntaje se ' +
+      'reparte. **Cada participante puede estar en UN SOLO equipo del grupo**, así que no ' +
+      'repitas a nadie entre dos equipos ni sumes a alguien que ya está en otro. ' +
+      'El jefe tiene que ser miembro del equipo. ' +
+      'Mirá antes listar_participantes: trae los equipos que hay, sus miembros y sus jefes. ' +
+      'No sirve para sacar a nadie de un equipo ni para archivar equipos: eso lo hace el Tutor.',
+    parametros: {
+      type: 'object',
+      properties: {
+        crear: {
+          type: 'array',
+          description: 'Equipos nuevos. Podés mandar la lista vacía.',
+          items: {
+            type: 'object',
+            description: 'Un equipo nuevo, con su jefe y sus integrantes.',
+            properties: {
+              nombre: { type: 'string', description: 'Cómo se llama el equipo. Máximo 120.' },
+              jefeParticipanteId: participante('quien va a ser el jefe'),
+              participantesIds: {
+                type: 'array',
+                description:
+                  'Los demás integrantes. El jefe ya está incluido: no hace falta repetirlo.',
+                items: participante('un integrante'),
+                maxItems: 50,
+              },
+            },
+            required: ['nombre', 'jefeParticipanteId', 'participantesIds'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        editar: {
+          type: 'array',
+          description:
+            'Cambios sobre equipos que ya existen: el nombre, gente que se suma, quién manda. ' +
+            'Lista vacía si no editás ninguno.',
+          items: {
+            type: 'object',
+            description: 'Un cambio sobre un equipo existente.',
+            properties: {
+              equipoId: uuidDe('el equipo a cambiar', 'listar_participantes'),
+              nombre: { type: 'string', description: 'El nombre nuevo del equipo.' },
+              sumarParticipantesIds: {
+                type: 'array',
+                description:
+                  'Quiénes se suman. Tienen que estar sin equipo: nadie puede estar en dos.',
+                items: participante('quien se suma'),
+                maxItems: 50,
+              },
+              nuevoJefeParticipanteId: participante(
+                'quien pasa a ser jefe; tiene que ser miembro del equipo (o sumarse en este mismo cambio)'
+              ),
+            },
+            required: ['equipoId'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        resumen: { type: 'string', description: 'Una línea con el criterio del armado.' },
       },
       required: [],
       additionalProperties: false,

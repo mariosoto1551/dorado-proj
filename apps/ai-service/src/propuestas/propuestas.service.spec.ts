@@ -39,6 +39,11 @@ const ACTIVIDAD_OPCIONAL_ID = '77777777-7777-4777-8777-777777777777';
 
 const OTRO_USUARIO_ID = '88888888-8888-4888-8888-888888888888';
 
+/** El único participante que no está en ningún equipo (fase-14-30 tanda 7). */
+const SIN_EQUIPO_ID = '77777777-8888-4999-8aaa-bbbbbbbbbbbb';
+
+const ROL_ARCHIVADO_ID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+
 const RECOMPENSA_ID = '99999999-9999-4999-8999-999999999999';
 
 const CASTIGO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -184,12 +189,29 @@ function crearMocks(opciones: Opciones = {}) {
   } as unknown as ActivityClientService;
 
   const identity = {
-    roles: vi.fn(async () => [{ id: ROL_ID, nombre: 'cocina', estado: 'ACTIVO' }]),
-    participantes: vi.fn(async () => [
-      { id: USUARIO_ID, nombre: 'Luciana' },
-      { id: OTRO_USUARIO_ID, nombre: 'Alejandra' },
+    roles: vi.fn(async () => [
+      { id: ROL_ID, nombre: 'cocina', colorHex: '#22C55E', estado: 'ACTIVO' },
+      { id: ROL_ARCHIVADO_ID, nombre: 'mudanza', colorHex: '#EF4444', estado: 'INACTIVO' },
     ]),
-    equipos: vi.fn(async () => [{ equipoId: EQUIPO_ID, nombre: 'Cocina', estado: 'ACTIVO' }]),
+    // Dos ya están en el equipo que existe y el tercero está libre: la regla
+    // que más rechaza en esta familia es «una persona, un solo equipo».
+    participantes: vi.fn(async () => [
+      { id: USUARIO_ID, nombre: 'Luciana', rolGrupo: { id: ROL_ID, nombre: 'cocina' } },
+      { id: OTRO_USUARIO_ID, nombre: 'Alejandra', rolGrupo: null },
+      { id: SIN_EQUIPO_ID, nombre: 'Martín', rolGrupo: null },
+    ]),
+    equipos: vi.fn(async () => [
+      {
+        equipoId: EQUIPO_ID,
+        nombre: 'Cocina',
+        estado: 'ACTIVO',
+        jefeUsuarioId: USUARIO_ID,
+        miembros: [
+          { usuarioId: USUARIO_ID, rol: 'JEFE' },
+          { usuarioId: OTRO_USUARIO_ID, rol: 'MIEMBRO' },
+        ],
+      },
+    ]),
   } as unknown as IdentityClientService;
 
   const rewards = {
@@ -765,6 +787,12 @@ describe('PropuestasService', () => {
         rendimientos: [{ tipoAccion: 'ACTIVIDAD', origenId: ACTIVIDAD_ID, monedas: 3 }],
       },
       proponer_umbrales_zona: { puntosIniciales: 50 },
+      proponer_roles_grupo: { crear: [{ nombre: 'mascotas', colorHex: '#22C55E' }] },
+      proponer_equipos: {
+        crear: [
+          { nombre: 'Cocina', jefeParticipanteId: SIN_EQUIPO_ID, participantesIds: [] },
+        ],
+      },
     };
 
     it('la tabla cubre TODAS las herramientas de propuesta del catálogo', () => {
@@ -1469,6 +1497,314 @@ describe('PropuestasService', () => {
         expect((resultado as { propuesta: { aviso: string | null } }).propuesta.aviso).toContain(
           'cambia el pasado'
         );
+      });
+    });
+  });
+
+  /**
+   * La familia personas (fase-14-30 tanda 7). Dos cosas propias: es la primera
+   * que necesita ids de PERSONA —y los nombres del contrato no pasan el test
+   * estructural del tenant, así que el armador traduce— y la que más reglas del
+   * destino tiene que respetar sobre el estado que la propia propuesta deja.
+   */
+  describe('personas (fase-14-30 tanda 7)', () => {
+    describe('roles del grupo', () => {
+      it('traduce participanteId y rolId a los nombres del contrato de identity', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          { asignar: [{ participanteId: OTRO_USUARIO_ID, rolId: ROL_ID }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        // El id de la persona va en la RUTA y el del rol en el body, con el
+        // nombre que espera identity — no con el que vio el modelo.
+        expect(operaciones[0].metodo).toBe('PUT');
+        expect(operaciones[0].ruta).toBe(
+          `/identity/grupos/grupo-1/usuarios/${OTRO_USUARIO_ID}/rol`
+        );
+        expect(operaciones[0].body).toEqual({ rolGrupoId: ROL_ID });
+        expect(operaciones[0].etiqueta).toBe('Alejandra: sin rol → «cocina»');
+      });
+
+      it('rolId null saca el rol, y no es un campo que faltó', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          { asignar: [{ participanteId: USUARIO_ID, rolId: null }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+        expect((creadas[0]['operaciones'] as OperacionPropuesta[])[0].body).toEqual({
+          rolGrupoId: null,
+        });
+        expect((creadas[0]['operaciones'] as OperacionPropuesta[])[0].etiqueta).toBe(
+          'Luciana: «cocina» → sin rol'
+        );
+      });
+
+      it('un nombre repetido se rechaza sin distinguir mayúsculas, como identity', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          { crear: [{ nombre: '  Cocina ', colorHex: '#22C55E' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('«cocina»');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('dos roles nuevos con el mismo nombre chocan entre sí', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          {
+            crear: [
+              { nombre: 'mascotas', colorHex: '#22C55E' },
+              { nombre: 'Mascotas', colorHex: '#EF4444' },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+      });
+
+      it('asignar un rol creado en la misma propuesta explica el orden en dos pasos', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          {
+            crear: [{ nombre: 'mascotas', colorHex: '#22C55E' }],
+            asignar: [{ participanteId: USUARIO_ID, rolId: ACTIVIDAD_ID }],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('dos pasos');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('un rol archivado no se asigna', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          { asignar: [{ participanteId: USUARIO_ID, rolId: ROL_ARCHIVADO_ID }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('archivado');
+      });
+
+      it('un participante que no es del grupo NO crea propuesta', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_roles_grupo',
+          { asignar: [{ participanteId: ACTIVIDAD_ID, rolId: ROL_ID }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('listar_participantes');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('equipos', () => {
+      it('arma el POST con la forma exacta del request de identity', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          {
+            crear: [
+              { nombre: 'Mascotas', jefeParticipanteId: SIN_EQUIPO_ID, participantesIds: [] },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        expect(operaciones[0].ruta).toBe('/identity/grupos/grupo-1/equipos');
+        // La lista vacía viaja igual: un equipo de una sola persona es legítimo
+        // y `limpiarVacios` habría descartado el array.
+        expect(operaciones[0].body).toEqual({
+          nombre: 'Mascotas',
+          jefeUsuarioId: SIN_EQUIPO_ID,
+          miembrosIds: [],
+        });
+      });
+
+      /** La regla que más va a rechazar: una persona, un solo equipo. */
+      it('no se puede armar un equipo con alguien que ya está en otro', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          {
+            crear: [
+              {
+                nombre: 'Mascotas',
+                jefeParticipanteId: SIN_EQUIPO_ID,
+                participantesIds: [OTRO_USUARIO_ID],
+              },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('«Cocina»');
+        expect((resultado as { error: string }).error).toContain('Alejandra');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('tampoco se puede repetir a alguien entre dos equipos de la misma propuesta', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          {
+            crear: [
+              { nombre: 'Mascotas', jefeParticipanteId: SIN_EQUIPO_ID, participantesIds: [] },
+              { nombre: 'Plantas', jefeParticipanteId: SIN_EQUIPO_ID, participantesIds: [] },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        // El estado que la propuesta va dejando cuenta igual que el que hay.
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('«Mascotas»');
+      });
+
+      it('el jefe repetido en la lista de integrantes no es un error: identity deduplica', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          {
+            crear: [
+              {
+                nombre: 'Mascotas',
+                jefeParticipanteId: SIN_EQUIPO_ID,
+                participantesIds: [SIN_EQUIPO_ID],
+              },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+        expect((creadas[0]['operaciones'] as OperacionPropuesta[])[0].etiqueta).toContain(
+          '1 integrante'
+        );
+      });
+
+      it('sumar a alguien y ascenderlo a jefe en el mismo cambio sale en ese orden', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          {
+            editar: [
+              {
+                equipoId: EQUIPO_ID,
+                sumarParticipantesIds: [SIN_EQUIPO_ID],
+                nuevoJefeParticipanteId: SIN_EQUIPO_ID,
+              },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        // El POST del miembro va ANTES que el del jefe: al revés, identity
+        // rechazaría el ascenso de alguien que todavía no es miembro.
+        expect(operaciones.map((operacion) => operacion.ruta)).toEqual([
+          `/identity/equipos/${EQUIPO_ID}/miembros`,
+          `/identity/equipos/${EQUIPO_ID}/jefe`,
+        ]);
+        expect(operaciones[0].body).toEqual({ usuarioId: SIN_EQUIPO_ID });
+        expect(operaciones[1].body).toEqual({ nuevoJefeUsuarioId: SIN_EQUIPO_ID });
+      });
+
+      it('un jefe que no es ni va a ser miembro se rechaza diciendo qué hacer', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          { editar: [{ equipoId: EQUIPO_ID, nuevoJefeParticipanteId: SIN_EQUIPO_ID }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('Sumalo al equipo');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('un equipoId que no es de este grupo NO crea propuesta', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          { editar: [{ equipoId: ACTIVIDAD_ID, nombre: 'Otro' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('listar_participantes');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('un cambio sin nada adentro se rechaza', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_equipos',
+          { editar: [{ equipoId: EQUIPO_ID }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('ningún cambio');
       });
     });
   });

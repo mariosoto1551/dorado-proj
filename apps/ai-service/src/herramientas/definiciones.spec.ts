@@ -165,6 +165,9 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         'proponer_rendimientos_monedas',
         // fase-14-30 tanda 6 — familia escala.
         'proponer_umbrales_zona',
+        // fase-14-30 tanda 7 — familia personas.
+        'proponer_roles_grupo',
+        'proponer_equipos',
       ]);
 
       for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {
@@ -316,6 +319,28 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         'Una propiedad que pide un id se declara con `uuidDe()`, que es lo que la obliga a ' +
           'nombrar su origen. Escribirla a mano saltea la decisión 1 sin que nada se ponga rojo.'
       ).toEqual([]);
+    });
+
+    /**
+     * La familia personas (tanda 7) es la primera que necesita ids de PERSONA,
+     * y los nombres del contrato de identity —`usuarioId`, `jefeUsuarioId`,
+     * `rolGrupoId`— no pasan el test del tenant de arriba. El catálogo usa su
+     * propio vocabulario y el armador traduce; lo que garantiza que el id sea
+     * el correcto no es su nombre, es que **está declarado con su origen**.
+     */
+    it('los ids de persona se declaran con origen aunque el campo no se llame usuarioId', () => {
+      const rutas = ['crear[].jefeParticipanteId', 'crear[].participantesIds[]'];
+
+      for (const ruta of rutas) {
+        const propiedad = todasLasPropiedades(propuesta('proponer_equipos').parametros).find(
+          (candidata) => candidata.ruta === ruta
+        );
+
+        expect(propiedad?.propiedad, ruta).toMatchObject({
+          formato: 'uuid',
+          origen: ['listar_participantes'],
+        });
+      }
     });
 
     it('los ids de la tienda salen de listar_tienda, que es el defecto que cerró el ítem', () => {

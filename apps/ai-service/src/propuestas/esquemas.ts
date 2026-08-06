@@ -1,9 +1,15 @@
 import { z } from 'zod';
 
 import {
+  AgregarMiembroEquipoRequest,
   AlcanceActividad,
   AsignarEtiquetasRequest,
+  AsignarRolGrupoRequest,
+  ActualizarRolGrupoRequest,
   ComportamientoAlCierre,
+  CrearEquipoRequest,
+  CrearRolGrupoRequest,
+  EditarEquipoRequest,
   ConfigurarRendimientosAccionesRequest,
   ConfigurarTurnoRequest,
   CrearActividadRequest,
@@ -23,6 +29,7 @@ import {
   GuardarConfiguracionScoringRequest,
   MecanicaProducto,
   ModoTurno,
+  SustituirJefeEquipoRequest,
   TipoAccionRendimiento,
   TipoConducta,
   TipoItemCatalogo,
@@ -283,6 +290,56 @@ const configuracionScoring = z
   .object({ puntosIniciales: z.number().int().min(0) })
   .strict();
 
+/**
+ * Personas (fase-14-30 tanda 7).
+ *
+ * Los cuatro esquemas de identity llevan el `estado` que **no se le expone al
+ * modelo** (decisión 3: poner algo en INACTIVO es archivarlo por otro camino),
+ * por el mismo motivo que `imagenUrl` en la economía: sacarlo del esquema para
+ * «que coincida con la herramienta» apagaría la única alarma que avisa si
+ * identity lo renombra. El modelo no puede mandarlo igual — la definición no lo
+ * declara y todas llevan `additionalProperties: false`.
+ *
+ * Los nombres de los campos son **los del contrato** (`usuarioId`,
+ * `jefeUsuarioId`, `rolGrupoId`) y no los que ve el modelo: el armador traduce.
+ * Ver la nota de `definiciones-propuesta.ts`.
+ */
+const crearRol = z
+  .object({ nombre: z.string().trim().min(1).max(40), colorHex })
+  .strict();
+
+const editarRol = z
+  .object({
+    nombre: z.string().trim().min(1).max(40),
+    colorHex,
+    estado: z.enum(['ACTIVO', 'INACTIVO']),
+  })
+  .partial()
+  .strict();
+
+/** `null` quita el rol, y es la única forma de decirlo: el PUT fija el valor. */
+const asignarRol = z.object({ rolGrupoId: uuid.nullable() }).strict();
+
+const crearEquipo = z
+  .object({
+    nombre: z.string().trim().min(1).max(120),
+    jefeUsuarioId: uuid,
+    miembrosIds: z.array(uuid),
+  })
+  .strict();
+
+const editarEquipo = z
+  .object({
+    nombre: z.string().trim().min(1).max(120),
+    estado: z.enum(['ACTIVO', 'INACTIVO']),
+  })
+  .partial()
+  .strict();
+
+const agregarMiembro = z.object({ usuarioId: uuid }).strict();
+
+const sustituirJefe = z.object({ nuevoJefeUsuarioId: uuid }).strict();
+
 const rendimientos = z
   .object({
     rendimientos: z
@@ -383,6 +440,34 @@ type _ConfiguracionScoringCompleta = Exhaustivo<
   ClavesNoCubiertas<GuardarConfiguracionScoringRequest, z.infer<typeof configuracionScoring>>
 >;
 
+type _CrearRolCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearRolGrupoRequest, z.infer<typeof crearRol>>
+>;
+
+type _EditarRolCompleto = Exhaustivo<
+  ClavesNoCubiertas<ActualizarRolGrupoRequest, z.infer<typeof editarRol>>
+>;
+
+type _AsignarRolCompleto = Exhaustivo<
+  ClavesNoCubiertas<AsignarRolGrupoRequest, z.infer<typeof asignarRol>>
+>;
+
+type _CrearEquipoCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearEquipoRequest, z.infer<typeof crearEquipo>>
+>;
+
+type _EditarEquipoCompleto = Exhaustivo<
+  ClavesNoCubiertas<EditarEquipoRequest, z.infer<typeof editarEquipo>>
+>;
+
+type _AgregarMiembroCompleto = Exhaustivo<
+  ClavesNoCubiertas<AgregarMiembroEquipoRequest, z.infer<typeof agregarMiembro>>
+>;
+
+type _SustituirJefeCompleto = Exhaustivo<
+  ClavesNoCubiertas<SustituirJefeEquipoRequest, z.infer<typeof sustituirJefe>>
+>;
+
 export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
 
 export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
@@ -418,6 +503,20 @@ export const esquemaEditarUmbral: z.ZodType<EditarUmbralRequest> = editarUmbral;
 
 export const esquemaConfiguracionScoring: z.ZodType<GuardarConfiguracionScoringRequest> =
   configuracionScoring;
+
+export const esquemaCrearRol: z.ZodType<CrearRolGrupoRequest> = crearRol;
+
+export const esquemaEditarRol: z.ZodType<ActualizarRolGrupoRequest> = editarRol;
+
+export const esquemaAsignarRol: z.ZodType<AsignarRolGrupoRequest> = asignarRol;
+
+export const esquemaCrearEquipo: z.ZodType<CrearEquipoRequest> = crearEquipo;
+
+export const esquemaEditarEquipo: z.ZodType<EditarEquipoRequest> = editarEquipo;
+
+export const esquemaAgregarMiembro: z.ZodType<AgregarMiembroEquipoRequest> = agregarMiembro;
+
+export const esquemaSustituirJefe: z.ZodType<SustituirJefeEquipoRequest> = sustituirJefe;
 
 export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesRequest> =
   rendimientos;

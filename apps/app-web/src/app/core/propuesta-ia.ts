@@ -6,7 +6,9 @@ import type {
   PropuestaIaDto,
   RecompensaDto,
   RendimientoAccionDto,
+  RolGrupoDto,
   UmbralZonaDto,
+  UsuarioDto,
 } from '@dorado/shared-types';
 
 import { describirDias } from './dias-semana';
@@ -60,8 +62,15 @@ export interface ContextoPropuesta {
   recompensas?: readonly RecompensaDto[];
   productos?: readonly ProductoTiendaDto[];
   rendimientos?: readonly RendimientoAccionDto[];
-  roles?: ReadonlyMap<string, string>;
-  personas?: ReadonlyMap<string, string>;
+  /**
+   * Roles y participantes van enteros y no como mapa de nombres desde la tanda
+   * 7, por el mismo motivo que las zonas en la 6: **una propuesta los edita**,
+   * así que hace falta el «antes» de cada campo (el color de un rol, el rol que
+   * hoy tiene una persona) y no solo cómo se llaman. Los que siguen siendo
+   * mapas —equipos, bolsas, etiquetas— es porque solo se los referencia por id.
+   */
+  roles?: readonly RolGrupoDto[];
+  personas?: readonly UsuarioDto[];
   equipos?: ReadonlyMap<string, string>;
   /** Los dos de la tanda 5, solo para traducir ids a nombres. */
   bolsas?: ReadonlyMap<string, string>;
@@ -126,6 +135,12 @@ const ETIQUETAS: Record<string, string> = {
   puntosMin: 'Desde',
   puntosMax: 'Hasta',
   puntosIniciales: 'Arranca con',
+  // fase-14-30 tanda 7. Son los nombres del CONTRATO de identity, no los que ve
+  // el modelo: lo que llega en el body ya está traducido.
+  rolGrupoId: 'Rol',
+  jefeUsuarioId: 'Jefe',
+  miembrosIds: 'Integrantes',
+  nuevoJefeUsuarioId: 'Nuevo jefe',
   colorHex: 'Color',
 };
 
@@ -199,8 +214,104 @@ export function armarFilas(
 
       case 'UMBRALES_ZONA':
         return filaDeLaEscala(operacion, contexto);
+
+      case 'ROLES_GRUPO':
+        return filaDeRol(operacion, contexto);
+
+      case 'EQUIPOS':
+        return filaDeEquipo(operacion, contexto);
     }
   });
+}
+
+/**
+ * Los roles del grupo: crear uno (`POST`), cambiarlo (`PATCH`) o decidir cuál
+ * le queda a una persona (`PUT`). El id de la persona viaja **en la ruta**, que
+ * es lo que hace que el título pueda decir su nombre.
+ */
+function filaDeRol(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const body = comoObjeto(operacion.body);
+
+  if (operacion.metodo === 'POST') {
+    return {
+      opId: operacion.opId,
+      titulo: `Crear rol «${String(body['nombre'] ?? 'sin nombre')}»`,
+      cambios: cambiosDe(body, contexto, undefined, ['nombre']),
+    };
+  }
+
+  if (operacion.metodo === 'PATCH') {
+    const actual = (contexto.roles ?? []).find((rol) => rol.id === idDeLaRuta(operacion.ruta));
+
+    return {
+      opId: operacion.opId,
+      titulo: `Cambiar el rol «${actual?.nombre ?? 'sin nombre'}»`,
+      cambios: cambiosDe(body, contexto, actual as unknown as Record<string, unknown> | undefined),
+    };
+  }
+
+  // La ruta es `/identity/grupos/:grupoId/usuarios/:usuarioId/rol`.
+  const persona = (contexto.personas ?? []).find(
+    (usuario) => usuario.id === operacion.ruta.split('/').filter(Boolean).at(-2)
+  );
+
+  return {
+    opId: operacion.opId,
+    titulo: `Rol de ${persona?.nombre ?? 'un participante'}`,
+    cambios: cambiosDe(body, contexto, { rolGrupoId: persona?.rolGrupo?.id ?? null }),
+  };
+}
+
+/**
+ * Los equipos mezclan cuatro operaciones y se distinguen por la ruta y el
+ * método, igual que la tienda en la tanda 5. Las dos de gente —sumar un
+ * integrante y cambiar el jefe— dicen todo en el título: una fila de diff con
+ * un solo campo sería más ruido que información.
+ */
+function filaDeEquipo(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const body = comoObjeto(operacion.body);
+
+  if (operacion.ruta.endsWith('/equipos')) {
+    return {
+      opId: operacion.opId,
+      titulo: `Crear equipo «${String(body['nombre'] ?? 'sin nombre')}»`,
+      cambios: cambiosDe(body, contexto, undefined, ['nombre']),
+    };
+  }
+
+  // En las tres restantes el id del equipo es el último de la ruta o el
+  // anteúltimo, según si la ruta termina en el equipo o en el sub-recurso.
+  const partes = operacion.ruta.split('/').filter(Boolean);
+  const equipoId = operacion.metodo === 'PATCH' ? partes.at(-1) : partes.at(-2);
+  const nombreEquipo = contexto.equipos?.get(equipoId ?? '') ?? 'un equipo';
+
+  if (operacion.metodo === 'PATCH') {
+    return {
+      opId: operacion.opId,
+      titulo: `Cambiar el equipo «${nombreEquipo}»`,
+      cambios: cambiosDe(body, contexto, { nombre: nombreEquipo }),
+    };
+  }
+
+  if (operacion.ruta.endsWith('/miembros')) {
+    return {
+      opId: operacion.opId,
+      titulo: `Sumar a ${formatear('usuarioId', body['usuarioId'], contexto)} al equipo «${nombreEquipo}»`,
+      cambios: [],
+    };
+  }
+
+  return {
+    opId: operacion.opId,
+    titulo: `Nuevo jefe del equipo «${nombreEquipo}»`,
+    cambios: cambiosDe(body, contexto),
+  };
 }
 
 /**
@@ -327,7 +438,7 @@ function filaDeTurno(
       ...posiciones.map((posicion, indice) => ({
         campo: `Turno ${indice + 1}`,
         antes: null,
-        despues: nombresDe([posicion['usuarioId']], contexto.personas, '—'),
+        despues: nombresDe([posicion['usuarioId']], mapaDePersonas(contexto), '—'),
       })),
     ],
   };
@@ -512,6 +623,12 @@ function formatear(campo: string, valor: unknown, contexto: ContextoPropuesta): 
     return 'sin techo';
   }
 
+  // Ídem con el rol de una persona (tanda 7): `null` es «sin rol», que es un
+  // estado con nombre y no la ausencia de un dato.
+  if (campo === 'rolGrupoId' && valor === null) {
+    return 'sin rol';
+  }
+
   if (valor === null || valor === undefined || valor === '') {
     return '—';
   }
@@ -521,11 +638,25 @@ function formatear(campo: string, valor: unknown, contexto: ContextoPropuesta): 
   }
 
   if (campo === 'rolesPermitidos') {
-    return nombresDe(valor, contexto.roles, 'todos');
+    return nombresDe(valor, mapaDeRoles(contexto), 'todos');
   }
 
   if (campo === 'usuariosPermitidos') {
-    return nombresDe(valor, contexto.personas, 'todos');
+    return nombresDe(valor, mapaDePersonas(contexto), 'todos');
+  }
+
+  // Los campos de personas de la tanda 7. Van con el nombre del contrato de
+  // identity porque es lo que viaja en el body, no lo que vio el modelo.
+  if (campo === 'usuarioId' || campo === 'jefeUsuarioId' || campo === 'nuevoJefeUsuarioId') {
+    return nombresDe([valor], mapaDePersonas(contexto), '—');
+  }
+
+  if (campo === 'miembrosIds') {
+    return nombresDe(valor, mapaDePersonas(contexto), 'solo el jefe');
+  }
+
+  if (campo === 'rolGrupoId') {
+    return nombresDe([valor], mapaDeRoles(contexto), 'sin rol');
   }
 
   if (campo === 'equiposPermitidos') {
@@ -604,6 +735,14 @@ function mapaDeRecompensas(contexto: ContextoPropuesta): ReadonlyMap<string, str
 /** Ídem con las zonas: el contexto las trae enteras, acá solo hacen falta los nombres. */
 function mapaDeZonas(contexto: ContextoPropuesta): ReadonlyMap<string, string> {
   return new Map((contexto.umbrales ?? []).map((zona) => [zona.id, zona.nombreZona]));
+}
+
+function mapaDeRoles(contexto: ContextoPropuesta): ReadonlyMap<string, string> {
+  return new Map((contexto.roles ?? []).map((rol) => [rol.id, rol.nombre]));
+}
+
+function mapaDePersonas(contexto: ContextoPropuesta): ReadonlyMap<string, string> {
+  return new Map((contexto.personas ?? []).map((persona) => [persona.id, persona.nombre]));
 }
 
 /** El id del final de `/activity/actividades/:id`, `/rewards/productos/:id` o `/scoring/umbrales/:id`. */

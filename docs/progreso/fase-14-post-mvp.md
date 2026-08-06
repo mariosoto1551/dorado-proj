@@ -1957,7 +1957,7 @@ Y lo que deja abierto el ítem ya terminado:
 
 ---
 
-## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 6 de 9 (2026-08-05)
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 7 de 9 (2026-08-05)
 
 > Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
 
@@ -2356,3 +2356,88 @@ Las tandas 7 (familia personas), 8 (frontend) y 9 (E2E). Anotado, además de lo 
 14. ~~El aviso necesita `resumen_puntajes`.~~ **Hecho en el backend**, no en el frontend: ver la desviación de arriba. `PropuestaIaDto` tiene ahora un `aviso` genérico que cualquier familia puede usar.
 15. **La tanda 9 tiene un caso propio para la escala**: que el orden de las operaciones se respete al aplicar. El aplicado del frontend recorre `operaciones` en orden y eso es justo lo que hace falta — pero **nada lo verifica hoy**, y si algún día alguien paraleliza ese `for` «para que vaya más rápido», esta familia se rompe en silencio y ninguna otra se entera.
 16. **El aviso se calcula con los puntajes del momento de armar.** Una propuesta de 20 horas de antigüedad puede mostrar un conteo viejo; el vencimiento a las 24 h (decisión 12 del #29) es lo único que lo acota. Es aceptable y está dicho en el propio texto («con los puntajes de ahora»), pero si algún día el aviso se usa para algo más que informar, hay que recalcularlo al aplicar.
+
+
+### Tanda 7 — familia personas: roles del grupo y equipos de trabajo (2026-08-05)
+
+La última de las cuatro familias. Dos herramientas, `proponer_roles_grupo` y `proponer_equipos`, contra los siete endpoints de `identity-service` que la spec lista. Con ella el catálogo llega a **26 herramientas**, que es el número final del ítem: **12 lecturas y 14 propuestas**, contra las 8 y 4 con las que arrancó el #29.
+
+La línea que esta familia no cruza está en la decisión 4 y conviene repetirla: **la IA organiza a quien ya está; no da de alta ni de baja personas**. Invitar, dar de alta y sacar del grupo quedan afuera del ítem entero, y no por riesgo técnico —esos endpoints están igual de probados— sino por qué clase de cosa es una propuesta: sumar una persona a un grupo es un acto que empieza fuera de la app.
+
+#### El choque anunciado con el test estructural, y por qué se resolvió sin tocarlo
+
+La tanda 4 lo dejó escrito como pendiente 7: el test de la decisión 9 del #29 prohíbe que una propiedad de una herramienta se llame como el tenant, y su regex incluye `usuarioId`. Al escribir la familia apareció que **el problema era más grande de lo anotado**: la regex también incluye `grupo`, así que `rolGrupoId` —un campo del contrato de identity, que no tiene nada de tenant— tampoco compila el test.
+
+Las dos salidas eran aflojar la regex o que el catálogo use su propio vocabulario. Se eligió lo segundo: el modelo ve `participanteId`, `rolId`, `equipoId`, `jefeParticipanteId`, y **el armador traduce a los nombres del contrato** (`usuarioId`, `rolGrupoId`, `jefeUsuarioId`) al construir el body. Es exactamente lo que la tanda 4 hizo con `posiciones`, y las razones son tres:
+
+1. **Aflojar la regla no compra nada.** Es una defensa que no depende de que el modelo se porte bien, y el costo de mantenerla es una línea de mapeo por campo.
+2. **El nombre que ve el modelo ya venía siendo una decisión propia** (decisión 9 de este ítem: cada campo se nombra pensando en que lo lea un modelo). `actividadId` en vez de `id` viene de ahí.
+3. **Lo que garantiza que el id sea el correcto no es su nombre**: es que se declara con `uuidDe` —así lleva origen, decisión 1— y que el armador lo valida contra los participantes reales del grupo antes de guardar nada (decisión 2). Hay un test que fija justamente eso: los ids de persona de `proponer_equipos` declaran `listar_participantes` como origen **aunque el campo no se llame `usuarioId`**.
+
+Para que el modelo no se confunda entre lo que lee y lo que manda, la descripción de cada uno dice de dónde sale con el nombre del otro lado: *«id (uuid) de un integrante (el usuarioId que devuelve la lectura), tal como vino de listar_participantes»*.
+
+#### La regla del destino que más propuestas va a rechazar
+
+**Una persona está en un solo equipo por grupo.** identity lo verifica mirando *todos* los equipos del grupo (`UsuarioYaEnEquipoException`), así que no alcanza con que la propuesta no se contradiga a sí misma: hay que mirar dónde está cada uno hoy **y a quién ya ubicó la propia propuesta**. Los dos casos están cubiertos y los dos tienen test — armar un equipo con alguien que ya está en otro, y repetir a la misma persona entre dos equipos nuevos de la misma tanda.
+
+El error dice qué hacer, no solo que se equivocó: *«Alejandra ya está en el equipo «Cocina», y nadie puede estar en dos. Sacalo de ese equipo desde la pantalla de equipos y después proponé el cambio»*. Es la consecuencia práctica de la decisión 3: **quitar a alguien de un equipo es un `DELETE` y la IA no lo propone**, así que mudar a una persona de equipo es, para el asistente, una operación imposible — y lo que puede hacer es explicarlo.
+
+Las otras dos reglas replicadas, las dos leídas en `equipos.service.ts` y no supuestas: **el jefe tiene que ser miembro del equipo** y el jefe repetido dentro de `miembrosIds` **no es un error** (identity lo deduplica, así que rechazarlo sería inventar una regla que el destino no tiene).
+
+#### El jefe se juzga sobre el estado que deja la propia entrada
+
+Sumar a alguien al equipo y ascenderlo a jefe **en el mismo cambio** es válido, y no por indulgencia: las operaciones se aplican en orden y el armador pone el `POST` del miembro antes que el del jefe. Es el mismo razonamiento que la tanda 6 con la escala —lo que se valida es el estado resultante, no cada operación aislada— pero acá alcanza con mirar una entrada, porque no hay validación de conjunto del otro lado. Hay un test que fija el orden de las dos operaciones, que es lo único que hace correcto el caso.
+
+#### `rolGrupoId: null` sí se expone, y no contradice la decisión 3
+
+`PUT .../usuarios/:id/rol` con `null` deja a la persona **sin rol**. Se evaluó si eso es «archivar por otro camino» —que es lo que la decisión 3 prohíbe— y no lo es: no destruye nada (el rol sigue en el catálogo, el ledger no se toca) y es la única forma de expresar «sacale el rol» en un endpoint que **fija un valor**. La diferencia con `estado: 'INACTIVO'` es real: archivar un rol **desasigna a todos los que lo tenían**, y eso sí es una baja encubierta. Por eso `estado` no se expone en ninguno de los dos esquemas, y el test estructural del criterio 4 lo verifica.
+
+Y a diferencia de `puntosMax` en la tanda 6, acá **el `null` no es ambiguo**: la entrada de `asignar` existe para fijar el rol y no tiene otro campo que pueda ser su propósito, así que no hace falta pedir la fila entera.
+
+#### Lo que el chequeo de contrato dejó a la vista
+
+Los seis esquemas Zod nuevos llevan los campos que **no se le exponen al modelo** —el `estado` de rol y de equipo—, por el mismo motivo que `imagenUrl` en la tanda 5: sacarlos «para que coincida con la herramienta» apagaría la única alarma que avisa si identity los renombra. El modelo no puede mandarlos igual, porque la definición no los declara y todas llevan `additionalProperties: false`.
+
+Con esto **los ocho contratos de identity que la tanda 2 dejó escritos y sin consumidor tienen consumidor** (pendiente 5 de la tanda 3): eran los últimos.
+
+#### Frontend
+
+Cuarta tanda seguida en que el frontend entra con la familia, por lo mismo: el `switch` es exhaustivo y la unión creció. Lo propio de esta:
+
+- **Roles y participantes pasaron a viajar enteros en el contexto** (antes eran mapas id→nombre), igual que las zonas en la tanda 6 y por el mismo motivo: una propuesta los **edita**, así que hace falta el «antes» de cada campo —el color de un rol, el rol que hoy tiene una persona— y no solo cómo se llaman. Los que siguen siendo mapas (equipos, bolsas, etiquetas) es porque solo se los referencia por id.
+- **`rolGrupoId: null` se lee «sin rol»**, con el chequeo antes del guioncito general, exactamente como `puntosMax: null` se lee «sin techo». Van juntos en el archivo porque son el mismo caso: un `null` que es un estado con nombre y no la ausencia de un dato.
+- **Las dos operaciones de gente dicen todo en el título** («Sumar a Alejandra al equipo «Cocina»»): una fila de diff con un solo campo sería más ruido que información.
+
+Y el system prompt por **cuarta tanda seguida** — capacidad 6, con la línea de la decisión 4 adentro para que el modelo sepa qué no puede hacer aunque se lo pidan.
+
+#### El costo en tokens, final (criterio 12)
+
+| | Herramientas | Caracteres | ≈ tokens |
+|---|---|---|---|
+| fase-14-29 | 12 | 16.591 | ~4.148 |
+| tanda 1 | 13 | 17.267 | ~4.317 |
+| tanda 3 | 16 | 18.937 | ~4.734 |
+| tanda 4 | 19 | 25.770 | ~6.443 |
+| tanda 5 | 23 | 35.169 | ~8.792 |
+| tanda 6 | 24 | 38.452 | ~9.613 |
+| **tanda 7 (final)** | **26** | **43.847** | **~10.962** |
+
+**+164% sobre el catálogo del #29**, y el número final cae justo donde la tanda 4 lo había estimado («con las ocho que faltan el catálogo va a rondar los ~11k tokens»). Las dos de esta tanda pesan 2.627 y 2.766 caracteres, en el rango de la familia economía y muy por debajo de las de actividades (5.8k y 5.6k), que siguen siendo las caras del catálogo por la cantidad de campos que describen. El bloque entra por caché vía `prompt_cache_key`, así que desde el segundo turno de una conversación se paga ~10% de eso.
+
+#### Verificación de la tanda 7
+
+- **`ai-service` 250/250** (+18: 15 de la familia, 1 estructural nuevo y 2 filas de la tabla del criterio 3) y **`app-web` 220/220** (+5).
+- **Workspace entero verde**: activity 357, rewards 206, session 74, scoring 63, gateway 49, identity 48, notification 22 — **sin una regresión y sin tocar un solo test ajeno**.
+- **Lint 19/19** (los 3 warnings son de `activity-service`, preexistentes) y **build 18/18**.
+- **Migración aplicada contra Postgres real**: `20260806033753_fase_14_30_personas`, aditiva (`ROLES_GRUPO`, `EQUIPOS`). El enum quedó en **14 valores**, los 12 anteriores intactos.
+- **Lo que NO se verificó**, igual que en las tandas 4, 5 y 6: el apply de punta a punta contra identity con un JWT de Tutor. Es de la tanda 9.
+
+#### Qué falta de este ítem
+
+Las tandas 8 (frontend) y 9 (E2E). El grueso del frontend ya está hecho —cada familia entró con su tarjeta—, así que a la 8 le quedan **las cuatro entradas de contexto** («Pedirle ayuda a la IA» en Conductas, Recompensas, Tienda y Zonas) y repasar el conjunto.
+
+Anotado, además de lo que sigue valiendo:
+
+17. **El catálogo está cerrado**: 12 lecturas y 14 propuestas, los dos números que la spec fija. Cualquier herramienta nueva de acá en adelante es otro ítem.
+18. **La tanda 9 tiene ahora tres casos de orden que verificar**, no uno: la escala (los pasos intermedios), el equipo donde alguien se suma y asciende en el mismo cambio, y las bolsas antes que los productos. Los tres dependen de que el frontend aplique `operaciones` **en orden**, y eso hoy no lo verifica nada.
+19. **Mudar una persona de equipo es imposible para el asistente** y está bien que así sea (decisión 3), pero es la limitación que más se va a notar usándolo. Si molesta, la salida NO es habilitar el `DELETE`: es que la pantalla de equipos lo haga cómodo.

@@ -27,6 +27,9 @@ const TITULOS: Record<PropuestaIaDto['tipo'], string> = {
   ETIQUETAS: 'Etiquetas del catálogo',
   // fase-14-30 tanda 6 — familia escala.
   UMBRALES_ZONA: 'La escala de zonas',
+  // fase-14-30 tanda 7 — familia personas.
+  ROLES_GRUPO: 'Roles del grupo',
+  EQUIPOS: 'Equipos de trabajo',
 };
 
 const ESTADOS: Record<PropuestaIaDto['estado'], string> = {

@@ -449,8 +449,11 @@ export class AsistentePage {
         ...(valorDe(rendimientos)?.actividades ?? []),
         ...(valorDe(rendimientos)?.conductas ?? []),
       ],
-      roles: mapaDe(valorDe(roles)),
-      personas: mapaDe(valorDe(personas)),
+      // Roles y participantes enteros desde la tanda 7: la tarjeta de la
+      // familia personas edita los dos, así que necesita el «antes» de cada
+      // campo (el color del rol, el rol que hoy tiene cada uno).
+      roles: valorDe(roles) ?? [],
+      personas: valorDe(personas) ?? [],
       equipos: mapaDe(valorDe(equipos)),
       bolsas: mapaDe(valorDe(bolsas)),
       etiquetas: mapaDe(valorDe(etiquetas)),

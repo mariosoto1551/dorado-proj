@@ -19,22 +19,29 @@ import {
   type ZonaDeLaEscala,
 } from './escala';
 import {
+  esquemaAgregarMiembro,
   esquemaAsignarEtiquetas,
+  esquemaAsignarRol,
   esquemaConfiguracionScoring,
   esquemaConfigurarTurno,
   esquemaCrearActividad,
   esquemaCrearConducta,
+  esquemaCrearEquipo,
   esquemaCrearEtiqueta,
   esquemaCrearProducto,
   esquemaCrearRecompensa,
+  esquemaCrearRol,
   esquemaCrearUmbral,
   esquemaEditarActividad,
   esquemaEditarConducta,
+  esquemaEditarEquipo,
   esquemaEditarProducto,
   esquemaEditarRecompensa,
+  esquemaEditarRol,
   esquemaEditarUmbral,
   esquemaGuardarBolsa,
   esquemaRendimientos,
+  esquemaSustituirJefe,
   explicarError,
 } from './esquemas';
 import { limpiarVacios, normalizarLimiteTiempo, violacionDeInvariantes } from './invariantes';
@@ -73,7 +80,9 @@ type TipoPropuesta =
   | 'EDITAR_RECOMPENSAS'
   | 'PRODUCTOS_TIENDA'
   | 'ETIQUETAS'
-  | 'UMBRALES_ZONA';
+  | 'UMBRALES_ZONA'
+  | 'ROLES_GRUPO'
+  | 'EQUIPOS';
 
 /**
  * Lo que el armador le devuelve al loop para que se lo cuente al modelo.
@@ -165,6 +174,12 @@ export class PropuestasService {
 
       case 'proponer_umbrales_zona':
         return await this.armarUmbralesZona(argumentos, contexto, conversacionId);
+
+      case 'proponer_roles_grupo':
+        return await this.armarRolesGrupo(argumentos, contexto, conversacionId);
+
+      case 'proponer_equipos':
+        return await this.armarEquipos(argumentos, contexto, conversacionId);
 
       default:
         return { ok: false, error: `No existe una herramienta llamada "${nombreHerramienta}".` };
@@ -1381,6 +1396,412 @@ export class PropuestasService {
     );
   }
 
+  /**
+   * Los roles funcionales del grupo y quién tiene cada uno (fase-14-30 tanda 7).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * LA LÍNEA QUE ESTA FAMILIA NO CRUZA (decisión 4):
+   *
+   * **La IA organiza a quien ya está; no da de alta ni de baja personas.** Un
+   * rol se crea, se renombra y se asigna; invitar a alguien, darlo de alta o
+   * sacarlo del grupo queda afuera del ítem entero. La línea no es de riesgo
+   * técnico —esos endpoints están igual de probados— sino de qué clase de cosa
+   * es una propuesta: sumar una persona a un grupo es un acto que empieza fuera
+   * de la app, en una conversación que el modelo no vio.
+   *
+   * `estado` tampoco se expone: archivar un rol **desasigna a todos** los que
+   * lo tenían, o sea que es archivar por otro camino (decisión 3).
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarRolesGrupo(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const crear = this.arrayDe(argumentos, 'crear');
+    const editar = this.arrayDe(argumentos, 'editar');
+    const asignar = this.arrayDe(argumentos, 'asignar');
+
+    if (crear.length === 0 && editar.length === 0 && asignar.length === 0) {
+      return {
+        ok: false,
+        error:
+          'Mandá al menos un rol en "crear" o en "editar", o una asignación en "asignar".',
+      };
+    }
+
+    const [roles, participantes] = await Promise.all([
+      this.identity.roles(contexto.grupoId),
+      this.identity.participantes(contexto.grupoId),
+    ]);
+    const porId = new Map(roles.map((rol) => [rol.id, rol]));
+    const gente = new Map(participantes.map((usuario) => [usuario.id, usuario]));
+    // El nombre choca sin distinguir mayúsculas ni espacios, igual que en
+    // identity — y contra los ARCHIVADOS también, porque el unique del schema
+    // es por grupo y nombre, sin mirar el estado.
+    const nombresTomados = new Map(roles.map((rol) => [normalizar(rol.nombre), rol.nombre]));
+    const operaciones: OperacionPropuesta[] = [];
+
+    for (const [indice, fila] of crear.entries()) {
+      const parseado = esquemaCrearRol.safeParse(
+        limpiarVacios(fila as Record<string, unknown>, true)
+      );
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('crear', indice, parseado.error) };
+      }
+
+      const choque = nombresTomados.get(normalizar(parseado.data.nombre));
+
+      if (choque) {
+        return {
+          ok: false,
+          error: `crear.${indice}.nombre: ya hay un rol llamado «${choque}» en este grupo.`,
+        };
+      }
+
+      nombresTomados.set(normalizar(parseado.data.nombre), parseado.data.nombre);
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'POST',
+        ruta: `/identity/grupos/${contexto.grupoId}/roles`,
+        body: parseado.data,
+        etiqueta: `Crear rol «${parseado.data.nombre}»`,
+      });
+    }
+
+    for (const [indice, fila] of editar.entries()) {
+      const { rolId, ...cambios } = fila as Record<string, unknown>;
+      const existente = typeof rolId === 'string' ? porId.get(rolId) : undefined;
+
+      if (!existente) {
+        return {
+          ok: false,
+          error:
+            `editar.${indice}.rolId: no hay ningún rol con ese id en este grupo. ` +
+            'Llamá a listar_participantes, que trae el catálogo de roles, y usá un id de ahí.',
+        };
+      }
+
+      // Sin campos anulables en el contrato: acá `null` solo puede ser «no lo
+      // puse» (la regla de la tanda 4).
+      const parseado = esquemaEditarRol.safeParse(limpiarVacios(cambios, true));
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('editar', indice, parseado.error) };
+      }
+
+      if (Object.keys(parseado.data).length === 0) {
+        return { ok: false, error: `editar.${indice}: no mandaste ningún campo para cambiar.` };
+      }
+
+      if (parseado.data.nombre !== undefined) {
+        const choque = nombresTomados.get(normalizar(parseado.data.nombre));
+
+        if (choque && normalizar(choque) !== normalizar(existente.nombre)) {
+          return {
+            ok: false,
+            error: `editar.${indice}.nombre: ya hay un rol llamado «${choque}» en este grupo.`,
+          };
+        }
+
+        nombresTomados.delete(normalizar(existente.nombre));
+        nombresTomados.set(normalizar(parseado.data.nombre), parseado.data.nombre);
+      }
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'PATCH',
+        ruta: `/identity/roles/${existente.id}`,
+        body: parseado.data,
+        etiqueta:
+          parseado.data.nombre !== undefined && parseado.data.nombre !== existente.nombre
+            ? `Renombrar «${existente.nombre}» → «${parseado.data.nombre}»`
+            : `Cambiar el color de «${existente.nombre}»`,
+      });
+    }
+
+    for (const [indice, fila] of asignar.entries()) {
+      const { participanteId, rolId } = fila as Record<string, unknown>;
+      const persona = typeof participanteId === 'string' ? gente.get(participanteId) : undefined;
+
+      if (!persona) {
+        return {
+          ok: false,
+          error:
+            `asignar.${indice}.participanteId: no hay ningún participante con ese id en este ` +
+            'grupo. Llamá a listar_participantes y usá un usuarioId de ahí.',
+        };
+      }
+
+      // `null` es un valor y no una ausencia: deja a la persona sin rol. No hay
+      // ambigüedad posible —la entrada existe para fijar el rol— así que el
+      // esquema lo acepta tal cual, sin pasar por `limpiarVacios`.
+      const parseado = esquemaAsignarRol.safeParse({ rolGrupoId: rolId ?? null });
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('asignar', indice, parseado.error) };
+      }
+
+      const rolNuevo = parseado.data.rolGrupoId ? porId.get(parseado.data.rolGrupoId) : null;
+
+      if (parseado.data.rolGrupoId && !rolNuevo) {
+        return {
+          ok: false,
+          error:
+            `asignar.${indice}.rolId: ` +
+            (crear.length > 0
+              ? 'ese rol todavía no existe. Un rol recién creado no tiene id hasta que el Tutor ' +
+                'aplica la propuesta, así que va en dos pasos: primero proponé los roles y ' +
+                'después, en otra propuesta, a quién se los ponés.'
+              : 'no es un rol de este grupo. Sacá el id de listar_participantes.'),
+        };
+      }
+
+      if (rolNuevo && rolNuevo.estado !== 'ACTIVO') {
+        return {
+          ok: false,
+          error: `asignar.${indice}.rolId: «${rolNuevo.nombre}» está archivado, así que no se puede asignar.`,
+        };
+      }
+
+      const rolActual = persona.rolGrupo?.nombre;
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'PUT',
+        ruta: `/identity/grupos/${contexto.grupoId}/usuarios/${persona.id}/rol`,
+        body: parseado.data,
+        etiqueta:
+          `${persona.nombre}: ${rolActual ? `«${rolActual}»` : 'sin rol'} → ` +
+          `${rolNuevo ? `«${rolNuevo.nombre}»` : 'sin rol'}`,
+      });
+    }
+
+    return await this.guardar('ROLES_GRUPO', operaciones, {}, contexto, conversacionId);
+  }
+
+  /**
+   * Los equipos de trabajo: quiénes los forman y quién manda (fase-14-30 tanda 7).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * LA REGLA DEL DESTINO QUE MÁS PROPUESTAS VA A RECHAZAR:
+   *
+   * **una persona está en UN SOLO equipo por grupo**. identity lo rechaza con
+   * `UsuarioYaEnEquipoException` mirando TODOS los equipos del grupo, así que no
+   * alcanza con que la propuesta no se contradiga a sí misma: hay que mirar
+   * también dónde está cada uno hoy. Y como el chequeo es sobre el estado que la
+   * propuesta va dejando, se lleva la cuenta de a quién ya ubicó ella misma.
+   *
+   * Quitar a alguien de un equipo **no está** (es un `DELETE`, decisión 3), así
+   * que una propuesta que quiera mudar a una persona de equipo se rechaza y el
+   * error dice qué hacer: sacarla a mano primero.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarEquipos(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const crear = this.arrayDe(argumentos, 'crear');
+    const editar = this.arrayDe(argumentos, 'editar');
+
+    if (crear.length === 0 && editar.length === 0) {
+      return {
+        ok: false,
+        error: 'Mandá al menos un equipo en "crear" o un cambio en "editar".',
+      };
+    }
+
+    const [equipos, participantes] = await Promise.all([
+      this.identity.equipos(contexto.grupoId),
+      this.identity.participantes(contexto.grupoId),
+    ]);
+    const gente = new Map(participantes.map((usuario) => [usuario.id, usuario.nombre]));
+    const porId = new Map(equipos.map((equipo) => [equipo.equipoId, equipo]));
+    const conEquipo = new Map<string, string>();
+
+    for (const equipo of equipos) {
+      for (const miembro of equipo.miembros) {
+        conEquipo.set(miembro.usuarioId, equipo.nombre);
+      }
+    }
+
+    const operaciones: OperacionPropuesta[] = [];
+    /** El motivo por el que una persona no puede sumarse, o `null`. */
+    const ocupada = (id: string): string | null => {
+      const donde = conEquipo.get(id);
+
+      return donde
+        ? `${gente.get(id) ?? id} ya está en el equipo «${donde}», y nadie puede estar en dos. ` +
+            'Sacalo de ese equipo desde la pantalla de equipos y después proponé el cambio.'
+        : null;
+    };
+
+    for (const [indice, fila] of crear.entries()) {
+      const { nombre, jefeParticipanteId, participantesIds } = fila as Record<string, unknown>;
+      const parseado = esquemaCrearEquipo.safeParse({
+        // `miembrosIds` va aparte de `limpiarVacios`: la lista vacía es
+        // legítima —un equipo de una sola persona, el jefe— y ese limpiador
+        // descarta los arrays vacíos por diseño.
+        ...limpiarVacios({ nombre, jefeUsuarioId: jefeParticipanteId }, true),
+        miembrosIds: Array.isArray(participantesIds) ? participantesIds : [],
+      });
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('crear', indice, parseado.error) };
+      }
+
+      // identity deduplica al jefe si vino también en la lista, así que mandarlo
+      // en los dos lados no es un error: se normaliza.
+      const todos = [
+        parseado.data.jefeUsuarioId,
+        ...parseado.data.miembrosIds.filter((id) => id !== parseado.data.jefeUsuarioId),
+      ];
+      const ajeno = todos.find((id) => !gente.has(id));
+
+      if (ajeno) {
+        return {
+          ok: false,
+          error: `crear.${indice}: "${ajeno}" no es un participante de este grupo.`,
+        };
+      }
+
+      const impedido = todos.map((id) => ocupada(id)).find((motivo) => motivo !== null);
+
+      if (impedido) {
+        return { ok: false, error: `crear.${indice}: ${impedido}` };
+      }
+
+      for (const id of todos) {
+        conEquipo.set(id, parseado.data.nombre);
+      }
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'POST',
+        ruta: `/identity/grupos/${contexto.grupoId}/equipos`,
+        body: parseado.data,
+        etiqueta:
+          `Crear equipo «${parseado.data.nombre}» con ${todos.length} ` +
+          `${todos.length === 1 ? 'integrante' : 'integrantes'} ` +
+          `(jefe: ${gente.get(parseado.data.jefeUsuarioId) ?? '—'})`,
+      });
+    }
+
+    for (const [indice, fila] of editar.entries()) {
+      const { equipoId, nombre, sumarParticipantesIds, nuevoJefeParticipanteId } =
+        fila as Record<string, unknown>;
+      const equipo = typeof equipoId === 'string' ? porId.get(equipoId) : undefined;
+
+      if (!equipo) {
+        return {
+          ok: false,
+          error:
+            `editar.${indice}.equipoId: no hay ningún equipo con ese id en este grupo. ` +
+            'Llamá a listar_participantes, que trae los equipos, y usá un id de ahí.',
+        };
+      }
+
+      const seSuman = Array.isArray(sumarParticipantesIds)
+        ? (sumarParticipantesIds as unknown[]).filter((id): id is string => typeof id === 'string')
+        : [];
+      const cambios = limpiarVacios({ nombre }, true);
+      const cambiaJefe = typeof nuevoJefeParticipanteId === 'string';
+
+      if (Object.keys(cambios).length === 0 && seSuman.length === 0 && !cambiaJefe) {
+        return { ok: false, error: `editar.${indice}: no mandaste ningún cambio.` };
+      }
+
+      if (Object.keys(cambios).length > 0) {
+        const parseado = esquemaEditarEquipo.safeParse(cambios);
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('editar', indice, parseado.error) };
+        }
+
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'PATCH',
+          ruta: `/identity/equipos/${equipo.equipoId}`,
+          body: parseado.data,
+          etiqueta: `Renombrar «${equipo.nombre}» → «${parseado.data.nombre}»`,
+        });
+      }
+
+      for (const id of seSuman) {
+        const parseado = esquemaAgregarMiembro.safeParse({ usuarioId: id });
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('editar', indice, parseado.error) };
+        }
+
+        if (!gente.has(id)) {
+          return {
+            ok: false,
+            error: `editar.${indice}: "${id}" no es un participante de este grupo.`,
+          };
+        }
+
+        const impedido = ocupada(id);
+
+        if (impedido) {
+          return { ok: false, error: `editar.${indice}: ${impedido}` };
+        }
+
+        conEquipo.set(id, equipo.nombre);
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'POST',
+          ruta: `/identity/equipos/${equipo.equipoId}/miembros`,
+          body: parseado.data,
+          etiqueta: `Sumar a ${gente.get(id)} al equipo «${equipo.nombre}»`,
+        });
+      }
+
+      if (cambiaJefe) {
+        const parseado = esquemaSustituirJefe.safeParse({
+          nuevoJefeUsuarioId: nuevoJefeParticipanteId,
+        });
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('editar', indice, parseado.error) };
+        }
+
+        // El jefe tiene que ser miembro, y se juzga sobre el estado que deja
+        // ESTA entrada: sumarlo y ascenderlo en el mismo cambio es válido
+        // porque las operaciones se aplican en orden, y el POST del miembro va
+        // antes que el del jefe.
+        const miembrosLuego = new Set([
+          ...equipo.miembros.map((miembro) => miembro.usuarioId),
+          ...seSuman,
+        ]);
+
+        if (!miembrosLuego.has(parseado.data.nuevoJefeUsuarioId)) {
+          return {
+            ok: false,
+            error:
+              `editar.${indice}.nuevoJefeParticipanteId: ` +
+              `${gente.get(parseado.data.nuevoJefeUsuarioId) ?? 'esa persona'} no es miembro de ` +
+              `«${equipo.nombre}». Sumalo al equipo en este mismo cambio y ahí sí puede ser jefe.`,
+          };
+        }
+
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'POST',
+          ruta: `/identity/equipos/${equipo.equipoId}/jefe`,
+          body: parseado.data,
+          etiqueta:
+            `«${equipo.nombre}»: el jefe pasa a ser ` +
+            `${gente.get(parseado.data.nuevoJefeUsuarioId) ?? '—'}`,
+        });
+      }
+    }
+
+    return await this.guardar('EQUIPOS', operaciones, {}, contexto, conversacionId);
+  }
+
   // ── Endpoints públicos ────────────────────────────────────────────────────
 
   async detalle(tenant: TenantContext, id: string): Promise<PropuestaIaDto> {
@@ -1690,6 +2111,15 @@ function zonaCompleta(datos: Partial<CamposDeZona>): CamposDeZona | null {
   }
 
   return { nombreZona, orden, puntosMin, puntosMax, colorHex };
+}
+
+/**
+ * Normalización para el choque de nombres de rol, igual que en identity: ahí el
+ * `@@unique([grupoId, nombre])` es la red y el chequeo real es este, porque
+ * Postgres compara con distinción de mayúsculas y «Cocina»/«cocina» pasarían.
+ */
+function normalizar(nombre: string): string {
+  return nombre.trim().toLowerCase();
 }
 
 /** «de 0 a 20 puntos» / «de 61 puntos para arriba», para la etiqueta. */

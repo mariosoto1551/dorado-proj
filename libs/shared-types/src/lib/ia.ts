@@ -161,7 +161,11 @@ export type TipoPropuestaIa =
   | 'ETIQUETAS'
   // fase-14-30 tanda 6 (familia escala). Cubre las zonas y la base de puntos:
   // son una sola propuesta porque las dos mueven a la gente sobre la escala.
-  | 'UMBRALES_ZONA';
+  | 'UMBRALES_ZONA'
+  // fase-14-30 tanda 7 (familia personas). Organizan a quien YA está en el
+  // grupo: no dan de alta ni de baja a nadie (decisión 4).
+  | 'ROLES_GRUPO'
+  | 'EQUIPOS';
 
 export type EstadoPropuestaIa =
   | 'BORRADOR'

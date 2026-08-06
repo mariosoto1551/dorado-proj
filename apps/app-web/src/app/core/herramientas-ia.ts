@@ -41,6 +41,9 @@ const PROPUESTAS: Record<string, string> = {
   proponer_etiquetas: 'una propuesta de etiquetas',
   // fase-14-30 tanda 6.
   proponer_umbrales_zona: 'una propuesta de escala de zonas',
+  // fase-14-30 tanda 7.
+  proponer_roles_grupo: 'una propuesta de roles del grupo',
+  proponer_equipos: 'una propuesta de equipos',
 };
 
 export type EstadoHerramienta = 'corriendo' | 'ok' | 'error';

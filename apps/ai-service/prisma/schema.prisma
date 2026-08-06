@@ -76,6 +76,10 @@ enum TipoPropuesta {
 
   // fase-14-30 tanda 6 — familia escala: las zonas y la base de puntos.
   UMBRALES_ZONA
+
+  // fase-14-30 tanda 7 — familia personas: roles y equipos de quien ya está.
+  ROLES_GRUPO
+  EQUIPOS
 }
 
 model Conversacion {
