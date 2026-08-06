@@ -47,7 +47,69 @@ const BOLSA_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 const ETIQUETA_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
+/** La zona más alta de la escala de prueba, la que no tiene techo. */
 const UMBRAL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+const UMBRAL_VERDE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+/**
+ * La escala del seed: cuatro zonas contiguas y la más alta sin techo. Es una
+ * escala REAL y no dos filas de mentira porque la familia escala se valida como
+ * conjunto — con dos zonas sueltas, la mitad de las reglas no se ejercería.
+ */
+const ESCALA = [
+  {
+    id: '11111111-aaaa-4aaa-8aaa-111111111111',
+    nombreZona: 'Rojo',
+    orden: 1,
+    puntosMin: 0,
+    puntosMax: 20,
+    colorHex: '#EF4444',
+  },
+  {
+    id: '22222222-aaaa-4aaa-8aaa-222222222222',
+    nombreZona: 'Amarillo',
+    orden: 2,
+    puntosMin: 21,
+    puntosMax: 40,
+    colorHex: '#F59E0B',
+  },
+  {
+    id: UMBRAL_VERDE_ID,
+    nombreZona: 'Verde',
+    orden: 3,
+    puntosMin: 41,
+    puntosMax: 60,
+    colorHex: '#22C55E',
+  },
+  {
+    id: UMBRAL_ID,
+    nombreZona: 'Dorado',
+    orden: 4,
+    puntosMin: 61,
+    puntosMax: null as number | null,
+    colorHex: '#EAB308',
+  },
+];
+
+/** Una zona de la escala de prueba, entera, como la manda el modelo. */
+function zona(id: string, cambios: Record<string, unknown> = {}) {
+  const actual = ESCALA.find((fila) => fila.id === id);
+
+  if (!actual) {
+    throw new Error(`No existe la zona "${id}" en la escala de prueba.`);
+  }
+
+  return {
+    umbralZonaId: actual.id,
+    nombreZona: actual.nombreZona,
+    orden: actual.orden,
+    puntosMin: actual.puntosMin,
+    puntosMax: actual.puntosMax,
+    colorHex: actual.colorHex,
+    ...cambios,
+  };
+}
 
 interface Opciones {
   propuesta?: Record<string, unknown> | null;
@@ -55,6 +117,8 @@ interface Opciones {
   actividad?: Record<string, unknown>;
   /** Pisa el modo de recompensas del grupo (TIENDA por defecto). */
   configuracion?: Record<string, unknown>;
+  /** `null` = scoring no contestó el resumen de puntajes (para el aviso). */
+  resumenPuntajes?: Record<string, unknown> | null;
 }
 
 function crearMocks(opciones: Opciones = {}) {
@@ -165,7 +229,35 @@ function crearMocks(opciones: Opciones = {}) {
   } as unknown as RewardsClientService;
 
   const scoring = {
-    umbrales: vi.fn(async () => [{ id: UMBRAL_ID, nombreZona: 'Dorado', orden: 4 }]),
+    umbrales: vi.fn(async () => ESCALA),
+    configuracion: vi.fn(async () => ({ puntosIniciales: 100 })),
+    // Tres participantes en tres zonas distintas: el que está arriba de todo es
+    // el que se mueve cuando la escala se parte en dos.
+    resumenPuntajes: vi.fn(async () =>
+      opciones.resumenPuntajes === null
+        ? null
+        : {
+            grupoId: 'grupo-1',
+            seccionId: 'sec-1',
+            origen: 'EN_VIVO',
+            puntajes: [
+              { usuarioId: USUARIO_ID, puntajeTotal: 15, nombreZona: 'Rojo', descalificado: false },
+              {
+                usuarioId: OTRO_USUARIO_ID,
+                puntajeTotal: 55,
+                nombreZona: 'Verde',
+                descalificado: false,
+              },
+              {
+                usuarioId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+                puntajeTotal: 90,
+                nombreZona: 'Dorado',
+                descalificado: false,
+              },
+            ],
+            ...opciones.resumenPuntajes,
+          }
+    ),
   } as unknown as ScoringClientService;
 
   return {
@@ -672,6 +764,7 @@ describe('PropuestasService', () => {
       proponer_rendimientos_monedas: {
         rendimientos: [{ tipoAccion: 'ACTIVIDAD', origenId: ACTIVIDAD_ID, monedas: 3 }],
       },
+      proponer_umbrales_zona: { puntosIniciales: 50 },
     };
 
     it('la tabla cubre TODAS las herramientas de propuesta del catálogo', () => {
@@ -1120,6 +1213,263 @@ describe('PropuestasService', () => {
       expect(operaciones).toHaveLength(1);
       expect(operaciones[0].metodo).toBe('PUT');
       expect(operaciones[0].ruta).toBe('/rewards/grupos/grupo-1/rendimientos-acciones');
+    });
+  });
+
+  /**
+   * La familia escala (fase-14-30 tanda 6). Es la única del ítem que se valida
+   * como CONJUNTO y la única que necesita encontrarle un orden de aplicado,
+   * porque scoring valida la escala completa en cada escritura.
+   */
+  describe('la escala de zonas (fase-14-30 tanda 6)', () => {
+    /** Partir la zona más alta en dos: el caso que sí tiene orden posible. */
+    const PARTIR_LA_CIMA = {
+      crear: [
+        {
+          nombreZona: 'Platino',
+          orden: 5,
+          puntosMin: 81,
+          puntosMax: null,
+          colorHex: '#A78BFA',
+        },
+      ],
+      editar: [zona(UMBRAL_ID, { puntosMax: 80 })],
+    };
+
+    it('pone el PATCH que baja el techo ANTES del alta, o el primer paso fallaría', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        PARTIR_LA_CIMA,
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(true);
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones.map((operacion) => operacion.metodo)).toEqual(['PATCH', 'POST']);
+      expect(operaciones[0].ruta).toBe(`/scoring/umbrales/${UMBRAL_ID}`);
+      expect(operaciones[1].ruta).toBe('/scoring/grupos/grupo-1/umbrales');
+      // El body del PATCH lleva la zona ENTERA, con `puntosMax` explícito:
+      // scoring conserva el techo viejo si el campo no viene.
+      expect(operaciones[0].body).toEqual({
+        nombreZona: 'Dorado',
+        orden: 4,
+        puntosMin: 61,
+        puntosMax: 80,
+        colorHex: '#EAB308',
+      });
+    });
+
+    /**
+     * El corazón de la decisión de esta familia: la edición de arriba, mirada
+     * sola, deja la escala con techo en la cima —o sea inválida—. Junto al alta
+     * de «Platino» cierra. Por eso se valida el estado RESULTANTE.
+     */
+    it('una edición que sola parece rota se acepta junto a las otras', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const sola = await servicio.armar(
+        'proponer_umbrales_zona',
+        { editar: PARTIR_LA_CIMA.editar },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(sola.ok).toBe(false);
+      expect((sola as { error: string }).error).toContain('sin zona');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+
+      const acompanada = await servicio.armar(
+        'proponer_umbrales_zona',
+        PARTIR_LA_CIMA,
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(acompanada.ok).toBe(true);
+    });
+
+    /** Criterio de aceptación 5: hueco, solape, sin cima o con dos cimas. */
+    it('una escala con un hueco NO se guarda y el error nombra el rango', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        { editar: [zona(UMBRAL_VERDE_ID, { puntosMax: 55 })] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('«Dorado»');
+      expect((resultado as { error: string }).error).toContain('56');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('correr dos límites a la vez se rechaza explicando que no hay orden posible', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      // El estado final cierra; lo que no existe es un camino de a un paso, y
+      // scoring valida el conjunto en cada guardado.
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        {
+          editar: [
+            zona('22222222-aaaa-4aaa-8aaa-222222222222', { puntosMax: 50 }),
+            zona(UMBRAL_VERDE_ID, { puntosMin: 51 }),
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('de a uno');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    /** Criterio 2: la referencia se valida contra el estado real del grupo. */
+    it('un umbralZonaId que no es de este grupo NO crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        { editar: [{ ...zona(UMBRAL_ID), umbralZonaId: ACTIVIDAD_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('umbralZonaId');
+      expect((resultado as { error: string }).error).toContain('listar_umbrales_zona');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('una zona a medias se rechaza pidiéndola entera, sin adivinar el techo', async () => {
+      const { servicio } = crearMocks();
+
+      // El caso real: el modelo cambia solo el color. Sin los otros campos no
+      // se puede saber si `puntosMax` ausente significa «dejalo» o «sacalo».
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        { editar: [{ umbralZonaId: UMBRAL_ID, colorHex: '#FACC15' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('entera');
+    });
+
+    it('puntosMax null es «sin techo» y no un campo vacío', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        // Le pone techo a la cima y crea la nueva sin techo: si el null se
+        // tratara como ausencia, la escala quedaría sin cima y se rechazaría.
+        PARTIR_LA_CIMA,
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(true);
+      expect((creadas[0]['operaciones'] as OperacionPropuesta[])[1].body).toMatchObject({
+        nombreZona: 'Platino',
+        puntosMax: null,
+      });
+    });
+
+    it('la base de puntos sola es un PUT y no toca ninguna zona', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_umbrales_zona',
+        { puntosIniciales: 0 },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(true);
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones).toHaveLength(1);
+      expect(operaciones[0].metodo).toBe('PUT');
+      expect(operaciones[0].ruta).toBe('/scoring/grupos/grupo-1/configuracion');
+      expect(operaciones[0].body).toEqual({ puntosIniciales: 0 });
+      expect(operaciones[0].etiqueta).toContain('antes 100');
+    });
+
+    it('sin zonas ni base no hay nada que proponer', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar('proponer_umbrales_zona', {}, CONTEXTO, 'conv-1');
+
+      expect(resultado.ok).toBe(false);
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Criterio de aceptación 10, y la decisión 6: es la única propuesta del
+     * ítem cuyo efecto no se limita a lo que pase de acá en adelante.
+     */
+    describe('el aviso de que esto cambia el pasado', () => {
+      it('dice a cuántos les cambia la zona', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        await servicio.armar('proponer_umbrales_zona', PARTIR_LA_CIMA, CONTEXTO, 'conv-1');
+
+        const snapshot = creadas[0]['snapshot'] as { aviso: string };
+
+        // De los tres, solo el de 90 puntos cruza: pasa de Dorado a Platino.
+        expect(snapshot.aviso).toContain('1 de 3');
+        expect(snapshot.aviso).toContain('cambia el pasado');
+      });
+
+      it('mover la base mueve a todos sobre la misma escala', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        // De 100 a 0: los tres quedan debajo de la zona más baja.
+        await servicio.armar(
+          'proponer_umbrales_zona',
+          { puntosIniciales: 0 },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect((creadas[0]['snapshot'] as { aviso: string }).aviso).toContain('3 de 3');
+      });
+
+      it('sin los puntajes lo dice, en vez de inventar un cero', async () => {
+        const { servicio, creadas } = crearMocks({ resumenPuntajes: null });
+
+        await servicio.armar('proponer_umbrales_zona', PARTIR_LA_CIMA, CONTEXTO, 'conv-1');
+
+        const aviso = (creadas[0]['snapshot'] as { aviso: string }).aviso;
+
+        expect(aviso).toContain('no sé a cuántos');
+        expect(aviso).not.toContain('0 de');
+      });
+
+      it('viaja en el DTO, así que la tarjeta lo tiene sin otra llamada', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_umbrales_zona',
+          PARTIR_LA_CIMA,
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect((resultado as { propuesta: { aviso: string | null } }).propuesta.aviso).toContain(
+          'cambia el pasado'
+        );
+      });
     });
   });
 

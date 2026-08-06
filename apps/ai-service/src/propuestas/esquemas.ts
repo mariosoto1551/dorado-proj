@@ -11,13 +11,16 @@ import {
   CrearEtiquetaRequest,
   CrearProductoRequest,
   CrearRecompensaRequest,
+  CrearUmbralRequest,
   EditarActividadRequest,
   EditarConductaRequest,
   EditarProductoRequest,
   EditarRecompensaRequest,
+  EditarUmbralRequest,
   FrecuenciaTurno,
   FuenteProducto,
   GuardarBolsaRequest,
+  GuardarConfiguracionScoringRequest,
   MecanicaProducto,
   ModoTurno,
   TipoAccionRendimiento,
@@ -242,6 +245,44 @@ const configurarTurno = z
   })
   .strict();
 
+/**
+ * La escala de zonas (fase-14-30 tanda 6).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * `puntosMax` ES EL ÚNICO CAMPO DEL ÍTEM DONDE `null` ES UN VALOR Y NO UNA
+ * AUSENCIA, Y POR ESO LA ZONA SE PROPONE COMPLETA:
+ *
+ * `null` significa «sin techo», o sea *la zona más alta*. Y el modelo no puede
+ * omitir una propiedad declarada (lo aprendió la tanda 5 del fase-14-29), así
+ * que un `puntosMax: null` de una edición que solo cambia el color llega
+ * exactamente igual que uno que quiere sacarle el techo a la cima: el mismo
+ * token, dos significados opuestos.
+ *
+ * La salida no es adivinar cuál de los dos era, es sacarle la ambigüedad al
+ * pedido: **cada zona se manda entera**, en el alta y en la edición. Cuesta
+ * cero (el modelo iba a emitir los cinco campos igual), hace que el estado
+ * resultante se pueda calcular exacto, y hace que el body del PATCH lleve
+ * `puntosMax` explícito — que es lo que scoring necesita para no conservar el
+ * techo viejo.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const camposUmbral = {
+  nombreZona: z.string().trim().min(1).max(50),
+  orden: enteroPositivo,
+  puntosMin: z.number().int(),
+  puntosMax: z.number().int().nullish(),
+  colorHex,
+};
+
+const crearUmbral = z.object(camposUmbral).strict();
+
+const editarUmbral = z.object(camposUmbral).partial().strict();
+
+/** PUT de la base con la que arranca cada Sección. 0 = arrancar en cero. */
+const configuracionScoring = z
+  .object({ puntosIniciales: z.number().int().min(0) })
+  .strict();
+
 const rendimientos = z
   .object({
     rendimientos: z
@@ -330,6 +371,18 @@ type _GuardarBolsaCompleto = Exhaustivo<
   ClavesNoCubiertas<GuardarBolsaRequest, z.infer<typeof guardarBolsa>>
 >;
 
+type _CrearUmbralCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearUmbralRequest, z.infer<typeof crearUmbral>>
+>;
+
+type _EditarUmbralCompleto = Exhaustivo<
+  ClavesNoCubiertas<EditarUmbralRequest, z.infer<typeof editarUmbral>>
+>;
+
+type _ConfiguracionScoringCompleta = Exhaustivo<
+  ClavesNoCubiertas<GuardarConfiguracionScoringRequest, z.infer<typeof configuracionScoring>>
+>;
+
 export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
 
 export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
@@ -358,6 +411,13 @@ export const esquemaCrearEtiqueta: z.ZodType<CrearEtiquetaRequest> = crearEtique
 export const esquemaAsignarEtiquetas: z.ZodType<AsignarEtiquetasRequest> = asignarEtiquetas;
 
 export const esquemaGuardarBolsa: z.ZodType<GuardarBolsaRequest> = guardarBolsa;
+
+export const esquemaCrearUmbral: z.ZodType<CrearUmbralRequest> = crearUmbral;
+
+export const esquemaEditarUmbral: z.ZodType<EditarUmbralRequest> = editarUmbral;
+
+export const esquemaConfiguracionScoring: z.ZodType<GuardarConfiguracionScoringRequest> =
+  configuracionScoring;
 
 export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesRequest> =
   rendimientos;

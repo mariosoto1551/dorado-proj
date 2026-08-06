@@ -25,6 +25,8 @@ const TITULOS: Record<PropuestaIaDto['tipo'], string> = {
   EDITAR_RECOMPENSAS: 'Cambios al catálogo de premios',
   PRODUCTOS_TIENDA: 'Productos nuevos en la tienda',
   ETIQUETAS: 'Etiquetas del catálogo',
+  // fase-14-30 tanda 6 — familia escala.
+  UMBRALES_ZONA: 'La escala de zonas',
 };
 
 const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
@@ -78,6 +80,20 @@ const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
           >{{ etiquetaEstado() }}</span>
         }
       </header>
+
+      <!--
+        El aviso de la decisión 6 del fase-14-30. Va ARRIBA de las filas y no
+        abajo del botón: es lo que cambia el sentido de lo que se está por
+        aprobar (mover un rango recalcula la zona de todos, también hacia
+        atrás), así que leerlo después de decidir no serviría de nada.
+      -->
+      @if (propuesta().aviso; as aviso) {
+        <p
+          class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
+        >
+          {{ aviso }}
+        </p>
+      }
 
       <ul class="mt-3 space-y-2">
         @for (fila of filas(); track fila.opId) {

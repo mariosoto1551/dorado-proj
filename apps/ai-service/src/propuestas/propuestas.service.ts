@@ -11,17 +11,28 @@ import { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import { PropuestaNoAplicableException, PropuestaVencidaException } from '../comun/excepciones';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  cuantosCambianDeZona,
+  estadoResultante,
+  ordenAplicable,
+  violacionDeLaEscala,
+  type PasoDeEscala,
+  type ZonaDeLaEscala,
+} from './escala';
+import {
   esquemaAsignarEtiquetas,
+  esquemaConfiguracionScoring,
   esquemaConfigurarTurno,
   esquemaCrearActividad,
   esquemaCrearConducta,
   esquemaCrearEtiqueta,
   esquemaCrearProducto,
   esquemaCrearRecompensa,
+  esquemaCrearUmbral,
   esquemaEditarActividad,
   esquemaEditarConducta,
   esquemaEditarProducto,
   esquemaEditarRecompensa,
+  esquemaEditarUmbral,
   esquemaGuardarBolsa,
   esquemaRendimientos,
   explicarError,
@@ -61,7 +72,8 @@ type TipoPropuesta =
   | 'CREAR_RECOMPENSAS'
   | 'EDITAR_RECOMPENSAS'
   | 'PRODUCTOS_TIENDA'
-  | 'ETIQUETAS';
+  | 'ETIQUETAS'
+  | 'UMBRALES_ZONA';
 
 /**
  * Lo que el armador le devuelve al loop para que se lo cuente al modelo.
@@ -150,6 +162,9 @@ export class PropuestasService {
 
       case 'proponer_rendimientos_monedas':
         return await this.armarRendimientos(argumentos, contexto, conversacionId);
+
+      case 'proponer_umbrales_zona':
+        return await this.armarUmbralesZona(argumentos, contexto, conversacionId);
 
       default:
         return { ok: false, error: `No existe una herramienta llamada "${nombreHerramienta}".` };
@@ -1115,6 +1130,257 @@ export class PropuestasService {
     return await this.guardar('RENDIMIENTOS_MONEDAS', operaciones, {}, contexto, conversacionId);
   }
 
+  /**
+   * La escala de zonas y la base de puntos (fase-14-30 tanda 6).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * LAS DOS COSAS QUE ESTA FAMILIA HACE DISTINTO A TODAS LAS DEMÁS:
+   *
+   * 1. **Se valida el conjunto, no la fila.** Un umbral suelto no es correcto ni
+   *    incorrecto; lo es la escala que queda. Por eso el chequeo corre sobre el
+   *    estado RESULTANTE —lo que hay más lo que la propuesta cambia— y no sobre
+   *    lo que la propuesta trae: una edición que sola parece rota puede ser
+   *    correcta junto a las otras.
+   *
+   * 2. **Hay que encontrarle un orden de aplicado.** scoring valida el conjunto
+   *    en cada escritura, y aplicar es un `for` (decisión 6 del fase-14-29): una
+   *    propuesta cuyo estado final cierra igual puede fallar en el paso 1 si el
+   *    intermedio deja un hueco. `ordenAplicable` busca un orden donde todos los
+   *    pasos cierran; si no existe, la propuesta no se guarda y el error le
+   *    explica al modelo por qué. Es la decisión 11 llevada al orden.
+   *
+   * Y una tercera que es del dominio y no del código: es la única propuesta del
+   * ítem cuyo efecto **no se limita a lo que pase de acá en adelante** (decisión
+   * 6). Por eso lleva aviso, con el conteo de a cuántos les cambia la zona.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarUmbralesZona(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const crear = this.arrayDe(argumentos, 'crear');
+    const editar = this.arrayDe(argumentos, 'editar');
+    const baseParseada = esquemaConfiguracionScoring.safeParse({
+      puntosIniciales: argumentos['puntosIniciales'],
+    });
+    const tocaLaBase = baseParseada.success;
+
+    if (crear.length === 0 && editar.length === 0 && !tocaLaBase) {
+      return {
+        ok: false,
+        error:
+          'Mandá al menos una zona en "crear" o en "editar", o un valor nuevo en ' +
+          '"puntosIniciales".',
+      };
+    }
+
+    const [umbrales, configuracion, resumen] = await Promise.all([
+      this.scoring.umbrales(contexto.grupoId),
+      this.scoring.configuracion(contexto.grupoId),
+      this.scoring.resumenPuntajes(contexto.grupoId),
+    ]);
+    const actuales: ZonaDeLaEscala[] = umbrales.map((umbral) => ({
+      id: umbral.id,
+      nombreZona: umbral.nombreZona,
+      orden: umbral.orden,
+      puntosMin: umbral.puntosMin,
+      puntosMax: umbral.puntosMax,
+    }));
+    const porId = new Map(actuales.map((zona) => [zona.id, zona]));
+    const pasos: PasoConOperacion[] = [];
+
+    for (const [indice, fila] of crear.entries()) {
+      const parseado = esquemaCrearUmbral.safeParse(limpiarZona(fila as Record<string, unknown>));
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('crear', indice, parseado.error) };
+      }
+
+      const campos = zonaCompleta(parseado.data);
+
+      if (!campos) {
+        return { ok: false, error: `crear.${indice}: ${ZONA_INCOMPLETA}` };
+      }
+
+      const zona = { id: '', ...campos };
+
+      pasos.push({
+        tipo: 'crear',
+        zona,
+        metodo: 'POST',
+        ruta: `/scoring/grupos/${contexto.grupoId}/umbrales`,
+        body: campos,
+        etiqueta: `Crear zona «${zona.nombreZona}», ${rangoLegible(zona)}`,
+      });
+    }
+
+    for (const [indice, fila] of editar.entries()) {
+      const { umbralZonaId, ...cambios } = fila as Record<string, unknown>;
+      const existente = typeof umbralZonaId === 'string' ? porId.get(umbralZonaId) : undefined;
+
+      // Decisión 2: la referencia se valida contra el estado real del grupo.
+      if (!existente) {
+        return {
+          ok: false,
+          error:
+            `editar.${indice}.umbralZonaId: no hay ninguna zona con ese id en este grupo. ` +
+            'Llamá a listar_umbrales_zona y usá un id de ahí.',
+        };
+      }
+
+      const parseado = esquemaEditarUmbral.safeParse(limpiarZona(cambios));
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('editar', indice, parseado.error) };
+      }
+
+      const campos = zonaCompleta(parseado.data);
+
+      if (!campos) {
+        return { ok: false, error: `editar.${indice}: ${ZONA_INCOMPLETA}` };
+      }
+
+      const zona = { id: existente.id, ...campos };
+
+      pasos.push({
+        tipo: 'editar',
+        zona,
+        metodo: 'PATCH',
+        ruta: `/scoring/umbrales/${existente.id}`,
+        // El body lleva la zona ENTERA, con `puntosMax` explícito: scoring
+        // conserva el techo viejo si el campo no viene, y entonces el estado
+        // que se validó acá no sería el que queda.
+        body: campos,
+        etiqueta:
+          `«${existente.nombreZona}»` +
+          (zona.nombreZona === existente.nombreZona ? '' : ` → «${zona.nombreZona}»`) +
+          `: ${rangoLegible(existente)} → ${rangoLegible(zona)}`,
+      });
+    }
+
+    const resultante = estadoResultante(actuales, pasos);
+
+    if (pasos.length > 0) {
+      const violacion = violacionDeLaEscala(resultante, { exigirCima: true });
+
+      if (violacion) {
+        return { ok: false, error: `la escala que queda no cierra: ${violacion}` };
+      }
+    }
+
+    const ordenados = pasos.length > 0 ? ordenAplicable(actuales, pasos) : [];
+
+    if (!ordenados) {
+      return {
+        ok: false,
+        error:
+          'estos cambios no se pueden aplicar de a uno: el grupo valida la escala completa en ' +
+          'CADA guardado, así que un paso intermedio con un hueco falla aunque el resultado ' +
+          'final cierre. Mover varios límites a la vez casi nunca tiene un orden posible. ' +
+          'Proponé un cambio que sí lo tenga —agregar una zona arriba poniéndole techo a la ' +
+          'más alta, por ejemplo— y decile al Tutor que una escala nueva entera se rehace desde ' +
+          'la pantalla de Zonas.',
+      };
+    }
+
+    const operaciones: OperacionPropuesta[] = ordenados.map((paso, indice) => ({
+      opId: `op-${indice + 1}`,
+      metodo: paso.metodo,
+      ruta: paso.ruta,
+      body: paso.body,
+      etiqueta: paso.etiqueta,
+    }));
+
+    if (baseParseada.success) {
+      const anterior = configuracion?.puntosIniciales;
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'PUT',
+        ruta: `/scoring/grupos/${contexto.grupoId}/configuracion`,
+        body: baseParseada.data,
+        etiqueta:
+          `Cada sección arranca con ${baseParseada.data.puntosIniciales} puntos` +
+          (anterior === undefined || anterior === baseParseada.data.puntosIniciales
+            ? ''
+            : ` (antes ${anterior})`),
+      });
+    }
+
+    return await this.guardar(
+      'UMBRALES_ZONA',
+      operaciones,
+      {
+        zonas: actuales,
+        aviso: this.avisoDeEscala(resumen, actuales, resultante, {
+          base: baseParseada.success ? baseParseada.data.puntosIniciales : null,
+          baseActual: configuracion?.puntosIniciales ?? null,
+        }),
+      },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /**
+   * El aviso de la decisión 6, con el conteo del criterio de aceptación 10.
+   *
+   * Se calcula acá y no en el frontend porque el dato con el que se calcula —el
+   * resumen de puntajes— es una lectura interna de este servicio: la pantalla
+   * tendría que resolver primero la Sección en curso contra un tercer servicio
+   * para pedir lo mismo. Y calculado acá queda guardado con la propuesta, así
+   * que reabrir la conversación mañana muestra el mismo número que el Tutor vio
+   * al decidir, no uno recalculado contra un grupo que ya cambió.
+   *
+   * **Un conteo que no se puede calcular se dice, no se inventa**: un «0
+   * participantes» falso sobre la única propuesta que cambia el pasado sería
+   * exactamente el aviso que hace aprobar sin mirar.
+   */
+  private avisoDeEscala(
+    resumen: { origen: string; puntajes: Array<{ puntajeTotal: number; descalificado: boolean }> } | null,
+    antes: ZonaDeLaEscala[],
+    despues: ZonaDeLaEscala[],
+    puntos: { base: number | null; baseActual: number | null }
+  ): string {
+    const encabezado =
+      'Esto cambia el pasado: el puntaje se calcula al leerlo, así que mover un rango recalcula ' +
+      'la zona de todos en el acto, también en las secciones que ya se cerraron.';
+
+    // Con la base en juego el conteo necesita saber de cuánto es el salto, y eso
+    // sale de la configuración actual. Sin ella no se cuenta.
+    const ajuste =
+      puntos.base === null
+        ? 0
+        : puntos.baseActual === null
+          ? null
+          : puntos.base - puntos.baseActual;
+
+    if (!resumen || resumen.puntajes.length === 0 || ajuste === null) {
+      return `${encabezado} No pude leer cómo viene cada uno ahora, así que no sé a cuántos les cambia la zona.`;
+    }
+
+    // Un puntaje ya evaluado quedó guardado con la base de aquel momento y no se
+    // recalcula, así que subir la base no lo mueve: el ajuste solo aplica a los
+    // puntajes que se derivan en vivo.
+    const cambian = cuantosCambianDeZona(
+      resumen.puntajes,
+      antes,
+      despues,
+      resumen.origen === 'EN_VIVO' ? ajuste : 0
+    );
+    const total = resumen.puntajes.length;
+
+    if (cambian === 0) {
+      return `${encabezado} Con los puntajes de ahora, ninguno de los ${total} participantes cambia de zona.`;
+    }
+
+    return (
+      `${encabezado} Con los puntajes de ahora, ${cambian} de ${total} ` +
+      `${total === 1 ? 'participante cambia' : 'participantes cambian'} de zona.`
+    );
+  }
+
   // ── Endpoints públicos ────────────────────────────────────────────────────
 
   async detalle(tenant: TenantContext, id: string): Promise<PropuestaIaDto> {
@@ -1320,6 +1586,7 @@ export class PropuestasService {
     grupoId: string;
     tipo: string;
     operaciones: unknown;
+    snapshot?: unknown;
     estado: string;
     venceEn: Date;
     aplicadaEn: Date | null;
@@ -1347,7 +1614,87 @@ export class PropuestasService {
       venceEn: propuesta.venceEn.toISOString(),
       aplicadaEn: propuesta.aplicadaEn?.toISOString() ?? null,
       resultado: (propuesta.resultado as ResultadoOperacionIa[] | null) ?? null,
+      // Sale del snapshot y no de una columna propia: es información de una
+      // familia sola (la escala) y el snapshot ya existe para exactamente esto
+      // —lo que la tarjeta necesita saber del estado de entonces—.
+      aviso: (propuesta.snapshot as { aviso?: string } | null)?.aviso ?? null,
       createdAt: propuesta.createdAt.toISOString(),
     };
   }
+}
+
+/** Los cinco campos de una zona, ya completos. */
+interface CamposDeZona {
+  nombreZona: string;
+  orden: number;
+  puntosMin: number;
+  puntosMax: number | null;
+  colorHex: string;
+}
+
+/** Un paso de la escala con la operación que lo va a ejecutar. */
+interface PasoConOperacion extends PasoDeEscala {
+  metodo: OperacionPropuesta['metodo'];
+  ruta: string;
+  body: unknown;
+  etiqueta: string;
+}
+
+const ZONA_INCOMPLETA =
+  'la zona se manda entera, con nombreZona, orden, puntosMin, puntosMax y colorHex, aunque solo ' +
+  'cambie uno. puntosMax va con un número o con null (sin techo), nunca vacío.';
+
+/**
+ * Saca lo que el modelo manda de relleno, **menos `puntosMax`**.
+ *
+ * Es la excepción a `limpiarVacios` y el motivo es el único caso del ítem donde
+ * `null` es un valor y no una ausencia: `puntosMax: null` significa «sin techo»,
+ * o sea la zona más alta. Sacarlo como se saca cualquier otro null perdería la
+ * única forma de decirlo.
+ */
+function limpiarZona(fila: Record<string, unknown>): Record<string, unknown> {
+  const limpia: Record<string, unknown> = {};
+
+  for (const [clave, valor] of Object.entries(fila)) {
+    if (valor === '' || valor === undefined) {
+      continue;
+    }
+
+    if (valor === null && clave !== 'puntosMax') {
+      continue;
+    }
+
+    limpia[clave] = valor;
+  }
+
+  return limpia;
+}
+
+/**
+ * La zona con sus cinco campos, o `null` si el modelo no los mandó todos.
+ *
+ * `puntosMax` se distingue de los demás: `null` es un valor válido y
+ * `undefined` es la ausencia, así que un `!== undefined` y no un `!= null`.
+ */
+function zonaCompleta(datos: Partial<CamposDeZona>): CamposDeZona | null {
+  const { nombreZona, orden, puntosMin, puntosMax, colorHex } = datos;
+
+  if (
+    nombreZona === undefined ||
+    orden === undefined ||
+    puntosMin === undefined ||
+    puntosMax === undefined ||
+    colorHex === undefined
+  ) {
+    return null;
+  }
+
+  return { nombreZona, orden, puntosMin, puntosMax, colorHex };
+}
+
+/** «de 0 a 20 puntos» / «de 61 puntos para arriba», para la etiqueta. */
+function rangoLegible(zona: { puntosMin: number; puntosMax: number | null }): string {
+  return zona.puntosMax === null
+    ? `de ${zona.puntosMin} puntos para arriba`
+    : `de ${zona.puntosMin} a ${zona.puntosMax} puntos`;
 }

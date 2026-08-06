@@ -6,6 +6,7 @@ import type {
   PropuestaIaDto,
   RecompensaDto,
   RendimientoAccionDto,
+  UmbralZonaDto,
 } from '@dorado/shared-types';
 
 import { describirDias } from './dias-semana';
@@ -62,10 +63,19 @@ export interface ContextoPropuesta {
   roles?: ReadonlyMap<string, string>;
   personas?: ReadonlyMap<string, string>;
   equipos?: ReadonlyMap<string, string>;
-  /** Los tres de la tanda 5, solo para traducir ids a nombres. */
+  /** Los dos de la tanda 5, solo para traducir ids a nombres. */
   bolsas?: ReadonlyMap<string, string>;
   etiquetas?: ReadonlyMap<string, string>;
-  umbrales?: ReadonlyMap<string, string>;
+  /**
+   * Las zonas enteras y no un mapa de nombres (fase-14-30 tanda 6): la tanda 5
+   * solo necesitaba traducir un `umbralZonaId`, pero una propuesta de escala
+   * edita la zona, así que hace falta el «antes» de cada campo. El mapa de
+   * nombres se deriva de acá — dos formas del mismo dato en el contexto sería
+   * pedirle a la pantalla que mande lo mismo dos veces.
+   */
+  umbrales?: readonly UmbralZonaDto[];
+  /** La base de puntos del grupo, para el «antes» de esa fila. */
+  puntosIniciales?: number;
 }
 
 /** Etiqueta legible de cada campo del request de una actividad. */
@@ -109,6 +119,13 @@ const ETIQUETAS: Record<string, string> = {
   bolsaId: 'Bolsa',
   recompensaIds: 'Premios',
   etiquetaIds: 'Etiquetas',
+  // fase-14-30 tanda 6. Van antes del color a propósito: el orden de este mapa
+  // es el orden en que se leen las filas de la tarjeta.
+  nombreZona: 'Zona',
+  orden: 'Posición en la escala',
+  puntosMin: 'Desde',
+  puntosMax: 'Hasta',
+  puntosIniciales: 'Arranca con',
   colorHex: 'Color',
 };
 
@@ -179,8 +196,59 @@ export function armarFilas(
 
       case 'ETIQUETAS':
         return filaDeEtiquetas(operacion, contexto);
+
+      case 'UMBRALES_ZONA':
+        return filaDeLaEscala(operacion, contexto);
     }
   });
+}
+
+/**
+ * La escala mezcla tres operaciones: crear una zona (`POST`), cambiarla
+ * (`PATCH`) y mover la base de puntos (`PUT` a la configuración). Se
+ * distinguen por la ruta y el método, que es el dato que ya viaja.
+ *
+ * La fila de la base va sola y no junto a las zonas porque no es una zona: es
+ * cuántos puntos tiene cada uno antes de empezar, y mueve a todos por igual
+ * sobre la escala que las zonas definen.
+ */
+function filaDeLaEscala(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const body = comoObjeto(operacion.body);
+
+  if (operacion.ruta.endsWith('/configuracion')) {
+    return {
+      opId: operacion.opId,
+      titulo: 'Puntos con los que arranca cada sección',
+      cambios: cambiosDe(
+        body,
+        contexto,
+        contexto.puntosIniciales === undefined
+          ? undefined
+          : { puntosIniciales: contexto.puntosIniciales }
+      ),
+    };
+  }
+
+  if (operacion.metodo === 'POST') {
+    return {
+      opId: operacion.opId,
+      titulo: `Crear zona «${String(body['nombreZona'] ?? 'sin nombre')}»`,
+      cambios: cambiosDe(body, contexto, undefined, ['nombreZona']),
+    };
+  }
+
+  const actual = (contexto.umbrales ?? []).find(
+    (umbral) => umbral.id === idDeLaRuta(operacion.ruta)
+  );
+
+  return {
+    opId: operacion.opId,
+    titulo: `Cambiar «${actual?.nombreZona ?? 'una zona'}»`,
+    cambios: cambiosDe(body, contexto, actual as unknown as Record<string, unknown> | undefined),
+  };
 }
 
 function filaDeAlta(
@@ -437,6 +505,13 @@ function cambiosDe(
 }
 
 function formatear(campo: string, valor: unknown, contexto: ContextoPropuesta): string {
+  // Va ANTES del guioncito general: en una zona, `puntosMax: null` no es un
+  // campo vacío, es la zona más alta. Mostrarlo como «—» diría lo contrario de
+  // lo que dice, justo en la fila que el Tutor tiene que entender.
+  if (campo === 'puntosMax' && valor === null) {
+    return 'sin techo';
+  }
+
   if (valor === null || valor === undefined || valor === '') {
     return '—';
   }
@@ -476,7 +551,11 @@ function formatear(campo: string, valor: unknown, contexto: ContextoPropuesta): 
   }
 
   if (campo === 'umbralZonaId') {
-    return nombresDe([valor], contexto.umbrales, '—');
+    return nombresDe([valor], mapaDeZonas(contexto), '—');
+  }
+
+  if (campo === 'puntosIniciales') {
+    return `${String(valor)} puntos`;
   }
 
   if (campo === 'duracionCronometroMinutos') {
@@ -522,7 +601,12 @@ function mapaDeRecompensas(contexto: ContextoPropuesta): ReadonlyMap<string, str
   return new Map((contexto.recompensas ?? []).map((fila) => [fila.id, fila.nombre]));
 }
 
-/** El id del final de `/activity/actividades/:id` o `/rewards/productos/:id`. */
+/** Ídem con las zonas: el contexto las trae enteras, acá solo hacen falta los nombres. */
+function mapaDeZonas(contexto: ContextoPropuesta): ReadonlyMap<string, string> {
+  return new Map((contexto.umbrales ?? []).map((zona) => [zona.id, zona.nombreZona]));
+}
+
+/** El id del final de `/activity/actividades/:id`, `/rewards/productos/:id` o `/scoring/umbrales/:id`. */
 function idDeLaRuta(ruta: string): string {
   return ruta.split('/').filter(Boolean).at(-1) ?? '';
 }

@@ -17,6 +17,7 @@ function propuestaDe(parcial: Partial<PropuestaIaDto> = {}): PropuestaIaDto {
     venceEn: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
     aplicadaEn: null,
     resultado: null,
+    aviso: null,
     createdAt: new Date().toISOString(),
     operaciones: [
       {
@@ -218,5 +219,27 @@ describe('TarjetaPropuestaComponent', () => {
     expect(texto()).toContain('Editar «Tender la cama»');
     expect(texto()).toContain('5');
     expect(texto()).toContain('12');
+  });
+
+  /**
+   * El aviso de la decisión 6 del fase-14-30: la escala es la única propuesta
+   * cuyo efecto no se limita a lo que pase de acá en adelante, y el Tutor tiene
+   * que leerlo ANTES de aprobar.
+   */
+  it('muestra el aviso de la propuesta cuando lo trae', async () => {
+    anfitrion.propuesta.set(
+      propuestaDe({
+        tipo: 'UMBRALES_ZONA',
+        aviso: 'Esto cambia el pasado: 2 de 4 participantes cambian de zona.',
+      })
+    );
+    await render();
+
+    expect(texto()).toContain('La escala de zonas');
+    expect(texto()).toContain('2 de 4 participantes cambian de zona');
+  });
+
+  it('sin aviso no dibuja el cartel', async () => {
+    expect(texto()).not.toContain('cambia el pasado');
   });
 });

@@ -158,7 +158,10 @@ export type TipoPropuestaIa =
   | 'CREAR_RECOMPENSAS'
   | 'EDITAR_RECOMPENSAS'
   | 'PRODUCTOS_TIENDA'
-  | 'ETIQUETAS';
+  | 'ETIQUETAS'
+  // fase-14-30 tanda 6 (familia escala). Cubre las zonas y la base de puntos:
+  // son una sola propuesta porque las dos mueven a la gente sobre la escala.
+  | 'UMBRALES_ZONA';
 
 export type EstadoPropuestaIa =
   | 'BORRADOR'
@@ -213,6 +216,17 @@ export interface PropuestaIaDto {
   venceEn: string;
   aplicadaEn: string | null;
   resultado: ResultadoOperacionIa[] | null;
+  /**
+   * Lo que el Tutor tiene que saber ANTES de aplicar, más allá del diff
+   * (fase-14-30 tanda 6). Hoy lo usa una sola familia —la escala de zonas, la
+   * única propuesta cuyo efecto no se limita a lo que pase de acá en adelante—
+   * y lleva el conteo de a cuántos les cambia la zona.
+   *
+   * Se calcula al armar la propuesta y queda guardado con ella: reabrir la
+   * conversación mañana tiene que mostrar el número que se vio al decidir, no
+   * uno recalculado contra un grupo que ya cambió.
+   */
+  aviso: string | null;
   createdAt: string;
 }
 

@@ -73,6 +73,9 @@ enum TipoPropuesta {
   EDITAR_RECOMPENSAS
   PRODUCTOS_TIENDA
   ETIQUETAS
+
+  // fase-14-30 tanda 6 — familia escala: las zonas y la base de puntos.
+  UMBRALES_ZONA
 }
 
 model Conversacion {

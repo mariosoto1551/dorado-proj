@@ -1957,7 +1957,7 @@ Y lo que deja abierto el ítem ya terminado:
 
 ---
 
-## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 5 de 9 (2026-08-05)
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 6 de 9 (2026-08-05)
 
 > Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
 
@@ -2272,3 +2272,87 @@ Las tandas 6 a 9. Anotado, además de lo de arriba:
 10. **La tanda 6 (umbrales) es la única con validación de conjunto.** Los rangos tienen que cubrir la recta sin huecos ni solapes **sobre el estado resultante**, no sobre lo que la propuesta trae — una edición parcial que sola parece rota puede ser correcta junto a las otras. Y es la única propuesta del ítem cuyo efecto **cambia el pasado** (decisión 6): mover un rango recalcula la zona de todos en el acto, incluidas las secciones ya cerradas.
 11. **El aviso de la tarjeta de umbrales necesita `resumen_puntajes`**, que hoy el frontend del asistente no carga: el contexto trae 11 lecturas y ninguna es esa. Entra con la tanda 6 o con la 8, pero entra.
 12. **`proponer_crear_productos` y `proponer_etiquetas` aceptan las dos listas vacías** y el armador rechaza si las dos lo están. Es la primera herramienta del catálogo con `required: []`, y el test estructural que exige `required` vacío es **solo para las de lectura**: si algún día se quiere la misma regla del otro lado, hay que escribirla.
+
+
+### Tanda 6 — familia escala: los umbrales de zona y la base de puntos (2026-08-05)
+
+**Una sola herramienta**, `proponer_umbrales_zona`, y es la más distinta del ítem: la única que se valida como **conjunto** y la única cuyo efecto **no se limita a lo que pase de acá en adelante**. Con ella el catálogo llega a **24 herramientas**. Cubre los tres endpoints que la spec pide —crear umbral, editarlo y guardar `puntosIniciales`— porque los dos mueven a la gente sobre la misma recta: cambiar la base 100 puntos no toca ninguna zona y sin embargo puede reubicar a todo el grupo.
+
+#### El hallazgo de la tanda: que el estado final cierre NO alcanza
+
+La spec pide validar el estado **resultante** —lo que hay más lo que la propuesta cambia— y explica bien por qué: una edición que sola parece rota puede ser correcta junto a las otras. Eso está hecho y es correcto. Lo que la spec no anticipa, y apareció al escribir el armador, es la otra mitad:
+
+**`scoring-service` valida la escala completa en CADA escritura, y aplicar es un `for`** (decisión 6 del #29). O sea que una propuesta cuyo estado final es impecable puede fallar en la operación 1 porque el estado **intermedio** deja un hueco. El caso más común de todos lo tiene: para agregar una zona arriba hay que ponerle techo a la cima y crear la nueva sin techo; si el `for` empieza por el alta, el paso 1 deja **dos zonas sin techo** y scoring lo rechaza — con la propuesta ya aprobada por el Tutor, que es exactamente el modo de falla que la decisión 11 existe para hacer imposible.
+
+Por eso el armador **le busca un orden a la propuesta**: `ordenAplicable` explora los órdenes posibles y devuelve uno donde **todos los pasos intermedios también cierran**, midiendo cada paso con la regla del *endpoint* (que sí admite que la cima tenga techo) y no con la nuestra. En el caso de arriba encuentra `PATCH` y después `POST`, que es el único orden que sobrevive.
+
+**Y hay propuestas que no tienen ningún orden posible.** «Corré todos los rangos hacia arriba» es una: mover un límite descoloca al vecino se empiece por donde se empiece. Esas **no se guardan**, y el error se lo explica al modelo —qué está pasando, qué sí puede proponer, y que una escala nueva entera el Tutor la rehace desde su pantalla—. Es una limitación real del producto y conviene tenerla escrita: **el asistente puede ampliar la escala, no re-escalarla**.
+
+#### `puntosMax` es el único campo del ítem donde `null` es un valor
+
+Las tandas 4 y 5 dejaron la regla: el `null` se conserva solo si el contrato destino tiene algún campo anulable. Acá el contrato lo tiene —`puntosMax: null` significa **sin techo**, o sea *la zona más alta*— pero la regla no alcanza, por una razón que ya se sabía y que recién ahora choca: **el modelo no puede omitir una propiedad declarada**. Entonces un `puntosMax: null` de una edición que solo cambia el color llega **idéntico** a uno que quiere sacarle el techo a la cima. El mismo token, dos significados opuestos, y no hay forma de distinguirlos mirando el valor.
+
+La salida no fue adivinar: fue **sacarle la ambigüedad al pedido**. La zona se propone **entera** —los cinco campos, en el alta y en la edición—, así que el conjunto de campos ya no es una pista de nada y `puntosMax: null` significa siempre lo mismo. Cuesta cero (el modelo iba a emitir los cinco igual), hace que el estado resultante se pueda calcular exacto, y de paso arregla un tercer problema que estaba escondido: **el `PATCH` de scoring conserva el techo viejo si el campo no viene**, así que un body parcial habría dejado un estado distinto del que se validó acá.
+
+`limpiarZona` es la excepción declarada a `limpiarVacios`: saca `""` y `undefined`, saca los `null` de todos los campos **menos** `puntosMax`.
+
+#### Una regla más estricta que el endpoint, y es a propósito
+
+La tanda 4 fijó el criterio «solo se replican las reglas que **rechazan**». Esta tanda lo rompe una vez, y por pedido explícito de la spec (criterio de aceptación 5): **exactamente una zona sin techo**. scoring acepta una escala donde la más alta tiene techo; el efecto es que un puntaje por encima **se queda sin zona**, que es un grupo mal configurado aunque la API lo haya guardado. El asistente no propone eso.
+
+La distinción vive en el código como un parámetro (`exigirCima`) y no como dos funciones parecidas, porque las dos versiones se usan a la vez: la estricta para el estado final, la del endpoint para los pasos intermedios. Con la estricta en los intermedios, agregar una zona arriba sería imposible.
+
+#### El aviso de la decisión 6, y por qué se calcula en el backend
+
+La Parte D pone el aviso en el frontend y el pendiente 11 de la tanda 5 lo daba por hecho ahí. Se hizo en el backend, y la desviación tiene dos motivos:
+
+1. **El dato es una lectura interna de `ai-service`.** `resumen_puntajes` no tiene equivalente público: la pantalla tendría que resolver primero la Sección en curso contra `session-service` para después pedir los puntajes, o sea encadenar dos servicios más para un cartel.
+2. **Calculado al armar, queda guardado con la propuesta.** Reabrir la conversación mañana muestra el número que el Tutor vio al decidir, no uno recalculado contra un grupo que ya cambió. Un aviso que se mueve solo es peor que ninguno.
+
+Viaja en `PropuestaIaDto.aviso` (campo nuevo, genérico: «lo que hay que saber antes de aplicar, más allá del diff») y se persiste dentro del `snapshot` que ya existía — **sin columna nueva ni migración por esto**. La tarjeta lo dibuja arriba de las filas y no abajo del botón: es lo que cambia el sentido de lo que se está por aprobar.
+
+Dos detalles del conteo que no son obvios:
+
+- **Un conteo que no se puede calcular se dice, no se inventa.** Si scoring no contesta el resumen, el aviso lo declara. Un «0 participantes» falso, sobre la única propuesta que cambia el pasado, sería exactamente el cartel que hace aprobar sin mirar.
+- **El ajuste por `puntosIniciales` solo se aplica a los puntajes EN_VIVO.** Un `ResultadoSeccion` ya evaluado guardó su base y no se recalcula (así lo dejó la Fase 7), así que sumarle el salto a un puntaje de snapshot contaría gente que no se mueve.
+
+#### Frontend y system prompt, otra vez en la tanda y por lo mismo de siempre
+
+El `switch` de `armarFilas` es exhaustivo, así que la unión creció y `app-web` dejó de compilar: entró la tarjeta de la familia, ni más ni menos. Tres cosas propias:
+
+- **Las tres operaciones se distinguen por la ruta y el método**, igual que la tienda en la tanda 5: `/configuracion` es la base, `POST` es un alta de zona, `PATCH` una edición.
+- **`puntosMax: null` se lee «sin techo» y no «—»**, con el chequeo puesto *antes* del guioncito general. Mostrarlo como campo vacío diría lo contrario de lo que dice, justo en la fila que el Tutor tiene que entender.
+- **El contexto pasó a traer las zonas enteras** (antes era un mapa id→nombre, que alcanzaba para traducir un `umbralZonaId`) más `puntosIniciales`: sin el «antes» de cada campo, una edición de escala es una lista de números sin referencia.
+
+Y el system prompt por **tercera tanda seguida**: la escala no entraba en ninguna de las cuatro capacidades, así que el modelo tenía la herramienta y la instrucción de no usarla. Entró como capacidad 5, con el aviso de que cambia el pasado adentro. A esta altura no es un olvido recurrente sino una regla que conviene escribir: **una herramienta nueva se mira contra el prompt, no solo contra el catálogo.**
+
+#### El costo en tokens, actualizado (criterio 12)
+
+| | Herramientas | Caracteres | ≈ tokens |
+|---|---|---|---|
+| fase-14-29 | 12 | 16.591 | ~4.148 |
+| tanda 1 | 13 | 17.267 | ~4.317 |
+| tanda 3 | 16 | 18.937 | ~4.734 |
+| tanda 4 | 19 | 25.770 | ~6.443 |
+| tanda 5 | 23 | 35.169 | ~8.792 |
+| tanda 6 | 24 | 38.452 | ~9.613 |
+
+**+132% sobre el catálogo original**, con **+821 tokens** por una sola herramienta. La decisión 10 pide mirar si lo que sobra es un catálogo mal escrito, y la primera versión **lo era**: pesaba 4.111 caracteres, más que `proponer_crear_productos` (2.855) que lleva dos arrays de objetos. La razón es estructural —los cinco campos de la zona entran **dos veces**, en `crear` y en `editar`— así que cada palabra de más se paga doble. Reescribiendo las descripciones al nivel de detalle del resto del catálogo quedó en **3.282**, sin sacar ni una regla: se fueron las repeticiones, no la información. El bloque entra por caché vía `prompt_cache_key`.
+
+#### Verificación de la tanda 6
+
+- **`ai-service` 232/232** (+28: 14 en `escala.spec.ts`, que es nuevo, y 14 en `propuestas.service.spec.ts`) y **`app-web` 215/215** (+5).
+- **Workspace entero verde**: activity 357, rewards 206, session 74, scoring 63, gateway 49, identity 48, notification 22 — **sin una regresión**.
+- **Lint 19/19 y build 18/18.**
+- **Migración aplicada contra Postgres real**: `20260806025245_fase_14_30_escala`, aditiva (`UMBRALES_ZONA`). Verificada leyendo el enum en la base: 12 valores, los 11 anteriores intactos.
+- **Los dos extremos de la validación de conjunto, probados por separado**: la edición que sola se rechaza («…se quedaría sin zona») y la misma edición aceptada junto al alta que la completa. Es el criterio de la spec escrito como test.
+- **Lo que NO se verificó y no se da por verificado**, igual que en las tandas 4 y 5: el apply de punta a punta contra scoring con un JWT de Tutor. Es de la tanda 9.
+
+#### Qué falta de este ítem
+
+Las tandas 7 (familia personas), 8 (frontend) y 9 (E2E). Anotado, además de lo que sigue valiendo de las tandas anteriores:
+
+13. ~~La tanda 6 es la única con validación de conjunto.~~ **Hecha**, y con una vuelta de tuerca que no estaba prevista: además del conjunto hay que resolverle un **orden de aplicado**, porque el destino valida en cada escritura. Si alguna familia futura toca un endpoint que valide el conjunto, este es el patrón.
+14. ~~El aviso necesita `resumen_puntajes`.~~ **Hecho en el backend**, no en el frontend: ver la desviación de arriba. `PropuestaIaDto` tiene ahora un `aviso` genérico que cualquier familia puede usar.
+15. **La tanda 9 tiene un caso propio para la escala**: que el orden de las operaciones se respete al aplicar. El aplicado del frontend recorre `operaciones` en orden y eso es justo lo que hace falta — pero **nada lo verifica hoy**, y si algún día alguien paraleliza ese `for` «para que vaya más rápido», esta familia se rompe en silencio y ninguna otra se entera.
+16. **El aviso se calcula con los puntajes del momento de armar.** Una propuesta de 20 horas de antigüedad puede mostrar un conteo viejo; el vencimiento a las 24 h (decisión 12 del #29) es lo único que lo acota. Es aceptable y está dicho en el propio texto («con los puntajes de ahora»), pero si algún día el aviso se usa para algo más que informar, hay que recalcularlo al aplicar.

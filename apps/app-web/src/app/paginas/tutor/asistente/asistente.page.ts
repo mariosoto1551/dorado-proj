@@ -424,6 +424,7 @@ export class AsistentePage {
       bolsas,
       etiquetas,
       umbrales,
+      configuracionScoring,
     ] = await Promise.allSettled([
       firstValueFrom(this.activity.listarActividades(grupoId, 'ACTIVA')),
       firstValueFrom(this.activity.listarConductas(grupoId, 'ACTIVA')),
@@ -436,6 +437,7 @@ export class AsistentePage {
       firstValueFrom(this.rewards.listarBolsas(grupoId)),
       firstValueFrom(this.rewards.listarEtiquetas(grupoId, 'ACTIVA')),
       firstValueFrom(this.scoring.listarUmbrales(grupoId)),
+      firstValueFrom(this.scoring.obtenerConfiguracion(grupoId)),
     ]);
 
     this.contexto.set({
@@ -452,11 +454,11 @@ export class AsistentePage {
       equipos: mapaDe(valorDe(equipos)),
       bolsas: mapaDe(valorDe(bolsas)),
       etiquetas: mapaDe(valorDe(etiquetas)),
-      // La zona se nombra por `nombreZona`, que es lo que el Tutor lee en su
-      // pantalla — el `nombre` genérico del mapa no existe en un umbral.
-      umbrales: new Map(
-        (valorDe(umbrales) ?? []).map((umbral) => [umbral.id, umbral.nombreZona])
-      ),
+      // Enteras y no como mapa de nombres desde la tanda 6: una propuesta de
+      // escala edita la zona, así que la tarjeta necesita el «antes» de cada
+      // campo y no solo cómo se llama.
+      umbrales: valorDe(umbrales) ?? [],
+      puntosIniciales: valorDe(configuracionScoring)?.puntosIniciales,
     });
   }
 

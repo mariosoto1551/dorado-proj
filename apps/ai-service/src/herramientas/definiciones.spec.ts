@@ -163,6 +163,8 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         'proponer_editar_productos',
         'proponer_etiquetas',
         'proponer_rendimientos_monedas',
+        // fase-14-30 tanda 6 — familia escala.
+        'proponer_umbrales_zona',
       ]);
 
       for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {

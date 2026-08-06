@@ -39,6 +39,8 @@ const PROPUESTAS: Record<string, string> = {
   proponer_crear_productos: 'una propuesta de productos para la tienda',
   proponer_editar_productos: 'una propuesta de cambios en la tienda',
   proponer_etiquetas: 'una propuesta de etiquetas',
+  // fase-14-30 tanda 6.
+  proponer_umbrales_zona: 'una propuesta de escala de zonas',
 };
 
 export type EstadoHerramienta = 'corriendo' | 'ok' | 'error';

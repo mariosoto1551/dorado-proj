@@ -336,6 +336,45 @@ function camposProducto(): Record<string, PropiedadEsquema> {
   };
 }
 
+/**
+ * Los campos de una zona de la escala (fase-14-30 tanda 6).
+ *
+ * **Se piden los cinco siempre**, también al editar, y no es un descuido de la
+ * regla «mandá solo lo que cambia» que llevan las otras ediciones: `puntosMax:
+ * null` significa *sin techo*, y el modelo no puede omitir una propiedad
+ * declarada. O sea que un null de «no lo toqué» y uno de «sacale el techo»
+ * llegan idénticos. Pidiendo la zona entera esa ambigüedad no existe.
+ */
+function camposZona(): Record<string, PropiedadEsquema> {
+  return {
+    nombreZona: {
+      type: 'string',
+      description: 'Cómo se llama ("Rojo", "Dorado"). Máximo 50 caracteres.',
+    },
+    orden: {
+      type: 'integer',
+      description: '1 es la más baja. Van corridos, sin huecos ni repetidos.',
+      minimum: 1,
+    },
+    puntosMin: {
+      type: 'integer',
+      description:
+        'Desde qué puntaje se entra. Puede ser negativo. Tiene que ser el puntosMax de la zona ' +
+        'anterior más 1.',
+    },
+    puntosMax: {
+      type: 'integer',
+      description:
+        'Hasta qué puntaje llega, inclusive. **null = sin techo, y eso solo puede serlo la zona ' +
+        'más alta**, que tiene que existir. Mandá siempre este campo: número o null.',
+    },
+    colorHex: {
+      type: 'string',
+      description: 'Color "#RRGGBB" (ej. "#22C55E"). Es el que ve el participante.',
+    },
+  };
+}
+
 export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
   {
     nombre: 'proponer_crear_actividades',
@@ -787,6 +826,72 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
         resumen: { type: 'string', description: 'Una línea con el criterio de calibración.' },
       },
       required: ['rendimientos'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_umbrales_zona',
+    descripcion:
+      `Propone la escala de zonas del grupo y con cuántos puntos arranca cada uno en cada ` +
+      `sección. ${NO_APLICA} ` +
+      'CAMBIA EL PASADO: el puntaje se calcula al leerlo, así que mover un rango recalcula la ' +
+      'zona de todos en el acto, también en las secciones ya cerradas. Decíselo al Tutor. ' +
+      'Mirá antes listar_umbrales_zona y resumen_puntajes: sin eso movés gente de zona a ciegas. ' +
+      'La escala es un conjunto: las zonas que quedan tienen que cubrir la recta sin huecos ni ' +
+      'solapes, con los órdenes corridos desde 1 y exactamente una sin techo, la más alta. Si ' +
+      'corrés un límite, mandá también la zona vecina que queda descolgada.',
+    parametros: {
+      type: 'object',
+      properties: {
+        crear: {
+          type: 'array',
+          description: 'Zonas nuevas. Podés mandar la lista vacía.',
+          items: {
+            type: 'object',
+            description: 'Una zona nueva.',
+            properties: camposZona(),
+            required: ['nombreZona', 'orden', 'puntosMin', 'puntosMax', 'colorHex'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        editar: {
+          type: 'array',
+          description:
+            'Zonas que ya existen, con TODOS sus campos aunque cambie uno solo. Lista vacía si ' +
+            'no editás ninguna.',
+          items: {
+            type: 'object',
+            description: 'Una zona existente, entera.',
+            properties: {
+              umbralZonaId: uuidDe('la zona a cambiar', 'listar_umbrales_zona'),
+              ...camposZona(),
+            },
+            required: [
+              'umbralZonaId',
+              'nombreZona',
+              'orden',
+              'puntosMin',
+              'puntosMax',
+              'colorHex',
+            ],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        puntosIniciales: {
+          type: 'integer',
+          description:
+            'Con cuántos puntos arranca cada uno en CADA sección. Mueve a todos por igual sobre ' +
+            'la escala. Mandalo solo si lo estás cambiando.',
+          minimum: 0,
+        },
+        resumen: {
+          type: 'string',
+          description: 'Una línea con la escala que proponés y por qué.',
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },

@@ -9,6 +9,7 @@ import type {
   RecompensaDto,
   RendimientoAccionDto,
   TipoPropuestaIa,
+  UmbralZonaDto,
 } from '@dorado/shared-types';
 
 import { armarFilas, estaCerrada, horasHastaVencer } from './propuesta-ia';
@@ -26,6 +27,7 @@ function propuesta(
     venceEn: '2026-08-05T12:00:00.000Z',
     aplicadaEn: null,
     resultado: null,
+    aviso: null,
     createdAt: '2026-08-04T12:00:00.000Z',
     operaciones: operaciones.map((operacion, i) => ({
       opId: `op-${i + 1}`,
@@ -368,6 +370,99 @@ describe('armarFilas', () => {
         antes: 'Pantallas',
         despues: 'ninguna',
       });
+    });
+  });
+
+  describe('la escala de zonas (fase-14-30 tanda 6)', () => {
+    const ZONAS = [
+      {
+        id: 'zona-verde',
+        nombreZona: 'Verde',
+        orden: 3,
+        puntosMin: 41,
+        puntosMax: 60,
+        colorHex: '#22C55E',
+      },
+      {
+        id: 'zona-dorado',
+        nombreZona: 'Dorado',
+        orden: 4,
+        puntosMin: 61,
+        puntosMax: null,
+        colorHex: '#EAB308',
+      },
+    ] as UmbralZonaDto[];
+
+    it('el alta de una zona se lee sin repetir el nombre', () => {
+      const filas = armarFilas(
+        propuesta('UMBRALES_ZONA', [
+          {
+            metodo: 'POST',
+            ruta: '/scoring/grupos/grupo-1/umbrales',
+            body: {
+              nombreZona: 'Platino',
+              orden: 5,
+              puntosMin: 81,
+              puntosMax: null,
+              colorHex: '#A78BFA',
+            },
+          },
+        ]),
+        { umbrales: ZONAS }
+      );
+
+      expect(filas[0].titulo).toBe('Crear zona «Platino»');
+
+      const porCampo = new Map(filas[0].cambios.map((c) => [c.campo, c.despues]));
+
+      expect(porCampo.get('Desde')).toBe('81');
+      // «sin techo» y no «—»: en una zona, el null es la zona más alta, no un
+      // campo vacío.
+      expect(porCampo.get('Hasta')).toBe('sin techo');
+    });
+
+    it('la edición muestra solo el límite que se movió, con el valor viejo al lado', () => {
+      const filas = armarFilas(
+        propuesta('UMBRALES_ZONA', [
+          {
+            metodo: 'PATCH',
+            ruta: '/scoring/umbrales/zona-dorado',
+            // La zona viaja entera aunque cambie un solo campo: el diff es el
+            // que se encarga de no mostrar los otros cuatro.
+            body: {
+              nombreZona: 'Dorado',
+              orden: 4,
+              puntosMin: 61,
+              puntosMax: 80,
+              colorHex: '#EAB308',
+            },
+          },
+        ]),
+        { umbrales: ZONAS }
+      );
+
+      expect(filas[0].titulo).toBe('Cambiar «Dorado»');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Hasta', antes: 'sin techo', despues: '80' },
+      ]);
+    });
+
+    it('la base de puntos va en su propia fila y dice con cuántos se arrancaba', () => {
+      const filas = armarFilas(
+        propuesta('UMBRALES_ZONA', [
+          {
+            metodo: 'PUT',
+            ruta: '/scoring/grupos/grupo-1/configuracion',
+            body: { puntosIniciales: 0 },
+          },
+        ]),
+        { umbrales: ZONAS, puntosIniciales: 100 }
+      );
+
+      expect(filas[0].titulo).toBe('Puntos con los que arranca cada sección');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Arranca con', antes: '100 puntos', despues: '0 puntos' },
+      ]);
     });
   });
 
