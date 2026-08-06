@@ -2558,3 +2558,84 @@ Queda anotado para el que siga:
 
 21. **La E2E no corre sola y eso es deuda, no una decisión.** Necesita el stack levantado a mano y el job de CI solo la ve al pushear. Siete tandas con una afirmación falsa adentro es el costo medido de eso. La salida barata: correrla al cerrar cada ítem, no cada tanda.
 22. **Las suites de navegador están gateadas por `E2E_UI=1`** y no corren en CI (los frontends no se sirven ahí). Las tres nuevas heredan esa condición: si algún día se sirve `app-web` en CI, se prenden solas.
+
+---
+
+## Ítem 31: Alcance operativo del asistente (borrar, ajustar, anotar) — EN CURSO, tandas 1 a 4 de 9 (2026-08-06)
+
+> Spec: `docs/phases/fase-14-31-alcance-operativo-del-asistente.md` (escrita en esta misma sesión, con José, antes de tocar código). Prerrequisitos: los #29 y #30 completos y verificados.
+
+El pedido de José: *«que la IA pudiera borrar ahora, también si el usuario confirma, además que la IA pueda modificar los puntos de algún participante o sus monedas, o anotar qué hizo o no hizo un participante»*. Las tres capacidades son **exactamente lo que el #29 y el #30 pusieron fuera de alcance a propósito** —*«archivar, borrar y desactivar cualquier cosa»* y *«las escrituras que tocan un ledger»*—, así que va como ítem propio y no como una tanda del #30. Ninguna spec anterior se editó.
+
+**Las cuatro decisiones se cerraron con José al arrancar la sesión** (las cuatro recomendadas): crear el endpoint de ajuste manual de puntos, borrar solo catálogo y marcas (personas nunca), tarjeta roja con confirmación fila por fila, y anotar sobre la sesión abierta con posibilidad de deshacer.
+
+### Lo que este ítem encontró y no era de la IA
+
+Buscando el endpoint destino de *«ponele 10 puntos a Juan»* apareció que **no existe**. `TipoOrigenPuntos` tenía cuatro valores y `POST /scoring/eventos-puntos/:id/corregir` exige el id de un asiento previo: sirve para arreglar lo que existe, no para sumar por algo que pasó fuera del catálogo. O sea que **el Tutor tampoco podía ajustar puntos a mano** desde la Fase 7 — para monedas hay ajuste manual desde el #22 y para los puntos, que son el número principal del producto, no había nada.
+
+Es el mismo modo de descubrimiento que el #30 anotó para sus dos defectos: *leer el código con una pregunta nueva encima*. La única forma de encontrarlo era preguntarse dónde aplicaría una capacidad nueva.
+
+### Tanda 1 — el ajuste manual de puntos, con su pantalla (2026-08-06)
+
+Sin una línea de `ai-service`, y primero a propósito: es un hueco del producto y queda entregado aunque el resto del ítem se posponga.
+
+- `POST /scoring/grupos/:grupoId/usuarios/:usuarioId/ajuste` (TUTOR / ORG_ADMIN), con `puntos` (Int con signo, ≠ 0) y `motivo` obligatorio. Espeja `AjustarMonedasRequest` campo por campo salvo el nombre del número.
+- Escribe **una fila nueva** con `tipoOrigen: AJUSTE_MANUAL`. El puntaje se sigue derivando al leer: el `aggregate` no filtra por origen, así que el valor nuevo suma solo sin tocar ninguna consulta.
+- `EventoPuntos.origenId` pasa a **nullable**: un ajuste manual no tiene fila de origen y meterle un id prestado sería mentir en el único ledger del sistema. Todas las consultas por `origenId` filtran por un valor concreto.
+- El motivo se guarda en `motivoCorreccion`, que ya significa *«por qué un humano tocó el ledger a mano»*. Renombrarlo sería mejor nombre y peor idea (columna persistida con filas vivas — criterio de la decisión 7 del #30).
+- Cae en la Sesión abierta o **409**: misma resolución que hace activity al registrar. Se agregó `obtenerSeccionActual` a `SessionClientService` de scoring.
+- **Sin piso en 0**, al revés que el ajuste de monedas: un puntaje negativo es una zona legítima, un saldo negativo no.
+- Rastro en auditoría como `PUNTOS_AJUSTADOS`, por el camino de la corrección.
+
+**Desviación de la spec, registrada acá:** la Parte A decía *«modal de ajuste sobre la lista de integrantes del área de puntajes»*. Se implementó como un bloque **«Puntos a mano» dentro del panel operativo**, debajo de la conducta rápida, con el integrante ya elegido arriba. El motivo: en el panel la persona se elige una sola vez y todo lo de abajo es de ella — hacerlo en otra pantalla obligaría a elegirla dos veces, que es justamente lo que el #23 T4 sacó de esa página.
+
+### Tanda 2 — `DELETE` en el camino de aplicado, y su lista blanca (2026-08-06)
+
+**La decisión 3 del #30 —*ninguna operación de ninguna propuesta usa `DELETE`*— no se borró: se invirtió.** Es el precedente que deja este ítem, y vale la pena que quede escrito: una capacidad que se amplía deja atrás una regla más chica, no ninguna. El test que la sostenía pasó de afirmar una prohibición a afirmar una lista blanca, que es más fuerte y más específica.
+
+- `OperacionPropuestaIaDto.metodo` suma `'DELETE'`. Es **lo único** que cambia del camino de aplicado: `aplicar-propuesta.ts` no se tocó (es un `for`, y el `soloEstas` que la rama destructiva necesita ya existía desde el #29).
+- `TIPOS_PROPUESTA_CON_BORRADO` en `shared-types`: `ARCHIVAR_CATALOGO`, `QUITAR_MARCAS` y `UMBRALES_ZONA`.
+- `esPropuestaDestructiva()` decide **por las operaciones y no por el tipo**: una propuesta de umbrales que solo edita rangos es una edición normal; la misma con una zona borrada adentro, no. La tarjeta se pinta por su fila más peligrosa.
+- Tarjeta destructiva: encabezado rojo, **sin «Aplicar todo»**, nada tildado de entrada (el default se invierte) y el cartel que dice qué se pierde *y qué no*. Dos signals y no uno con el significado invertido: dos conjuntos vacíos que quieren decir cosas opuestas se leen mal seis meses después.
+- Los cuatro `TipoPropuesta` nuevos con su migración aditiva, para que el contrato cierre de punta a punta antes de que existan las herramientas.
+
+### Tanda 3 — las dos lecturas (2026-08-06)
+
+`estado_de_hoy` es a la familia de marcas lo que `listar_tienda` fue al `productoId` en el #30: **la lectura sin la cual una propuesta no puede existir sin violar la decisión 1**. Hasta acá ninguna lectura devolvía un `registroId`.
+
+- `GET /internal/activity/grupos/:grupoId/estado-de-hoy` (servicio propio `EstadoDeHoyInternoService`): por integrante, qué tiene hoy, qué ya está marcado, y todo lo que se le puede quitar con el id que lo hace. `sesionAbierta: false` es una respuesta legítima.
+- Las reglas de «se puede marcar» viajan **resueltas** (`puedeMarcarHizo`, `puedeMarcarNoHizo`, `motivoNoDisponible`): se calculan donde vive el endpoint que las hace cumplir. Replicarlas en el armador sería una tercera copia de las reglas de visibilidad de cinco ítems (#10, #11, #17, #19, #21).
+- `estadoHoyDe` se partió en `estadoHoyInterno(grupoId, usuarioId)` — el cuerpo nunca usó el tenant, y separarlo evita el atajo de fabricar un `TenantContext` falso en el camino interno.
+- `GET /internal/rewards/grupos/:grupoId/billeteras`: los saldos, sin `grupoId` por fila y con la moneda una vez arriba.
+
+**Los tres guardarraíles del #30 se pusieron en rojo solos** al agregar las herramientas (el conteo de lecturas y las dos verificaciones de fuga de tenant), que es exactamente para lo que estaban.
+
+### Tanda 4 — la familia destructiva (2026-08-06)
+
+`proponer_archivar` y `proponer_quitar_marcas`. El mecanismo no cambia en nada; lo que cambia es el trabajo de la **etiqueta**.
+
+- Las etiquetas de archivado están escritas **una por tipo** y no generadas de una plantilla, porque la consecuencia es distinta en cada una: archivar una bolsa deja mudos a los productos que la venden, archivar una etiqueta no rompe nada.
+- Quitar una hecha y deshacer un «no hizo» tienen **sentidos opuestos** y la etiqueta es lo único que lo dice.
+- El id se valida contra la entidad que dice ser (un id de actividad declarado como `CONDUCTA` no crea propuesta), y sacarle la rotación a una actividad que no rota tampoco: proponer un no-op es peor que rechazarlo.
+- `esquemaArchivar` y `esquemaQuitarMarca` son los **dos únicos esquemas Zod del archivo sin `implements`**, y está explicado en el código: estos endpoints no tienen body contra el cual tipar (el motivo va como query param, fase-14-12).
+
+### Estado al cortar la sesión (2026-08-06)
+
+**4 de 9 tandas.** Verde en los seis proyectos tocados: `ai-service` 263, `app-web` 229, `activity-service` 357, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
+
+**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo y corregir las marcas de hoy, con la tarjeta roja y la confirmación fila por fila.
+
+**Lo que falta, en orden (Parte G de la spec):**
+
+5. **Familia de ajustes** — `proponer_ajustes_manuales` (`AJUSTES_MANUALES`): una fila por persona con `puntos?`, `monedas?` y un `motivo` que cubre las dos. Endpoints destino: `POST /scoring/grupos/:g/usuarios/:u/ajuste` (tanda 1) y `POST /rewards/grupos/:g/usuarios/:u/ajuste`. Validar contra `listar_billeteras` que un descuento no deje el saldo bajo 0.
+6. **Familia de anotaciones** — `proponer_anotar` (`ANOTAR_REGISTROS`): filas `{ participanteId, tipo: HIZO|NO_HIZO|CONDUCTA, id, motivo? }`. El armador traduce `participanteId` → `usuarioId` en el body. Las reglas ya vienen resueltas de `estado_de_hoy`: alcanza con rechazar lo que traiga `puedeMarcarHizo: false` citando el `motivoNoDisponible`.
+7. **La escala** — `borrar: [umbralZonaId]` dentro de `proponer_umbrales_zona`, con los pasos de borrado en `escala.ts` (`estadoResultante`, `violacionDeLaEscala`, `ordenAplicable`). Es la decisión 8: sacar una zona del medio casi siempre exige ensanchar a una vecina en el mismo movimiento.
+8. **El aviso v2** (decisión 11) — `ConfiguracionIaOrganizacion` suma `avisoVersion`; los consentimientos del #29 valen como versión 1 y **el asistente queda apagado hasta que un `ORG_ADMIN` acepte la versión 2**, porque las lecturas nuevas mandan saldo y cumplimiento por persona hacia el proveedor. Más las dos entradas de contexto (integrantes y billeteras).
+9. **E2E** — ampliar `asistente-ia.e2e.ts`: ruteo, validación de referencias, aplicado parcial, aislamiento, y que la tarjeta destructiva **no tenga «Aplicar todo»**.
+
+**Qué verificar antes de seguir:**
+
+- Correr `npx nx run-many -t test -p ai-service app-web activity-service rewards-service scoring-service`.
+- **Aplicar las dos migraciones contra la base local**, que todavía no se corrieron contra Postgres (solo se generó el cliente): `20260806090000_ajuste_manual_puntos_fase14_31` en scoring y `20260806094500_fase_14_31_alcance_operativo` en ai. Las dos son aditivas.
+- **El endpoint de ajuste de puntos no se probó contra la base real**, solo con la BD en memoria de los tests. Es lo primero a verificar en la próxima sesión, con el stack levantado.
+- La tarjeta destructiva se verificó con tests de componente (5 nuevos), **no todavía en el navegador**.
