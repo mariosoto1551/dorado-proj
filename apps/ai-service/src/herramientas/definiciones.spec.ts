@@ -142,13 +142,17 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
   });
 
   describe('las de propuesta (tanda 5)', () => {
-    it('son las cuatro de la spec y todas empiezan con proponer_', () => {
+    it('son las de la spec y todas empiezan con proponer_', () => {
       // El nombre es parte del contrato con el modelo: `proponer_` le dice que
       // no está aplicando nada. Un `crear_*` acá significaría que la decisión 6
       // se rompió.
       expect(NOMBRES_HERRAMIENTAS_PROPUESTA).toEqual([
         'proponer_crear_actividades',
         'proponer_editar_actividades',
+        // fase-14-30 tanda 4 — familia catálogo.
+        'proponer_crear_conductas',
+        'proponer_editar_conductas',
+        'proponer_configurar_turnos',
         'proponer_precios_tienda',
         'proponer_rendimientos_monedas',
       ]);
@@ -156,6 +160,35 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
       for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {
         expect(nombre.startsWith('proponer_'), nombre).toBe(true);
       }
+    });
+
+    /**
+     * Criterio de aceptación 4 del fase-14-30, como test sobre la forma.
+     *
+     * La decisión 3 dice «solo altas y ediciones, ninguna operación usa
+     * `DELETE`», y su corolario menos obvio es este: los endpoints de rol y de
+     * equipo aceptan un `estado`, así que **poner algo en INACTIVO es archivarlo
+     * por otro camino** y la regla no distingue entre el verbo y el efecto. Un
+     * `estado` en un esquema de propuesta es la forma en que la decisión 3 se
+     * rompería sin que aparezca la palabra DELETE en ningún lado.
+     */
+    it('ningún esquema de propuesta acepta un campo estado (decisión 3)', () => {
+      const infractoras: string[] = [];
+
+      for (const herramienta of HERRAMIENTAS_PROPUESTA) {
+        for (const { ruta } of todasLasPropiedades(herramienta.parametros)) {
+          if (/(^|\.)estado$/.test(ruta)) {
+            infractoras.push(`${herramienta.nombre}.${ruta}`);
+          }
+        }
+      }
+
+      expect(
+        infractoras,
+        'La IA no archiva ni desactiva nada (fase-14-30 decisión 3), y un campo `estado` es ' +
+          'archivar por otro camino. Las de LECTURA sí lo aceptan como filtro: ahí es lo ' +
+          'contrario, sirve para VER lo archivado.'
+      ).toEqual([]);
     });
 
     it('cada una le avisa al modelo que NO aplica el cambio', () => {

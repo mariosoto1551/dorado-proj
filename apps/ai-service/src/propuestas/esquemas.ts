@@ -4,10 +4,16 @@ import {
   AlcanceActividad,
   ComportamientoAlCierre,
   ConfigurarRendimientosAccionesRequest,
+  ConfigurarTurnoRequest,
   CrearActividadRequest,
+  CrearConductaRequest,
   EditarActividadRequest,
+  EditarConductaRequest,
   EditarProductoRequest,
+  FrecuenciaTurno,
+  ModoTurno,
   TipoAccionRendimiento,
+  TipoConducta,
   TipoLimiteTiempo,
   TipoPuntaje,
 } from '@dorado/shared-types';
@@ -104,6 +110,47 @@ const editarProducto = z
   })
   .strict();
 
+/**
+ * Conductas (fase-14-30 tanda 4). El mismo criterio que las actividades: crear
+ * y editar son literalmente el mismo shape, uno con todo obligatorio y el otro
+ * con todo opcional.
+ *
+ * Sin campos anulables a propósito, porque el contrato destino no tiene
+ * ninguno: acá `null` no borra nada, así que las dos ramas del armador tratan
+ * el `null` del modelo como «no lo puse» (ver `limpiarVacios`).
+ */
+const camposConducta = {
+  nombre: z.string().trim().min(1).max(120),
+  tipo: z.enum(TipoConducta),
+  valorPuntos: enteroPositivo,
+  permiteAutoreporte: z.boolean().optional(),
+};
+
+const crearConducta = z.object(camposConducta).strict();
+
+const editarConducta = z.object(camposConducta).partial().strict();
+
+/**
+ * Turnos (fase-14-30 tanda 4).
+ *
+ * `posiciones` es una lista de objetos porque **así es el request destino**, no
+ * porque sea lo más cómodo: el modelo manda una lista plana de ids y el armador
+ * la convierte. La conversión vive de este lado justamente para que el esquema
+ * pueda seguir siendo el contrato exacto, que es lo que hace que renombrar el
+ * campo en activity rompa este build.
+ *
+ * **Sin `ArrayUnique`**: que la misma persona aparezca dos veces no es un error
+ * de datos, es cómo se le dan más turnos que a los demás (fase-14-21).
+ */
+const configurarTurno = z
+  .object({
+    modo: z.enum(ModoTurno),
+    frecuencia: z.enum(FrecuenciaTurno),
+    activo: z.boolean().optional(),
+    posiciones: z.array(z.object({ usuarioId: uuid }).strict()).min(1),
+  })
+  .strict();
+
 const rendimientos = z
   .object({
     rendimientos: z
@@ -152,9 +199,27 @@ type _RendimientosCompleto = Exhaustivo<
   ClavesNoCubiertas<ConfigurarRendimientosAccionesRequest, z.infer<typeof rendimientos>>
 >;
 
+type _CrearConductaCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearConductaRequest, z.infer<typeof crearConducta>>
+>;
+
+type _EditarConductaCompleto = Exhaustivo<
+  ClavesNoCubiertas<EditarConductaRequest, z.infer<typeof editarConducta>>
+>;
+
+type _ConfigurarTurnoCompleto = Exhaustivo<
+  ClavesNoCubiertas<ConfigurarTurnoRequest, z.infer<typeof configurarTurno>>
+>;
+
 export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
 
 export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
+
+export const esquemaCrearConducta: z.ZodType<CrearConductaRequest> = crearConducta;
+
+export const esquemaEditarConducta: z.ZodType<EditarConductaRequest> = editarConducta;
+
+export const esquemaConfigurarTurno: z.ZodType<ConfigurarTurnoRequest> = configurarTurno;
 
 /**
  * **A propósito NO cubre todas las claves del contrato**, y por eso no lleva el

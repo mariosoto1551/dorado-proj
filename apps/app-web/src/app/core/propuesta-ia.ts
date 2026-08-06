@@ -1,5 +1,6 @@
 import type {
   ActividadDto,
+  ConductaDto,
   OperacionPropuestaIaDto,
   ProductoTiendaDto,
   PropuestaIaDto,
@@ -51,6 +52,8 @@ export interface FilaPropuesta {
  */
 export interface ContextoPropuesta {
   actividades?: readonly ActividadDto[];
+  /** fase-14-30 tanda 4: para decir el «antes» de una conducta editada. */
+  conductas?: readonly ConductaDto[];
   productos?: readonly ProductoTiendaDto[];
   rendimientos?: readonly RendimientoAccionDto[];
   roles?: ReadonlyMap<string, string>;
@@ -83,6 +86,12 @@ const ETIQUETAS: Record<string, string> = {
   vigenteHasta: 'Vigente hasta',
   precio: 'Precio',
   imagenUrl: 'Imagen',
+  // fase-14-30 tanda 4. `tipo` y `nombre` ya están arriba: los comparte con la
+  // actividad, que es lo que hace que este mapa siga siendo uno solo.
+  permiteAutoreporte: 'Se puede autorreportar',
+  modo: 'Orden',
+  frecuencia: 'Cambia',
+  activo: 'Activa',
 };
 
 const VALORES: Record<string, string> = {
@@ -95,6 +104,13 @@ const VALORES: Record<string, string> = {
   REQUIERE_CONFIRMACION: 'Hay que confirmarla',
   INDIVIDUAL: 'Individual',
   EQUIPO: 'De equipo',
+  // fase-14-30 tanda 4.
+  BUENA: 'Buena',
+  MALA: 'Mala',
+  ORDEN_FIJO: 'El que escribiste',
+  AZAR: 'Al azar en cada vuelta',
+  SESION: 'Todos los días',
+  SECCION: 'Una vez por sección',
 };
 
 /** Traduce una propuesta entera a filas legibles. */
@@ -115,6 +131,15 @@ export function armarFilas(
 
       case 'RENDIMIENTOS_MONEDAS':
         return filaDeRendimientos(operacion, contexto);
+
+      case 'CREAR_CONDUCTAS':
+        return filaDeAlta(operacion, contexto);
+
+      case 'EDITAR_CONDUCTAS':
+        return filaDeConductaEditada(operacion, contexto);
+
+      case 'TURNOS':
+        return filaDeTurno(operacion, contexto);
     }
   });
 }
@@ -146,6 +171,58 @@ function filaDeEdicion(
     opId: operacion.opId,
     titulo: `Editar «${actual?.nombre ?? 'una actividad'}»`,
     cambios: cambiosDe(body, contexto, actual as unknown as Record<string, unknown> | undefined),
+  };
+}
+
+function filaDeConductaEditada(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const actual = (contexto.conductas ?? []).find(
+    (conducta) => conducta.id === idDeLaRuta(operacion.ruta)
+  );
+
+  return {
+    opId: operacion.opId,
+    titulo: `Editar «${actual?.nombre ?? 'una conducta'}»`,
+    cambios: cambiosDe(
+      comoObjeto(operacion.body),
+      contexto,
+      actual as unknown as Record<string, unknown> | undefined
+    ),
+  };
+}
+
+/**
+ * La rotación de una actividad.
+ *
+ * La secuencia se muestra **numerada y con los repetidos**: que alguien
+ * aparezca dos veces es lo que le da el doble de turnos (fase-14-21), así que
+ * una tarjeta que la deduplicara «para limpiar» le escondería al Tutor
+ * justamente lo que tiene que aprobar.
+ */
+function filaDeTurno(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const body = comoObjeto(operacion.body);
+  const actividad = (contexto.actividades ?? []).find(
+    // La ruta es `/activity/actividades/:id/turno`: el id es el anteúltimo.
+    (fila) => fila.id === operacion.ruta.split('/').filter(Boolean).at(-2)
+  );
+  const posiciones = (body['posiciones'] ?? []) as Array<Record<string, unknown>>;
+
+  return {
+    opId: operacion.opId,
+    titulo: `Rotar «${actividad?.nombre ?? 'una actividad'}»`,
+    cambios: [
+      ...cambiosDe(body, contexto, undefined, ['posiciones']),
+      ...posiciones.map((posicion, indice) => ({
+        campo: `Turno ${indice + 1}`,
+        antes: null,
+        despues: nombresDe([posicion['usuarioId']], contexto.personas, '—'),
+      })),
+    ],
   };
 }
 

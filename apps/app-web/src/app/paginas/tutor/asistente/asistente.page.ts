@@ -409,9 +409,10 @@ export class AsistentePage {
    */
   private async cargarContexto(): Promise<void> {
     const grupoId = this.grupoId();
-    const [actividades, productos, rendimientos, roles, personas, equipos] =
+    const [actividades, conductas, productos, rendimientos, roles, personas, equipos] =
       await Promise.allSettled([
         firstValueFrom(this.activity.listarActividades(grupoId, 'ACTIVA')),
+        firstValueFrom(this.activity.listarConductas(grupoId, 'ACTIVA')),
         firstValueFrom(this.rewards.tienda(grupoId)),
         firstValueFrom(this.rewards.rendimientosAcciones(grupoId)),
         firstValueFrom(this.identity.listarRolesGrupo(grupoId)),
@@ -421,6 +422,7 @@ export class AsistentePage {
 
     this.contexto.set({
       actividades: valorDe(actividades) ?? [],
+      conductas: valorDe(conductas) ?? [],
       productos: valorDe(productos) ?? [],
       rendimientos: [
         ...(valorDe(rendimientos)?.actividades ?? []),

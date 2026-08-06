@@ -144,7 +144,11 @@ export type TipoPropuestaIa =
   | 'CREAR_ACTIVIDADES'
   | 'EDITAR_ACTIVIDADES'
   | 'PRECIOS_TIENDA'
-  | 'RENDIMIENTOS_MONEDAS';
+  | 'RENDIMIENTOS_MONEDAS'
+  // fase-14-30 tanda 4 (familia catálogo).
+  | 'CREAR_CONDUCTAS'
+  | 'EDITAR_CONDUCTAS'
+  | 'TURNOS';
 
 export type EstadoPropuestaIa =
   | 'BORRADOR'

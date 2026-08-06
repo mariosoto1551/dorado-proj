@@ -52,11 +52,19 @@ enum EstadoPropuesta {
   VENCIDA
 }
 
+/// Crece de a una familia por tanda (fase-14-30 Parte F). Siempre ADITIVO y sin
+/// backfill: `PRECIOS_TIENDA` se conserva aunque su herramienta cambie de
+/// nombre, porque hay filas persistidas con ese valor.
 enum TipoPropuesta {
   CREAR_ACTIVIDADES
   EDITAR_ACTIVIDADES
   PRECIOS_TIENDA
   RENDIMIENTOS_MONEDAS
+
+  // fase-14-30 tanda 4 — familia catálogo.
+  CREAR_CONDUCTAS
+  EDITAR_CONDUCTAS
+  TURNOS
 }
 
 model Conversacion {

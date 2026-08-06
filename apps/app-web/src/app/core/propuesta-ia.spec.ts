@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ActividadDto,
+  ConductaDto,
   OperacionPropuestaIaDto,
   ProductoTiendaDto,
   PropuestaIaDto,
@@ -214,6 +215,62 @@ describe('armarFilas', () => {
 
     expect(filas[0].titulo).toBe('Una hora de tele');
     expect(filas[0].cambios).toEqual([{ campo: 'Precio', antes: '40 🪙', despues: '60 🪙' }]);
+  });
+
+  describe('familia catálogo (fase-14-30 tanda 4)', () => {
+    it('conducta editada: dice el «antes» y saltea lo que no cambia', () => {
+      const gritar = { id: 'con-1', nombre: 'Gritar', tipo: 'MALA', valorPuntos: 5 } as ConductaDto;
+      const filas = armarFilas(
+        propuesta('EDITAR_CONDUCTAS', [
+          {
+            metodo: 'PATCH',
+            ruta: '/activity/conductas/con-1',
+            body: { tipo: 'MALA', valorPuntos: 8 },
+          },
+        ]),
+        { conductas: [gritar] }
+      );
+
+      expect(filas[0].titulo).toBe('Editar «Gritar»');
+      expect(filas[0].cambios).toEqual([{ campo: 'Puntos', antes: '5', despues: '8' }]);
+    });
+
+    /**
+     * El repetido es el punto: aparecer dos veces en la secuencia es cómo se le
+     * dan más turnos a alguien (fase-14-21). Una tarjeta que deduplicara
+     * «para limpiar» le escondería al Tutor justo lo que tiene que aprobar.
+     */
+    it('turnos: numera la secuencia en orden y conserva los repetidos', () => {
+      const filas = armarFilas(
+        propuesta('TURNOS', [
+          {
+            metodo: 'PUT',
+            ruta: '/activity/actividades/act-1/turno',
+            body: {
+              modo: 'ORDEN_FIJO',
+              frecuencia: 'SESION',
+              posiciones: [{ usuarioId: 'u-1' }, { usuarioId: 'u-2' }, { usuarioId: 'u-1' }],
+            },
+          },
+        ]),
+        {
+          actividades: [actividad({ id: 'act-1', nombre: 'Poner la mesa' })],
+          personas: new Map([
+            ['u-1', 'Luciana'],
+            ['u-2', 'Alejandra'],
+          ]),
+        }
+      );
+
+      expect(filas[0].titulo).toBe('Rotar «Poner la mesa»');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Orden', antes: null, despues: 'El que escribiste' },
+        { campo: 'Cambia', antes: null, despues: 'Todos los días' },
+        { campo: 'Turno 1', antes: null, despues: 'Luciana' },
+        { campo: 'Turno 2', antes: null, despues: 'Alejandra' },
+        { campo: 'Turno 3', antes: null, despues: 'Luciana' },
+      ]);
+    });
   });
 
   it('rendimientos: una sola operación se abre en una línea por acción', () => {

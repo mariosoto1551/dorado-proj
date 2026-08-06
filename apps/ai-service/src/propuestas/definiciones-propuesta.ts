@@ -66,9 +66,13 @@ const uuidDe = (
  * Los campos de una actividad tal como los ve el modelo.
  *
  * Es un subconjunto deliberado del request real: están los que un asistente
- * puede decidir con la información que tiene, y quedan afuera los que dependen
- * de cosas que no ve (`siempreVisible` solo tiene efecto con el plan del día
- * activo, y los tres modos de destinatario se ofrecen pero de a uno).
+ * puede decidir con la información que tiene, y los tres modos de destinatario
+ * se ofrecen pero de a uno.
+ *
+ * `siempreVisible` estaba afuera en el fase-14-29 por un motivo que dejó de
+ * valer: solo hace algo con el plan del día activo, y el modelo no tenía cómo
+ * saber si el grupo lo tenía prendido. Lo destrabó `configuracion_del_grupo`
+ * (tanda 3), y por eso entra recién ahora y no antes (decisión 8).
  */
 function camposActividad(conNombre: boolean): Record<string, PropiedadEsquema> {
   return {
@@ -138,6 +142,14 @@ function camposActividad(conNombre: boolean): Record<string, PropiedadEsquema> {
         'repeticionesMaximasSesion. 1 = comportamiento normal.',
       minimum: 1,
     },
+    repeticionesMaximasSeccion: {
+      type: 'integer',
+      description:
+        'Tope de veces en toda la sección. Mandá null —que es lo normal— para que se calcule ' +
+        'solo: repeticionesMaximasSesion por la cantidad de días de la sección. Ponelo únicamente ' +
+        'para algo que se hace pocas veces por semana y no todos los días.',
+      minimum: 1,
+    },
     comportamientoAlCierre: {
       type: 'string',
       description:
@@ -165,6 +177,14 @@ function camposActividad(conNombre: boolean): Record<string, PropiedadEsquema> {
         'para "todos los días".',
       items: { type: 'integer', description: '0=domingo … 6=sábado', minimum: 0, maximum: 6 },
       maxItems: 7,
+    },
+    siempreVisible: {
+      type: 'boolean',
+      description:
+        'La actividad aparece sola en la lista del día del integrante, sin que él la elija. ' +
+        'Solo hace algo si el grupo tiene el plan del día activo —consultalo con ' +
+        'configuracion_del_grupo antes de usarlo— y solo en OPCIONAL de alcance INDIVIDUAL. ' +
+        'false si no se pide otra cosa.',
     },
     rolesPermitidos: {
       type: 'array',
@@ -196,6 +216,45 @@ function camposActividad(conNombre: boolean): Record<string, PropiedadEsquema> {
       type: 'string',
       description:
         'Fecha "YYYY-MM-DD" hasta la que aparece, inclusive. null si es permanente.',
+    },
+  };
+}
+
+/**
+ * Los campos de una conducta (fase-14-30 tanda 4).
+ *
+ * **Sin `estado`** (decisión 3): archivar una conducta es un `DELETE` en su
+ * endpoint, y ninguna propuesta de este ítem archiva nada. «Limpiame el
+ * catálogo» el asistente lo sigue contestando en texto, con los datos de
+ * `resumen_cumplimiento`, y el Tutor archiva a mano.
+ */
+function camposConducta(): Record<string, PropiedadEsquema> {
+  return {
+    nombre: {
+      type: 'string',
+      description:
+        'El hecho puntual que se registra, corto y observable ("Gritar", "Ayudar sin que se lo ' +
+        'pidan"). Máximo 120 caracteres.',
+    },
+    tipo: {
+      type: 'string',
+      description:
+        'BUENA: suma valorPuntos cuando pasa. MALA: lo resta. Una conducta no es una actividad: ' +
+        'no se espera que pase, se registra cuando pasa.',
+      enum: ['BUENA', 'MALA'],
+    },
+    valorPuntos: {
+      type: 'integer',
+      description:
+        'Siempre positivo, incluso en una MALA: el signo lo aplica el registro según el tipo. ' +
+        'Calibralo contra los rangos de las zonas del grupo.',
+      minimum: 1,
+    },
+    permiteAutoreporte: {
+      type: 'boolean',
+      description:
+        'Deja que el propio integrante se la reporte. Solo tiene sentido con tipo MALA —en una ' +
+        'BUENA el servicio la ignora—: es la que alguien admite haber hecho.',
     },
   };
 }
@@ -263,6 +322,132 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
         resumen: { type: 'string', description: 'Una línea explicando qué cambia y por qué.' },
       },
       required: ['ediciones'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_crear_conductas',
+    descripcion:
+      `Propone crear conductas nuevas en el catálogo del grupo. ${NO_APLICA} ` +
+      'Una conducta es un hecho puntual que suma o resta cuando pasa, no algo que se espera ' +
+      'que se haga: para eso están las actividades. Mirá antes las que ya existen y las zonas, ' +
+      'que son la escala contra la que se calibra cada valor.',
+    parametros: {
+      type: 'object',
+      properties: {
+        conductas: {
+          type: 'array',
+          description: 'Las conductas a crear. Entre 1 y 25 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Una conducta.',
+            properties: camposConducta(),
+            required: ['nombre', 'tipo', 'valorPuntos'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: {
+          type: 'string',
+          description:
+            'Una línea explicando el criterio con el que armaste el conjunto. La lee el Tutor ' +
+            'arriba de la lista, antes de decidir.',
+        },
+      },
+      required: ['conductas'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_editar_conductas',
+    descripcion:
+      `Propone cambios sobre conductas que YA existen. ${NO_APLICA} ` +
+      'Mandá solo los campos que cambian: lo que no mandes queda como está. ' +
+      'No sirve para archivar una conducta — eso lo hace el Tutor en su pantalla.',
+    parametros: {
+      type: 'object',
+      properties: {
+        ediciones: {
+          type: 'array',
+          description: 'Los cambios, uno por conducta. Entre 1 y 25 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Un cambio sobre una conducta existente.',
+            properties: {
+              conductaId: uuidDe('la conducta a editar', 'listar_conductas'),
+              ...camposConducta(),
+            },
+            required: ['conductaId'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: { type: 'string', description: 'Una línea explicando qué cambia y por qué.' },
+      },
+      required: ['ediciones'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_configurar_turnos',
+    descripcion:
+      `Propone que una actividad rote entre varios participantes. ${NO_APLICA} ` +
+      'Solo se puede rotar una actividad OBLIGATORIA de alcance INDIVIDUAL: la rotación es ' +
+      'quién tiene que hacerla hoy. Mirá antes listar_turnos para saber cuáles ya rotan y con ' +
+      'qué secuencia, porque esto REEMPLAZA la configuración anterior de esa actividad.',
+    parametros: {
+      type: 'object',
+      properties: {
+        turnos: {
+          type: 'array',
+          description: 'Las rotaciones a configurar, una por actividad. Entre 1 y 25.',
+          items: {
+            type: 'object',
+            description: 'La rotación de una actividad.',
+            properties: {
+              actividadId: uuidDe('la actividad que va a rotar', 'listar_actividades'),
+              modo: {
+                type: 'string',
+                description:
+                  'ORDEN_FIJO: se recorre la secuencia tal como la escribiste. AZAR: se barajan ' +
+                  'las posiciones al empezar cada vuelta.',
+                enum: ['ORDEN_FIJO', 'AZAR'],
+              },
+              frecuencia: {
+                type: 'string',
+                description:
+                  'SESION: el turno cambia todos los días. SECCION: el mismo tiene el turno ' +
+                  'toda la sección (la semana).',
+                enum: ['SESION', 'SECCION'],
+              },
+              activo: {
+                type: 'boolean',
+                description:
+                  'false deja la rotación configurada pero apagada, y la actividad vuelve a ser ' +
+                  'de todos. true si no se pide otra cosa.',
+              },
+              posiciones: {
+                type: 'array',
+                description:
+                  'La secuencia, EN ORDEN. Se admiten repetidos a propósito: alguien que ' +
+                  'aparece dos veces recibe el doble de turnos que el resto. Si la actividad ' +
+                  'está dirigida a personas concretas, la secuencia sale de esas personas.',
+                items: uuidDe('un participante', 'listar_participantes'),
+                minItems: 1,
+                maxItems: 50,
+              },
+            },
+            required: ['actividadId', 'modo', 'frecuencia', 'posiciones'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: { type: 'string', description: 'Una línea con el criterio de la rotación.' },
+      },
+      required: ['turnos'],
       additionalProperties: false,
     },
   },

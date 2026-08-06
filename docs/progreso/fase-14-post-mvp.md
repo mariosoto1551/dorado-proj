@@ -1957,7 +1957,7 @@ Y lo que deja abierto el ítem ya terminado:
 
 ---
 
-## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 3 de 9 (2026-08-05)
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 4 de 9 (2026-08-05)
 
 > Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
 
@@ -2107,7 +2107,7 @@ Eso obligó a que `InternalModule` importe módulos de negocio en los dos servic
 
 **+14% sobre el catálogo original, con un tercio de las herramientas nuevas ya adentro.** Las tres lecturas de esta tanda costaron ~417 tokens entre las tres, o sea menos que una definición de propuesta: son las baratas del ítem, y las once que faltan son las caras. El bloque entra por caché, así que desde el segundo turno se paga ~10%.
 
-#### Qué falta de este ítem
+#### Qué falta después de la tanda 3
 
 Las tandas 4 a 9 de la Parte F, en ese orden. Las 4 a 7 son independientes entre sí y cada familia entregada funciona sola: si hay que cortar el ítem por la mitad, se corta ahí.
 
@@ -2119,3 +2119,75 @@ Anotado para las que siguen:
 4. **La conversación real contra OpenAI queda pendiente para el final del ítem.** La tanda 1 se verificó con unidad, build y el endpoint interno real; lo que no se ejerció es el modelo llamando a `listar_tienda` y proponiendo un precio de punta a punta. Es la clase de cable que esta fase viene encontrando rota siete veces, así que **no cuenta como verificado hasta correrlo**.
 5. **Los esquemas Zod de `ai-service` todavía no usan los doce contratos nuevos.** La tanda 2 dejó el contrato y su `implements` del lado del servicio; el `implements` del lado del esquema —con su `Exhaustivo`/`ClavesNoCubiertas`, que es lo que cierra el cable entero— entra con cada familia, en las tandas 4 a 7. Hasta entonces los contratos nuevos no tienen ningún consumidor: **están escritos y no probados por nadie**.
 6. **La cobertura de claves vale para lo que se agregue.** Toda clase de request nueva que quiera ser proponible necesita las dos cosas —`implements` y su línea de `Exhaustivo<ClavesNoCubiertas<…>>`—; con una sola, un campo opcional renombrado sigue pasando en verde. No hay test que lo obligue: es una convención con un archivo que la explica (`libs/shared-types/src/lib/contratos.ts`).
+
+
+### Tanda 4 — familia catálogo: conductas, turnos y los dos campos de actividad (2026-08-05)
+
+La primera de las cuatro familias, y la primera tanda del ítem que **le agrega capacidades al asistente** en vez de arreglar lo que había. Tres herramientas de propuesta nuevas —`proponer_crear_conductas`, `proponer_editar_conductas`, `proponer_configurar_turnos`— más los dos campos de actividad de la decisión 8. Ningún endpoint destino hubo que crearlo: los tres existen y están probados desde la Fase 5 y el #21.
+
+Es también la primera tanda que **consume los contratos que la tanda 2 dejó escritos y sin consumidor** (pendiente 5 de aquella): los tres esquemas Zod van tipados `z.ZodType<Contrato>` con su `Exhaustivo<ClavesNoCubiertas<…>>`, que es el otro extremo del cable — ahora renombrar un campo en activity rompe el build de `ai-service` en los dos lados.
+
+#### El `null` significa lo contrario que en una actividad
+
+En un PATCH de actividad, `null` **borra** el campo (fase-14-24: así se quita una vigencia), y por eso `limpiarVacios` lo conserva. En una conducta no hay **ni un campo anulable** —sus cuatro campos son string, enum, número y booleano—, así que ahí `null` solo puede significar «no lo puse».
+
+No es una sutileza: **el modelo no puede omitir una propiedad declarada** (lo aprendió la tanda 5 del #29), así que en una edición de un solo campo manda los otros tres en `null`. Si el `null` se conservara, **toda edición de conducta fallaría** contra un error que el modelo no puede resolver, y la conversación terminaría sin ninguna propuesta. La regla que queda escrita: **el `null` se conserva solo si el contrato destino tiene algún campo anulable**; si no, es ausencia. Hay un test que lo fija con los tres nulls adentro.
+
+#### La lista de posiciones es plana hacia el modelo y de objetos hacia el endpoint
+
+`ConfigurarTurnoRequest` pide `posiciones: Array<{ usuarioId }>`. Al modelo se le expone una **lista plana de ids**, y el armador la convierte. Las dos razones:
+
+1. Un objeto de una sola clave por posición es tokens que no compran nada.
+2. El test estructural del tenant (decisión 9 del #29) **prohíbe una propiedad que matchee `/usuarioId/`**, y con la forma del contrato la herramienta no habría compilado ese test.
+
+Ese segundo punto es el hallazgo de la tanda y hay que dejarlo anotado para la 7: **la familia personas no lo va a poder esquivar** —`jefeUsuarioId`, `nuevoJefeUsuarioId` y el `usuarioId` de «sumar un miembro» son campos del contrato, no una elección de forma—. Esa tanda va a tener que decidir si afina la regex (el test es sobre el *tenant*, y una persona del grupo no es el tenant) o si busca otra forma; lo que no puede hacer es tocarla sin pensarlo, porque la regla es la defensa contra el prompt injection que no depende de que el modelo se porte bien.
+
+La conversión vive del lado de `ai-service` a propósito: así el esquema Zod puede seguir siendo el contrato **exacto**, que es lo único que hace que un cambio en activity rompa este build.
+
+#### Qué se replica del endpoint destino y qué no
+
+Mismo criterio que `invariantes.ts`: **solo se replican las reglas que rechazan**, no las que el destino normaliza en silencio.
+
+- **Turnos**: las cuatro que `PUT /activity/actividades/:id/turno` rechaza — la actividad tiene que ser OBLIGATORIA (`TurnoSoloObligatoriaException`) e INDIVIDUAL (`TurnoSoloIndividualException`), las posiciones tienen que ser participantes del grupo (`UsuarioNoEsDelGrupoException`) y, si la actividad está dirigida a personas concretas, salir de esa lista (`TurnoFueraDelDestinatarioException`, fase-14-24 decisión 6 — un turno para quien no ve la actividad es un castigo que cae sobre una pantalla vacía).
+- **Conductas**: ninguna. Se leyó `conductas.service.ts` entero buscándolas y lo único que tira es `NotFoundException`, que ya lo cubre la validación de referencia de la decisión 2. `permiteAutoreporte` en una BUENA **no se rechaza**: el servicio lo fuerza a `false`, así que mandarlo no rompe nada.
+
+#### Las dos reglas del ítem, ahora como test sobre lo nuevo
+
+- **Criterio 3 (ninguna operación usa `DELETE`)**: el tipo de `OperacionPropuesta.metodo` ya lo hace imposible de escribir, pero eso solo cubre lo que se escribe a mano. El test arma una propuesta **real de cada una de las siete herramientas** y mira el método de cada operación — y la tabla de argumentos **se compara contra el catálogo**, así que agregar una herramienta y olvidarse de ella pone esto en rojo en vez de dejarla sin cubrir.
+- **Criterio 4 (ningún esquema acepta `estado`)**: test estructural sobre las definiciones de propuesta, hermano de los otros tres. Es la forma en que la decisión 3 se rompería sin que aparezca la palabra `DELETE` en ningún lado: los endpoints de rol y de equipo aceptan un `estado`, y poner algo en `INACTIVO` es archivarlo por otro camino. Las de **lectura** sí lo aceptan, y ahí es lo contrario: sirve para VER lo archivado.
+
+#### Dos cosas que la Parte F no puso en esta tanda y entraron igual
+
+1. **El frontend de estos tres tipos.** La Parte F lo pone en la tanda 8, pero `TITULOS` está tipado `Record<TipoPropuestaIa, string>` y el `switch` de `armarFilas` es exhaustivo: al crecer la unión, **`app-web` dejó de compilar**. Se hizo la parte que corresponde a esta familia y nada más —los tres títulos, los enums nuevos en `VALORES`, dos casos del `switch` (el alta de conducta reusa `filaDeAlta` tal cual) y `conductas` en el contexto—. La alternativa era un `default` que dibujara la tarjeta vacía, y eso es exactamente lo que la decisión 2 no quiere: una tarjeta que no se entiende convierte «Aplicar» en un botón. **Que cada familia funcione sola incluye su tarjeta.**
+2. **Una línea del system prompt.** La capacidad 1 decía «armar el catálogo de actividades y conductas» y el prompt cierra con *«si te piden algo fuera de las cuatro capacidades, explicá que eso se hace desde la app»*. Una rotación no entra en ninguna de las cuatro, así que el modelo tenía la herramienta y la instrucción de no usarla. **Es el mismo modo de falla de siempre** —la unidad verifica la pieza y lo que falla es el cable—, encontrado esta vez antes de que costara una corrida: las herramientas nuevas de cada familia hay que mirarlas contra el prompt, no solo contra el catálogo.
+
+#### El costo en tokens, actualizado (criterio 12)
+
+| | Herramientas | Caracteres | ≈ tokens |
+|---|---|---|---|
+| fase-14-29 | 12 | 16.591 | ~4.148 |
+| tanda 1 | 13 | 17.267 | ~4.317 |
+| tanda 3 | 16 | 18.937 | ~4.734 |
+| tanda 4 | 19 | 25.770 | ~6.443 |
+
+**+55% sobre el catálogo original**, y el salto de esta tanda es de +6.833 caracteres: ~5.560 de las tres herramientas nuevas y ~1.270 de los dos campos de actividad, que entran **dos veces** porque `camposActividad()` alimenta crear y editar.
+
+La decisión 10 pide mirar si lo que sobra es un catálogo mal escrito. No lo es, y se verificó midiendo una por una: las tres nuevas pesan 1.777, 1.743 y 2.044 caracteres, en línea con `proponer_rendimientos_monedas` (1.435) y muy por debajo de las de actividades (5.805 y 5.561, que son las caras del catálogo porque llevan veinte campos descriptos). **Lo que cuesta es la cantidad de campos, no la prosa**, y eso confirma lo que anticipaba la tanda 3: las lecturas eran las baratas, las propuestas son las caras. Con las ocho que faltan el catálogo va a rondar los ~11k tokens; el bloque entra por caché vía `prompt_cache_key`, así que desde el segundo turno de una conversación se paga ~10% de eso.
+
+#### Verificación de la tanda 4
+
+- **`ai-service` 185/185** (+18: 12 en `propuestas.service.spec.ts`, 1 estructural nuevo en `definiciones.spec.ts` y 5 de la tabla del criterio 3) y **`app-web` 207/207** (+2).
+- **Suite completa del workspace verde**: activity 357, rewards 206, session 74, scoring 63, gateway 49, identity 48, notification 22 — **sin una sola regresión y sin ningún test ajeno tocado**.
+- **Lint 19/19 y build 19/19**, incluido `app-web` (el que se había puesto rojo).
+- **Migración aplicada contra Postgres real**: `20260805231457_fase_14_30_conductas_y_turnos`, aditiva sobre el enum `TipoPropuesta` (`CREAR_CONDUCTAS`, `EDITAR_CONDUCTAS`, `TURNOS`). Sin backfill: las filas existentes conservan sus cuatro valores.
+- **Lo que NO se verificó y no se va a dar por verificado**: el apply de punta a punta contra los endpoints reales de activity con un JWT de Tutor. La forma del body la garantiza el contrato en tiempo de compilación y las reglas de rechazo están replicadas y testeadas, pero **el cable entero es de la tanda 9 (E2E)** y del pendiente 4 de la tanda 3. No se hizo acá porque no hay forma de obtener un JWT de Tutor del piloto sin la contraseña de José.
+
+#### Qué falta de este ítem
+
+Las tandas 5 a 9 de la Parte F. Las 5, 6 y 7 son independientes entre sí; la 8 (frontend) ya tiene hecha la parte de la familia catálogo y la 9 (E2E) cierra todo.
+
+Anotado, además de los seis puntos de la tanda 3 que siguen valiendo:
+
+7. **La tanda 7 va a chocar con el test estructural del tenant.** `usuarioId` está en la regex de parámetros prohibidos y la familia personas lo necesita por contrato. Ver el detalle arriba: es una decisión, no un ajuste.
+8. **El `null` de cada familia se decide por el contrato, no por costumbre.** Recompensas y productos **sí** tienen campos anulables (`descripcion`, `bolsaId`, `recompensaId`), así que la tanda 5 va a necesitar `limpiarVacios(…, false)` en sus PATCH y `true` en sus POST, que es el criterio del #29 y no el de esta tanda.
+9. **El system prompt hay que mirarlo en cada familia.** La capacidad 4 nombra «precios de la tienda y cuántas monedas paga cada acción»; las recompensas, las etiquetas, las zonas, los roles y los equipos **no están en ninguna de las cuatro capacidades**. Sin esa línea, el modelo va a tener herramientas que su propio prompt le dice que no use.

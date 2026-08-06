@@ -10,8 +10,11 @@ import { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import { PropuestaNoAplicableException, PropuestaVencidaException } from '../comun/excepciones';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  esquemaConfigurarTurno,
   esquemaCrearActividad,
+  esquemaCrearConducta,
   esquemaEditarActividad,
+  esquemaEditarConducta,
   esquemaEditarProducto,
   esquemaRendimientos,
   explicarError,
@@ -38,7 +41,10 @@ type TipoPropuesta =
   | 'CREAR_ACTIVIDADES'
   | 'EDITAR_ACTIVIDADES'
   | 'PRECIOS_TIENDA'
-  | 'RENDIMIENTOS_MONEDAS';
+  | 'RENDIMIENTOS_MONEDAS'
+  | 'CREAR_CONDUCTAS'
+  | 'EDITAR_CONDUCTAS'
+  | 'TURNOS';
 
 /**
  * Lo que el armador le devuelve al loop para que se lo cuente al modelo.
@@ -99,6 +105,15 @@ export class PropuestasService {
 
       case 'proponer_editar_actividades':
         return await this.armarEditarActividades(argumentos, contexto, conversacionId);
+
+      case 'proponer_crear_conductas':
+        return await this.armarCrearConductas(argumentos, contexto, conversacionId);
+
+      case 'proponer_editar_conductas':
+        return await this.armarEditarConductas(argumentos, contexto, conversacionId);
+
+      case 'proponer_configurar_turnos':
+        return await this.armarConfigurarTurnos(argumentos, contexto, conversacionId);
 
       case 'proponer_precios_tienda':
         return await this.armarPreciosTienda(argumentos, contexto, conversacionId);
@@ -246,6 +261,264 @@ export class PropuestasService {
       contexto,
       conversacionId
     );
+  }
+
+  /**
+   * Conductas nuevas (fase-14-30 tanda 4).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * POR QUÉ ACÁ EL `null` ES «NO LO PUSE» EN LAS DOS RAMAS, Y EN ACTIVIDADES NO:
+   *
+   * En un PATCH de actividad, `null` **borra** el campo (fase-14-24: así se
+   * quita una vigencia), así que tratarlo como ausente perdería esa capacidad.
+   * El contrato de conducta **no tiene un solo campo anulable**: sus cuatro
+   * campos son `string`, enum, `number` y `boolean`. O sea que un `null` acá no
+   * puede significar «borralo», solo puede significar «no lo puse».
+   *
+   * Y el modelo lo va a mandar, porque no puede omitir una propiedad declarada
+   * (lo aprendió la tanda 5 del #29). Si el `null` no se sacara, **toda edición
+   * de un solo campo fallaría** con un error que el modelo no puede resolver.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarCrearConductas(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'conductas');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una conducta en "conductas".' };
+    }
+
+    const existentes = await this.activity.conductas(contexto.grupoId);
+    const operaciones: OperacionPropuesta[] = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const parseado = esquemaCrearConducta.safeParse(
+        limpiarVacios(fila as Record<string, unknown>, true)
+      );
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('conductas', indice, parseado.error) };
+      }
+
+      const cuerpo = parseado.data;
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: 'POST',
+        ruta: `/activity/grupos/${contexto.grupoId}/conductas`,
+        body: cuerpo,
+        etiqueta: `Crear conducta «${cuerpo.nombre}» (${cuerpo.tipo.toLowerCase()}, ${
+          cuerpo.valorPuntos
+        } puntos)`,
+      });
+    }
+
+    return await this.guardar(
+      'CREAR_CONDUCTAS',
+      operaciones,
+      { conductasExistentes: existentes.map((conducta) => conducta.id) },
+      contexto,
+      conversacionId
+    );
+  }
+
+  private async armarEditarConductas(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'ediciones');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una edición en "ediciones".' };
+    }
+
+    // Decisión 2: la referencia se valida contra el estado real del grupo antes
+    // de guardar nada. La decisión 1 le da al modelo de dónde sacar el id; esto
+    // evita que mande uno de otra entidad, que ahora que los ids abundan es el
+    // error probable.
+    const existentes = await this.activity.conductas(contexto.grupoId);
+    const porId = new Map(existentes.map((conducta) => [conducta.id, conducta]));
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ id: string; nombre: string; valorPuntos: number }> = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const { conductaId, ...cambios } = fila as Record<string, unknown>;
+      const existente = typeof conductaId === 'string' ? porId.get(conductaId) : undefined;
+
+      if (!existente) {
+        return {
+          ok: false,
+          error:
+            `ediciones.${indice}.conductaId: no hay ninguna conducta con ese id en este grupo. ` +
+            'Llamá a listar_conductas y usá un id de ahí.',
+        };
+      }
+
+      const parseado = esquemaEditarConducta.safeParse(limpiarVacios(cambios, true));
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('ediciones', indice, parseado.error) };
+      }
+
+      if (Object.keys(parseado.data).length === 0) {
+        return { ok: false, error: `ediciones.${indice}: no mandaste ningún campo para cambiar.` };
+      }
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: 'PATCH',
+        ruta: `/activity/conductas/${existente.id}`,
+        body: parseado.data,
+        etiqueta: `Editar «${existente.nombre}»: ${Object.keys(parseado.data).join(', ')}`,
+      });
+      snapshot.push({
+        id: existente.id,
+        nombre: existente.nombre,
+        valorPuntos: existente.valorPuntos,
+      });
+    }
+
+    return await this.guardar(
+      'EDITAR_CONDUCTAS',
+      operaciones,
+      { conductas: snapshot },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /**
+   * Rotaciones (fase-14-30 tanda 4).
+   *
+   * El modelo manda la secuencia como una lista plana de ids y acá se convierte
+   * a la forma del request destino (`[{ usuarioId }]`). La conversión vive de
+   * este lado a propósito: así el esquema Zod puede seguir siendo el contrato
+   * exacto —que es lo que hace que un cambio en activity rompa este build— sin
+   * cobrarle al modelo un objeto de una sola clave por cada posición.
+   *
+   * Se replican las tres reglas que el endpoint destino **rechaza**: la
+   * actividad tiene que ser OBLIGATORIA e INDIVIDUAL, y las posiciones tienen
+   * que ser participantes del grupo y, si la actividad está dirigida a personas
+   * concretas, salir de esa lista (fase-14-24 decisión 6 — un turno para quien
+   * no la ve es un castigo que cae sobre una pantalla vacía).
+   */
+  private async armarConfigurarTurnos(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'turnos');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una rotación en "turnos".' };
+    }
+
+    const [actividades, participantes, turnosActuales] = await Promise.all([
+      this.activity.actividades(contexto.grupoId),
+      this.identity.participantes(contexto.grupoId),
+      this.activity.turnos(contexto.grupoId),
+    ]);
+    const porId = new Map(actividades.map((actividad) => [actividad.id, actividad]));
+    const delGrupo = new Set(participantes.map((usuario) => usuario.id));
+    const rotaHoy = new Set(turnosActuales.map((turno) => turno.actividadId));
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ id: string; nombre: string; teniaTurno: boolean }> = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const { actividadId, posiciones, ...resto } = fila as Record<string, unknown>;
+      const actividad = typeof actividadId === 'string' ? porId.get(actividadId) : undefined;
+
+      if (!actividad) {
+        return {
+          ok: false,
+          error:
+            `turnos.${indice}.actividadId: no hay ninguna actividad con ese id en este grupo. ` +
+            'Llamá a listar_actividades y usá un id de ahí.',
+        };
+      }
+
+      const parseado = esquemaConfigurarTurno.safeParse({
+        ...limpiarVacios(resto, true),
+        posiciones: Array.isArray(posiciones)
+          ? posiciones.map((usuarioId) => ({ usuarioId }))
+          : posiciones,
+      });
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('turnos', indice, parseado.error) };
+      }
+
+      const rechazo = this.violacionDeTurno(actividad, parseado.data.posiciones, delGrupo);
+
+      if (rechazo) {
+        return { ok: false, error: `turnos.${indice}: ${rechazo}` };
+      }
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: 'PUT',
+        ruta: `/activity/actividades/${actividad.id}/turno`,
+        body: parseado.data,
+        etiqueta:
+          `Rotar «${actividad.nombre}» entre ${parseado.data.posiciones.length} posiciones ` +
+          `(${parseado.data.modo === 'AZAR' ? 'al azar' : 'orden fijo'}, cambia por ` +
+          `${parseado.data.frecuencia === 'SESION' ? 'día' : 'sección'})` +
+          (parseado.data.activo === false ? ' — apagada' : ''),
+      });
+      snapshot.push({
+        id: actividad.id,
+        nombre: actividad.nombre,
+        teniaTurno: rotaHoy.has(actividad.id),
+      });
+    }
+
+    return await this.guardar('TURNOS', operaciones, { turnos: snapshot }, contexto, conversacionId);
+  }
+
+  /** Las reglas que `PUT /activity/actividades/:id/turno` rechaza, replicadas. */
+  private violacionDeTurno(
+    actividad: {
+      tipoPuntaje: string;
+      alcance: string;
+      usuariosPermitidos: string[];
+    },
+    posiciones: Array<{ usuarioId: string }>,
+    delGrupo: Set<string>
+  ): string | null {
+    if (actividad.tipoPuntaje !== 'OBLIGATORIA') {
+      return 'solo rota una actividad OBLIGATORIA: la rotación dice quién TIENE que hacerla hoy.';
+    }
+
+    if (actividad.alcance !== 'INDIVIDUAL') {
+      return 'solo rota una actividad de alcance INDIVIDUAL, no una de equipo.';
+    }
+
+    const ajeno = posiciones.find((posicion) => !delGrupo.has(posicion.usuarioId));
+
+    if (ajeno) {
+      return `posiciones: "${ajeno.usuarioId}" no es un participante de este grupo.`;
+    }
+
+    // Si la actividad tiene destinatario nominal, el pozo de la rotación sale de
+    // ahí y no de todo el grupo (fase-14-24 decisión 6).
+    if (actividad.usuariosPermitidos.length > 0) {
+      const fuera = posiciones.find(
+        (posicion) => !actividad.usuariosPermitidos.includes(posicion.usuarioId)
+      );
+
+      if (fuera) {
+        return (
+          `posiciones: "${fuera.usuarioId}" no está entre las personas a las que está dirigida ` +
+          'esta actividad, así que nunca la vería en su pantalla.'
+        );
+      }
+    }
+
+    return null;
   }
 
   private async armarPreciosTienda(

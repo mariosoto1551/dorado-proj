@@ -9,6 +9,7 @@ import type { RewardsClientService } from '../clientes/rewards-client.service';
 import type { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import { PropuestaNoAplicableException, PropuestaVencidaException } from '../comun/excepciones';
 import type { PrismaService } from '../prisma/prisma.service';
+import { NOMBRES_HERRAMIENTAS_PROPUESTA } from './definiciones-propuesta';
 import { OperacionPropuesta, PropuestasService } from './propuestas.service';
 
 const CONTEXTO: ContextoHerramienta = { organizacionId: 'org-1', grupoId: 'grupo-1' };
@@ -33,8 +34,14 @@ const PRODUCTO_ID = '55555555-5555-4555-8555-555555555555';
 
 const CONDUCTA_MALA_ID = '66666666-6666-4666-8666-666666666666';
 
+const ACTIVIDAD_OPCIONAL_ID = '77777777-7777-4777-8777-777777777777';
+
+const OTRO_USUARIO_ID = '88888888-8888-4888-8888-888888888888';
+
 interface Opciones {
   propuesta?: Record<string, unknown> | null;
+  /** Pisa los campos de la actividad rotable, para los casos de turnos. */
+  actividad?: Record<string, unknown>;
 }
 
 function crearMocks(opciones: Opciones = {}) {
@@ -70,16 +77,41 @@ function crearMocks(opciones: Opciones = {}) {
 
   const activity = {
     actividades: vi.fn(async () => [
-      { id: ACTIVIDAD_ID, nombre: 'Tender la cama' },
+      {
+        id: ACTIVIDAD_ID,
+        nombre: 'Tender la cama',
+        tipoPuntaje: 'OBLIGATORIA',
+        alcance: 'INDIVIDUAL',
+        usuariosPermitidos: [] as string[],
+        ...opciones.actividad,
+      },
+      {
+        id: ACTIVIDAD_OPCIONAL_ID,
+        nombre: 'Leer un rato',
+        tipoPuntaje: 'OPCIONAL',
+        alcance: 'INDIVIDUAL',
+        usuariosPermitidos: [] as string[],
+      },
     ]),
     conductas: vi.fn(async () => [
-      { id: CONDUCTA_MALA_ID, nombre: 'Gritar', tipo: 'MALA' },
+      {
+        id: CONDUCTA_MALA_ID,
+        nombre: 'Gritar',
+        tipo: 'MALA',
+        valorPuntos: 5,
+        permiteAutoreporte: false,
+        estado: 'ACTIVA',
+      },
     ]),
+    turnos: vi.fn(async () => [] as Array<{ actividadId: string }>),
   } as unknown as ActivityClientService;
 
   const identity = {
     roles: vi.fn(async () => [{ id: ROL_ID, nombre: 'cocina', estado: 'ACTIVO' }]),
-    participantes: vi.fn(async () => [{ id: USUARIO_ID, nombre: 'Luciana' }]),
+    participantes: vi.fn(async () => [
+      { id: USUARIO_ID, nombre: 'Luciana' },
+      { id: OTRO_USUARIO_ID, nombre: 'Alejandra' },
+    ]),
     equipos: vi.fn(async () => [{ equipoId: EQUIPO_ID, nombre: 'Cocina', estado: 'ACTIVO' }]),
   } as unknown as IdentityClientService;
 
@@ -319,6 +351,302 @@ describe('PropuestasService', () => {
       expect(operaciones[0].metodo).toBe('PATCH');
       expect(operaciones[0].ruta).toBe(`/activity/actividades/${ACTIVIDAD_ID}`);
       expect(operaciones[0].body).toEqual({ valorPuntos: 12 });
+    });
+  });
+
+  describe('conductas (fase-14-30 tanda 4)', () => {
+    it('arma el POST con la forma exacta del request de activity', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_crear_conductas',
+        { conductas: [{ nombre: 'Ayudar sin que se lo pidan', tipo: 'BUENA', valorPuntos: 4 }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(true);
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones[0].metodo).toBe('POST');
+      expect(operaciones[0].ruta).toBe('/activity/grupos/grupo-1/conductas');
+      expect(operaciones[0].body).toEqual({
+        nombre: 'Ayudar sin que se lo pidan',
+        tipo: 'BUENA',
+        valorPuntos: 4,
+      });
+      expect(operaciones[0].etiqueta).toContain('Ayudar sin que se lo pidan');
+    });
+
+    /**
+     * El caso que decide cómo se limpia el request de una conducta, y que sin
+     * este test se descubriría con el modelo quemando el loop contra un error
+     * que no puede resolver.
+     *
+     * **El modelo no puede omitir una propiedad declarada**: en una edición de
+     * un solo campo manda los otros tres en `null`. En una actividad ese `null`
+     * significa «borrá el campo» (fase-14-24) y se conserva; en una conducta no
+     * hay ni un campo anulable, así que solo puede significar «no lo puse».
+     */
+    it('una edición con los campos que no cambian en null no falla', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_editar_conductas',
+        {
+          ediciones: [
+            {
+              conductaId: CONDUCTA_MALA_ID,
+              nombre: null,
+              tipo: null,
+              valorPuntos: 8,
+              permiteAutoreporte: null,
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(true);
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones[0].metodo).toBe('PATCH');
+      expect(operaciones[0].ruta).toBe(`/activity/conductas/${CONDUCTA_MALA_ID}`);
+      // Solo lo que de verdad cambia: un PATCH con tres nulls habría borrado el
+      // nombre de la conducta al aplicarse.
+      expect(operaciones[0].body).toEqual({ valorPuntos: 8 });
+    });
+
+    /** Criterio 2 del fase-14-30, sobre `conductaId`. */
+    it('un conductaId que no es de este grupo NO crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_editar_conductas',
+        { ediciones: [{ conductaId: ACTIVIDAD_ID, valorPuntos: 8 }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('conductaId');
+      // Le dice qué llamar, no solo que se equivocó.
+      expect((resultado as { error: string }).error).toContain('listar_conductas');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un valorPuntos negativo: el signo lo aplica el registro', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_crear_conductas',
+        { conductas: [{ nombre: 'Gritar', tipo: 'MALA', valorPuntos: -5 }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('valorPuntos');
+    });
+  });
+
+  describe('turnos (fase-14-30 tanda 4)', () => {
+    it('convierte la lista plana del modelo en el request destino, con repetidos y en orden', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_configurar_turnos',
+        {
+          turnos: [
+            {
+              actividadId: ACTIVIDAD_ID,
+              modo: 'ORDEN_FIJO',
+              frecuencia: 'SESION',
+              // El repetido es deliberado (fase-14-21): así se le dan más
+              // turnos a uno que a otro. Un armador que "limpie" duplicados
+              // rompería ese ítem sin que nada más se queje.
+              posiciones: [USUARIO_ID, OTRO_USUARIO_ID, USUARIO_ID],
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(true);
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones[0].metodo).toBe('PUT');
+      expect(operaciones[0].ruta).toBe(`/activity/actividades/${ACTIVIDAD_ID}/turno`);
+      expect(operaciones[0].body).toEqual({
+        modo: 'ORDEN_FIJO',
+        frecuencia: 'SESION',
+        posiciones: [
+          { usuarioId: USUARIO_ID },
+          { usuarioId: OTRO_USUARIO_ID },
+          { usuarioId: USUARIO_ID },
+        ],
+      });
+      expect(operaciones[0].etiqueta).toContain('Tender la cama');
+    });
+
+    it('rechaza rotar una actividad OPCIONAL, como haría el endpoint destino', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_configurar_turnos',
+        {
+          turnos: [
+            {
+              actividadId: ACTIVIDAD_OPCIONAL_ID,
+              modo: 'AZAR',
+              frecuencia: 'SECCION',
+              posiciones: [USUARIO_ID],
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('OBLIGATORIA');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('rechaza una posición que no es participante del grupo', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_configurar_turnos',
+        {
+          turnos: [
+            {
+              actividadId: ACTIVIDAD_ID,
+              modo: 'ORDEN_FIJO',
+              frecuencia: 'SESION',
+              posiciones: [USUARIO_ID, ROL_ID],
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('no es un participante');
+    });
+
+    /**
+     * fase-14-24 decisión 6: si la actividad está dirigida a personas concretas,
+     * el pozo de la rotación sale de ahí. Cargar a alguien que no la ve le daría
+     * un turno que su pantalla nunca le muestra —y el castigo caería igual.
+     */
+    it('rechaza una posición que está fuera del destinatario nominal', async () => {
+      const { servicio } = crearMocks({ actividad: { usuariosPermitidos: [USUARIO_ID] } });
+
+      const resultado = await servicio.armar(
+        'proponer_configurar_turnos',
+        {
+          turnos: [
+            {
+              actividadId: ACTIVIDAD_ID,
+              modo: 'ORDEN_FIJO',
+              frecuencia: 'SESION',
+              posiciones: [USUARIO_ID, OTRO_USUARIO_ID],
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect((resultado as { error: string }).error).toContain('dirigida');
+    });
+
+    it('una secuencia vacía no se guarda', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_configurar_turnos',
+        {
+          turnos: [
+            {
+              actividadId: ACTIVIDAD_ID,
+              modo: 'ORDEN_FIJO',
+              frecuencia: 'SESION',
+              posiciones: [],
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * CRITERIO DE ACEPTACIÓN 3 del fase-14-30 (decisión 3): **ninguna operación
+   * de ninguna propuesta usa `DELETE`.**
+   *
+   * El tipo de `OperacionPropuesta.metodo` ya lo hace imposible de escribir,
+   * pero eso solo cubre lo que se escribe a mano: este test lo verifica sobre
+   * las operaciones REALES que arma cada herramienta, y de paso obliga a que
+   * toda herramienta nueva pase por acá — la tabla se compara contra el
+   * catálogo, así que agregar una y olvidarse pone esto en rojo.
+   */
+  describe('ninguna propuesta archiva, borra ni desactiva nada (decisión 3)', () => {
+    const ARGUMENTOS: Record<string, Record<string, unknown>> = {
+      proponer_crear_actividades: { actividades: [actividadValida()] },
+      proponer_editar_actividades: { ediciones: [{ actividadId: ACTIVIDAD_ID, valorPuntos: 12 }] },
+      proponer_crear_conductas: {
+        conductas: [{ nombre: 'Gritar', tipo: 'MALA', valorPuntos: 5 }],
+      },
+      proponer_editar_conductas: { ediciones: [{ conductaId: CONDUCTA_MALA_ID, valorPuntos: 8 }] },
+      proponer_configurar_turnos: {
+        turnos: [
+          {
+            actividadId: ACTIVIDAD_ID,
+            modo: 'ORDEN_FIJO',
+            frecuencia: 'SESION',
+            posiciones: [USUARIO_ID],
+          },
+        ],
+      },
+      proponer_precios_tienda: { precios: [{ productoId: PRODUCTO_ID, precio: 30 }] },
+      proponer_rendimientos_monedas: {
+        rendimientos: [{ tipoAccion: 'ACTIVIDAD', origenId: ACTIVIDAD_ID, monedas: 3 }],
+      },
+    };
+
+    it('la tabla cubre TODAS las herramientas de propuesta del catálogo', () => {
+      expect(Object.keys(ARGUMENTOS).sort()).toEqual([...NOMBRES_HERRAMIENTAS_PROPUESTA].sort());
+    });
+
+    it.each(Object.keys(ARGUMENTOS))('%s arma solo POST, PATCH o PUT', async (nombre) => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(nombre, ARGUMENTOS[nombre], CONTEXTO, 'conv-1');
+
+      expect(resultado, `"${nombre}" tendría que armar una propuesta válida`).toMatchObject({
+        ok: true,
+      });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones.length).toBeGreaterThan(0);
+
+      for (const operacion of operaciones) {
+        expect(['POST', 'PATCH', 'PUT'], operacion.ruta).toContain(operacion.metodo);
+      }
     });
   });
 
