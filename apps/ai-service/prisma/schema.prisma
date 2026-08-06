@@ -80,6 +80,14 @@ enum TipoPropuesta {
   // fase-14-30 tanda 7 — familia personas: roles y equipos de quien ya está.
   ROLES_GRUPO
   EQUIPOS
+
+  // fase-14-31 — alcance operativo. Los dos primeros son los únicos tipos
+  // propios que pueden llevar `DELETE` (con UMBRALES_ZONA, que ya estaba); los
+  // dos últimos escriben en un ledger, que el #29 había dejado afuera.
+  ARCHIVAR_CATALOGO
+  QUITAR_MARCAS
+  AJUSTES_MANUALES
+  ANOTAR_REGISTROS
 }
 
 model Conversacion {

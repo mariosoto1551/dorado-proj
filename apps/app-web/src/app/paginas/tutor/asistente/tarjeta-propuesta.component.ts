@@ -1,6 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 
-import type { PropuestaIaDto, ResultadoOperacionIa } from '@dorado/shared-types';
+import {
+  esPropuestaDestructiva,
+  type PropuestaIaDto,
+  type ResultadoOperacionIa,
+} from '@dorado/shared-types';
 import { ConfirmDialogComponent } from '@dorado/shared-ui';
 
 import { IconoComponent } from '../../../componentes/icono.component';
@@ -30,6 +34,12 @@ const TITULOS: Record<PropuestaIaDto['tipo'], string> = {
   // fase-14-30 tanda 7 — familia personas.
   ROLES_GRUPO: 'Roles del grupo',
   EQUIPOS: 'Equipos de trabajo',
+  // fase-14-31 — alcance operativo. Los títulos dicen el VERBO, no la entidad:
+  // en una tarjeta que borra, lo primero que hay que leer es qué va a pasar.
+  ARCHIVAR_CATALOGO: 'Archivar del catálogo',
+  QUITAR_MARCAS: 'Quitar marcas de hoy',
+  AJUSTES_MANUALES: 'Puntos y monedas a mano',
+  ANOTAR_REGISTROS: 'Anotar lo del día',
 };
 
 const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
@@ -61,10 +71,22 @@ const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconoComponent, ConfirmDialogComponent],
   template: `
-    <article class="tarjeta animate-slide-up border-marca-200 dark:border-marca-800">
+    <article
+      class="tarjeta animate-slide-up"
+      [class]="
+        destructiva()
+          ? 'border-red-300 dark:border-red-800'
+          : 'border-marca-200 dark:border-marca-800'
+      "
+    >
       <header class="flex flex-wrap items-center gap-2">
         <span
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-marca-50 text-marca-600 dark:bg-marca-900/40 dark:text-marca-300"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+          [class]="
+            destructiva()
+              ? 'bg-red-50 text-red-600 dark:bg-red-900/40 dark:text-red-300'
+              : 'bg-marca-50 text-marca-600 dark:bg-marca-900/40 dark:text-marca-300'
+          "
         >
           <span class="h-4 w-4"><app-icono nombre="chispa" /></span>
         </span>
@@ -95,6 +117,24 @@ const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
         >
           {{ aviso }}
+        </p>
+      }
+
+      <!--
+        fase-14-31 decisión 2: la tarjeta se pinta por su fila más peligrosa, y
+        acá se dice **qué se pierde y qué no**. No es decoración: casi todos los
+        borrados del sistema son soft, así que archivar una actividad la saca de
+        la lista y deja intactos su historial y los puntos que ya dio. Un Tutor
+        que cree que borrar una actividad borra sus puntos no aprieta nunca; uno
+        que cree lo contrario aprieta de más.
+      -->
+      @if (destructiva() && editable()) {
+        <p
+          class="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-500/10 dark:text-red-200"
+        >
+          Hay {{ cuantasBorran() }}
+          {{ cuantasBorran() === 1 ? 'fila que borra' : 'filas que borran' }}. Tildá una por una
+          las que quieras: acá no hay «Aplicar todo».
         </p>
       }
 
@@ -165,17 +205,22 @@ const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
         </p>
 
         <div class="mt-3 flex flex-wrap gap-2">
+          <!-- El «Aplicar todo» NO existe en una tarjeta destructiva: el daño
+               accidental tiene que costar N clics, no uno (decisión 2). -->
+          @if (!destructiva()) {
+            <button
+              type="button"
+              class="boton boton-primario boton-sm"
+              [disabled]="aplicando()"
+              (click)="pedirConfirmacion(false)"
+            >
+              Aplicar todo
+            </button>
+          }
           <button
             type="button"
-            class="boton boton-primario boton-sm"
-            [disabled]="aplicando()"
-            (click)="pedirConfirmacion(false)"
-          >
-            Aplicar todo
-          </button>
-          <button
-            type="button"
-            class="boton boton-neutro boton-sm"
+            class="boton boton-sm"
+            [class]="destructiva() ? 'boton-peligro' : 'boton-neutro'"
             [disabled]="aplicando() || elegidas().size === 0"
             (click)="pedirConfirmacion(true)"
           >
@@ -201,10 +246,10 @@ const ESTADOS: Record<PropuestaIaDto['estado'], string> = {
     <!-- Se confirma lo que no tiene vuelta atrás. Descartar no entra acá. -->
     <ui-confirm-dialog
       [abierto]="porConfirmar() !== null"
-      titulo="Aplicar los cambios"
+      [titulo]="destructiva() ? 'Borrar lo seleccionado' : 'Aplicar los cambios'"
       [mensaje]="mensajeConfirmacion()"
-      textoConfirmar="Aplicar"
-      tono="primario"
+      [textoConfirmar]="destructiva() ? 'Borrar' : 'Aplicar'"
+      [tono]="destructiva() ? 'peligro' : 'primario'"
       (confirmar)="confirmar()"
       (cancelar)="porConfirmar.set(null)"
     />
@@ -251,12 +296,36 @@ export class TarjetaPropuestaComponent {
    * obligar a tildar cinco casillas para eso sería fricción sin criterio. Lo
    * que la selección permite es lo contrario —sacar una que no convence— y eso
    * se hace destildando.
+   *
+   * **En una propuesta destructiva el default se invierte** (fase-14-31
+   * decisión 2): arranca sin nada tildado y hay que elegir fila por fila. El
+   * mismo botón que en el resto de las tarjetas significa «dale, ya lo leí»,
+   * acá tendría que significar «borrá las cinco», y no puede ser el default de
+   * nada. Son dos signals y no uno con el significado invertido: dos conjuntos
+   * vacíos que quieren decir cosas opuestas se leen mal seis meses después.
    */
   private readonly destildadas = signal<ReadonlySet<string>>(new Set());
 
+  /** Solo en las destructivas: lo que el Tutor tildó a propósito. */
+  private readonly tildadas = signal<ReadonlySet<string>>(new Set());
+
   protected readonly filas = computed(() => armarFilas(this.propuesta(), this.contexto()));
 
+  protected readonly destructiva = computed(() =>
+    esPropuestaDestructiva(this.propuesta().operaciones)
+  );
+
+  protected readonly cuantasBorran = computed(
+    () => this.propuesta().operaciones.filter((operacion) => operacion.metodo === 'DELETE').length
+  );
+
   protected readonly elegidas = computed(() => {
+    if (this.destructiva()) {
+      const dentro = this.tildadas();
+
+      return new Set(this.filas().map((fila) => fila.opId).filter((opId) => dentro.has(opId)));
+    }
+
     const fuera = this.destildadas();
 
     return new Set(this.filas().map((fila) => fila.opId).filter((opId) => !fuera.has(opId)));
@@ -272,6 +341,17 @@ export class TarjetaPropuestaComponent {
 
   protected readonly mensajeConfirmacion = computed(() => {
     const cuantas = this.porConfirmar()?.opIds?.length ?? this.filas().length;
+
+    if (this.destructiva()) {
+      // Se nombra lo que se pierde y lo que NO: casi todos los borrados del
+      // sistema son soft, y el Tutor tiene que decidir sabiendo cuál es cuál.
+      return (
+        `Se van a aplicar ${cuantas} ${cuantas === 1 ? 'cambio' : 'cambios'}, y ` +
+        `${this.cuantasBorran() === 1 ? 'uno borra' : 'algunos borran'}. Lo que se archiva sale ` +
+        'del catálogo pero deja su historial y los puntos que ya dio; una marca quitada sí le ' +
+        'cambia el puntaje al integrante.'
+      );
+    }
 
     return (
       `Se van a aplicar ${cuantas} ${cuantas === 1 ? 'cambio' : 'cambios'} sobre el grupo, ` +
@@ -293,8 +373,10 @@ export class TarjetaPropuestaComponent {
   });
 
   protected alternar(opId: string): void {
-    this.destildadas.update((fuera) => {
-      const siguiente = new Set(fuera);
+    const conjunto = this.destructiva() ? this.tildadas : this.destildadas;
+
+    conjunto.update((actual) => {
+      const siguiente = new Set(actual);
 
       if (siguiente.has(opId)) {
         siguiente.delete(opId);

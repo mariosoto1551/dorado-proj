@@ -242,4 +242,117 @@ describe('TarjetaPropuestaComponent', () => {
   it('sin aviso no dibuja el cartel', async () => {
     expect(texto()).not.toContain('cambia el pasado');
   });
+
+  /**
+   * CRITERIO DE ACEPTACIÓN 5 del fase-14-31 (decisión 2): **no existe camino
+   * de un clic que borre algo.**
+   *
+   * La fricción va donde está el daño. En una tarjeta normal el default es
+   * «esto está bien, dale» porque el peor caso es una actividad de más; en una
+   * que borra, el mismo botón significaría «borrá las cinco» y no puede ser el
+   * default de nada.
+   */
+  describe('propuesta destructiva (fase-14-31)', () => {
+    const archivar = (): PropuestaIaDto =>
+      propuestaDe({
+        tipo: 'ARCHIVAR_CATALOGO',
+        operaciones: [
+          {
+            opId: 'op-1',
+            metodo: 'DELETE',
+            ruta: '/activity/actividades/act-1',
+            body: null,
+            etiqueta: 'Archivar «Tender la cama» — sus 14 marcas quedan en el historial',
+          },
+          {
+            opId: 'op-2',
+            metodo: 'DELETE',
+            ruta: '/activity/conductas/con-1',
+            body: null,
+            etiqueta: 'Archivar la conducta «Gritar»',
+          },
+        ],
+      });
+
+    it('no ofrece «Aplicar todo»', async () => {
+      anfitrion.propuesta.set(archivar());
+      await render();
+
+      expect(botonQueDice('Aplicar todo')).toBeUndefined();
+    });
+
+    it('arranca con NADA tildado y el botón deshabilitado', async () => {
+      anfitrion.propuesta.set(archivar());
+      await render();
+
+      expect(casillas().every((casilla) => !casilla.checked)).toBe(true);
+      expect(botonQueDice('Aplicar 0 seleccionadas')?.disabled).toBe(true);
+    });
+
+    it('tildar una fila habilita el botón y aplica solo esa', async () => {
+      anfitrion.propuesta.set(archivar());
+      await render();
+
+      casillas()[0].click();
+      await render();
+
+      botonQueDice('Aplicar 1 seleccionada')?.click();
+      await render();
+
+      // El diálogo dice «Borrar», no «Aplicar»: el verbo también es la señal.
+      [
+        ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
+          '[role="dialog"] button'
+        ),
+      ]
+        .find((boton) => (boton.textContent ?? '').trim() === 'Borrar')
+        ?.click();
+      await render();
+
+      expect(anfitrion.aplicado()).toEqual(['op-1']);
+    });
+
+    it('dice qué se pierde y qué no, que es de lo que depende la decisión', async () => {
+      anfitrion.propuesta.set(archivar());
+      await render();
+
+      expect(texto()).toContain('Archivar del catálogo');
+      expect(texto()).toContain('2 filas que borran');
+      // La etiqueta del servidor es la que carga el detalle: acá no se inventa.
+      expect(texto()).toContain('sus 14 marcas quedan en el historial');
+    });
+
+    /**
+     * La regla se decide por las OPERACIONES y no por el tipo: una propuesta de
+     * umbrales que solo edita rangos es una edición normal, y la misma con una
+     * zona borrada adentro no lo es (decisión 8).
+     */
+    it('una propuesta de umbrales con un borrado adentro también es destructiva', async () => {
+      anfitrion.propuesta.set(
+        propuestaDe({
+          tipo: 'UMBRALES_ZONA',
+          operaciones: [
+            {
+              opId: 'op-1',
+              metodo: 'PATCH',
+              ruta: '/scoring/umbrales/z-1',
+              body: { puntosMax: null },
+              etiqueta: '«Verde»: 50–99 → 50 o más',
+            },
+            {
+              opId: 'op-2',
+              metodo: 'DELETE',
+              ruta: '/scoring/umbrales/z-2',
+              body: null,
+              etiqueta: 'Borrar la zona «Dorado»',
+            },
+          ],
+        })
+      );
+      await render();
+
+      expect(botonQueDice('Aplicar todo')).toBeUndefined();
+      expect(texto()).toContain('1 fila que borra');
+    });
+  });
 });

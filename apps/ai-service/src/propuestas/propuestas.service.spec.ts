@@ -1,7 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
-import { PrincipalType, Rol, TenantContext } from '@dorado/shared-types';
+import {
+  PrincipalType,
+  Rol,
+  TenantContext,
+  TIPOS_PROPUESTA_CON_BORRADO,
+  type TipoPropuestaIa,
+} from '@dorado/shared-types';
 
 import type { ActivityClientService } from '../clientes/activity-client.service';
 import type { IdentityClientService } from '../clientes/identity-client.service';
@@ -743,16 +749,21 @@ describe('PropuestasService', () => {
   });
 
   /**
-   * CRITERIO DE ACEPTACIÓN 3 del fase-14-30 (decisión 3): **ninguna operación
-   * de ninguna propuesta usa `DELETE`.**
+   * CRITERIO DE ACEPTACIÓN 4 del fase-14-31 (decisión 1): **`DELETE` solo
+   * aparece en los tipos de `TIPOS_PROPUESTA_CON_BORRADO`.**
    *
-   * El tipo de `OperacionPropuesta.metodo` ya lo hace imposible de escribir,
-   * pero eso solo cubre lo que se escribe a mano: este test lo verifica sobre
-   * las operaciones REALES que arma cada herramienta, y de paso obliga a que
-   * toda herramienta nueva pase por acá — la tabla se compara contra el
-   * catálogo, así que agregar una y olvidarse pone esto en rojo.
+   * Era el criterio 3 del #30 —*ninguna operación de ninguna propuesta usa
+   * `DELETE`*— y **no se borró: se invirtió**. Aquella decisión era correcta
+   * cuando se escribió (el #30 era sobre configurar un grupo, y archivar no es
+   * configurar); lo que la volvió chica no fue un error suyo sino que el
+   * asistente pasó de armar grupos a acompañarlos.
+   *
+   * Que quede como lista blanca y no como nada es el punto: un `DELETE` en la
+   * familia de crear actividades sigue poniendo esto en rojo. Y la tabla se
+   * compara contra el catálogo, así que agregar una herramienta y olvidarse de
+   * pasarla por acá también.
    */
-  describe('ninguna propuesta archiva, borra ni desactiva nada (decisión 3)', () => {
+  describe('DELETE solo donde está declarado (fase-14-31 decisión 1)', () => {
     const ARGUMENTOS: Record<string, Record<string, unknown>> = {
       proponer_crear_actividades: { actividades: [actividadValida()] },
       proponer_editar_actividades: { ediciones: [{ actividadId: ACTIVIDAD_ID, valorPuntos: 12 }] },
@@ -799,7 +810,7 @@ describe('PropuestasService', () => {
       expect(Object.keys(ARGUMENTOS).sort()).toEqual([...NOMBRES_HERRAMIENTAS_PROPUESTA].sort());
     });
 
-    it.each(Object.keys(ARGUMENTOS))('%s arma solo POST, PATCH o PUT', async (nombre) => {
+    it.each(Object.keys(ARGUMENTOS))('%s no arma un DELETE fuera de su tipo', async (nombre) => {
       const { servicio, creadas } = crearMocks();
 
       const resultado = await servicio.armar(nombre, ARGUMENTOS[nombre], CONTEXTO, 'conv-1');
@@ -808,13 +819,30 @@ describe('PropuestasService', () => {
         ok: true,
       });
 
+      const tipo = creadas[0]['tipo'] as TipoPropuestaIa;
       const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+      const permitidos = TIPOS_PROPUESTA_CON_BORRADO.includes(tipo)
+        ? ['POST', 'PATCH', 'PUT', 'DELETE']
+        : ['POST', 'PATCH', 'PUT'];
 
       expect(operaciones.length).toBeGreaterThan(0);
 
       for (const operacion of operaciones) {
-        expect(['POST', 'PATCH', 'PUT'], operacion.ruta).toContain(operacion.metodo);
+        expect(permitidos, `${nombre} → ${operacion.ruta}`).toContain(operacion.metodo);
       }
+    });
+
+    /**
+     * El otro extremo de la lista blanca: que no se le pueda agregar un tipo
+     * «por las dudas». Cada uno de los tres está por un motivo escrito en la
+     * spec, y sumar un cuarto tiene que costar tocar este test.
+     */
+    it('la lista blanca tiene exactamente los tres tipos que la spec declara', () => {
+      expect([...TIPOS_PROPUESTA_CON_BORRADO].sort()).toEqual([
+        'ARCHIVAR_CATALOGO',
+        'QUITAR_MARCAS',
+        'UMBRALES_ZONA',
+      ]);
     });
   });
 

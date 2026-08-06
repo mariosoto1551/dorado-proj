@@ -220,8 +220,24 @@ export function armarFilas(
 
       case 'EQUIPOS':
         return filaDeEquipo(operacion, contexto);
+
+      // fase-14-31: las cuatro familias operativas se leen de la etiqueta que
+      // ya armó el servidor. No es un atajo — es que **no hay «antes → después»
+      // que mostrar**: archivar, quitar una marca, ajustar puntos y anotar son
+      // actos, no ediciones de campos. Lo que hay que leer es qué va a pasar y
+      // qué se pierde, y eso lo escribe quien conoce el estado del grupo.
+      case 'ARCHIVAR_CATALOGO':
+      case 'QUITAR_MARCAS':
+      case 'AJUSTES_MANUALES':
+      case 'ANOTAR_REGISTROS':
+        return filaDeActo(operacion);
     }
   });
+}
+
+/** Una fila que es un acto y no un diff: el título es la etiqueta del servidor. */
+function filaDeActo(operacion: OperacionPropuestaIaDto): FilaPropuesta {
+  return { opId: operacion.opId, titulo: operacion.etiqueta, cambios: [] };
 }
 
 /**

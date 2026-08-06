@@ -165,7 +165,53 @@ export type TipoPropuestaIa =
   // fase-14-30 tanda 7 (familia personas). Organizan a quien YA está en el
   // grupo: no dan de alta ni de baja a nadie (decisión 4).
   | 'ROLES_GRUPO'
-  | 'EQUIPOS';
+  | 'EQUIPOS'
+  // fase-14-31 (alcance operativo). Los tres primeros son los que pueden
+  // llevar `DELETE`; los dos últimos escriben en un ledger.
+  | 'ARCHIVAR_CATALOGO'
+  | 'QUITAR_MARCAS'
+  | 'AJUSTES_MANUALES'
+  | 'ANOTAR_REGISTROS';
+
+/**
+ * Dónde se admite un `DELETE` (fase-14-31 decisión 1).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ESTO ES LA DECISIÓN 3 DEL #30 REVISADA, NO BORRADA.
+ *
+ * Aquella decía *«ninguna operación de ninguna propuesta usa `DELETE`»* y era
+ * correcta cuando se escribió: el #30 era sobre configurar un grupo, y
+ * archivar no es configurar. El #31 amplía la capacidad y **la regla no
+ * desaparece: se vuelve una lista blanca**, que es una propiedad más fuerte
+ * que quedarse sin ninguna. Un `DELETE` que aparezca mañana en la familia de
+ * crear actividades sigue estando prohibido, y hay un test que lo dice.
+ *
+ * `UMBRALES_ZONA` está acá por la decisión 8: sacar una zona del medio casi
+ * siempre exige ensanchar a una vecina en el mismo movimiento, y separarlas
+ * produciría propuestas correctas e inaplicables.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const TIPOS_PROPUESTA_CON_BORRADO: readonly TipoPropuestaIa[] = [
+  'ARCHIVAR_CATALOGO',
+  'QUITAR_MARCAS',
+  'UMBRALES_ZONA',
+];
+
+/**
+ * Si la tarjeta se pinta como destructiva (fase-14-31 decisión 2).
+ *
+ * **Se decide por las operaciones y no por el tipo**, y esa es toda la
+ * diferencia: una propuesta de umbrales que solo edita rangos es una edición
+ * normal, y la misma propuesta con una zona borrada adentro no lo es. La
+ * tarjeta se pinta por su fila más peligrosa, así que alcanza con que haya un
+ * `DELETE` para que valgan la confirmación por fila y la ausencia del
+ * «Aplicar todo».
+ */
+export function esPropuestaDestructiva(
+  operaciones: readonly OperacionPropuestaIaDto[]
+): boolean {
+  return operaciones.some((operacion) => operacion.metodo === 'DELETE');
+}
 
 export type EstadoPropuestaIa =
   | 'BORRADOR'
@@ -187,7 +233,8 @@ export type EstadoPropuestaIa =
 export interface OperacionPropuestaIaDto {
   /** Id local de la operación, para reportar el resultado por fila. */
   opId: string;
-  metodo: 'POST' | 'PATCH' | 'PUT';
+  /** `DELETE` desde el fase-14-31, y solo en `TIPOS_PROPUESTA_CON_BORRADO`. */
+  metodo: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   /** Relativa a `/api`. Ej: `/activity/grupos/:id/actividades`. */
   ruta: string;
   body: unknown;

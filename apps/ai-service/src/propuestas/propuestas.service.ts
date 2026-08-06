@@ -53,7 +53,12 @@ const HORAS_DE_VIGENCIA = 24;
 export interface OperacionPropuesta {
   /** Id local, para poder reportar por fila (decisión 13). */
   opId: string;
-  metodo: 'POST' | 'PATCH' | 'PUT';
+  /**
+   * `DELETE` desde el fase-14-31, y **solo** en los tipos de
+   * `TIPOS_PROPUESTA_CON_BORRADO`. La decisión 3 del #30 no se borró: se
+   * volvió una lista blanca, con su test en `propuestas.service.spec.ts`.
+   */
+  metodo: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   /** Ruta pública, relativa a `/api`. La ejecuta el frontend con el JWT del Tutor. */
   ruta: string;
   /** El body, con la forma EXACTA del request de ese endpoint. */
@@ -82,7 +87,12 @@ type TipoPropuesta =
   | 'ETIQUETAS'
   | 'UMBRALES_ZONA'
   | 'ROLES_GRUPO'
-  | 'EQUIPOS';
+  | 'EQUIPOS'
+  // fase-14-31 — alcance operativo.
+  | 'ARCHIVAR_CATALOGO'
+  | 'QUITAR_MARCAS'
+  | 'AJUSTES_MANUALES'
+  | 'ANOTAR_REGISTROS';
 
 /**
  * Lo que el armador le devuelve al loop para que se lo cuente al modelo.
