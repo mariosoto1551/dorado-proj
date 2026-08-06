@@ -259,6 +259,83 @@ function camposConducta(): Record<string, PropiedadEsquema> {
   };
 }
 
+/**
+ * Los campos de una recompensa o castigo (fase-14-30 tanda 5).
+ *
+ * **`imagenUrl` no se expone**: el modelo no tiene de dónde sacar una URL
+ * válida, así que la inventaría — y una imagen rota en la pantalla del
+ * participante es peor que ninguna. El esquema Zod sí lo declara, para que
+ * renombrarlo en rewards rompa el build (ver la nota de `esquemas.ts`).
+ */
+function camposRecompensa(): Record<string, PropiedadEsquema> {
+  return {
+    tipo: {
+      type: 'string',
+      description:
+        'PREMIO: algo que se gana o se compra. CASTIGO: algo que se aplica y NUNCA se vende ' +
+        'en la tienda ni entra en una bolsa.',
+      enum: ['PREMIO', 'CASTIGO'],
+    },
+    nombre: {
+      type: 'string',
+      description: 'Qué es, concreto y en pocas palabras. Máximo 120 caracteres.',
+    },
+    descripcion: {
+      type: 'string',
+      description: 'Aclaración opcional: qué incluye, qué límites tiene.',
+    },
+    umbralZonaId: uuidDe('la zona a la que queda atada', 'listar_umbrales_zona'),
+    permiteSeleccion: {
+      type: 'boolean',
+      description:
+        'El participante la elige de la lista de su zona. Solo hace algo en modo DIRECTO ' +
+        '(consultalo con configuracion_del_grupo); en modo TIENDA se ignora.',
+    },
+    permiteAzar: {
+      type: 'boolean',
+      description:
+        'Puede salir sorteada entre las de su zona. Solo en modo DIRECTO, igual que la anterior.',
+    },
+  };
+}
+
+/** Los campos de un producto de la tienda (fase-14-30 tanda 5). */
+function camposProducto(): Record<string, PropiedadEsquema> {
+  return {
+    nombre: {
+      type: 'string',
+      description: 'Cómo se ve en la vitrina. Máximo 120 caracteres.',
+    },
+    descripcion: {
+      type: 'string',
+      description: 'Aclaración opcional de qué se lleva el que lo compra.',
+    },
+    precio: {
+      type: 'integer',
+      description:
+        'En monedas, siempre mayor que 0. Calibralo contra lo que se gana por semana: mirá ' +
+        'listar_rendimientos_monedas antes, no solo la lista de precios.',
+      minimum: 1,
+    },
+    fuente: {
+      type: 'string',
+      description:
+        'ITEM: entrega un premio concreto, y va con recompensaId. BOLSA: entrega algo de una ' +
+        'bolsa, y va con bolsaId. Nunca los dos ids juntos.',
+      enum: ['ITEM', 'BOLSA'],
+    },
+    mecanica: {
+      type: 'string',
+      description:
+        'Cómo se resuelve lo que sale de la bolsa: AZAR lo sortea, ELECCION lo deja elegir. ' +
+        'Con fuente ITEM no significa nada y se ignora.',
+      enum: ['AZAR', 'ELECCION'],
+    },
+    recompensaId: uuidDe('el premio que entrega (fuente ITEM)', 'listar_recompensas'),
+    bolsaId: uuidDe('la bolsa que entrega (fuente BOLSA)', 'listar_tienda'),
+  };
+}
+
 export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
   {
     nombre: 'proponer_crear_actividades',
@@ -452,29 +529,145 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
     },
   },
   {
-    nombre: 'proponer_precios_tienda',
+    nombre: 'proponer_crear_recompensas',
     descripcion:
-      `Propone cambiar el precio en monedas de productos de la tienda. ${NO_APLICA} ` +
-      'Para que un precio tenga sentido hay que saber cuánto se gana por semana: mirá antes ' +
-      'los rendimientos en monedas, no solo la lista de precios.',
+      `Propone premios y castigos nuevos para el catálogo del grupo. ${NO_APLICA} ` +
+      'Un premio se gana (o se compra, si el grupo usa tienda) y un castigo se aplica. ' +
+      'Consultá antes configuracion_del_grupo: en modo DIRECTO cada uno va atado a una zona y ' +
+      'umbralZonaId es obligatorio; en modo TIENDA la zona no se usa.',
     parametros: {
       type: 'object',
       properties: {
-        precios: {
+        recompensas: {
           type: 'array',
-          description: 'Los precios a cambiar. Entre 1 y 50 por propuesta.',
+          description: 'Los premios y castigos a crear. Entre 1 y 25 por propuesta.',
           items: {
             type: 'object',
-            description: 'El precio nuevo de un producto.',
+            description: 'Un premio o un castigo.',
+            properties: camposRecompensa(),
+            required: ['tipo', 'nombre'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: {
+          type: 'string',
+          description: 'Una línea explicando el criterio con el que armaste el conjunto.',
+        },
+      },
+      required: ['recompensas'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_editar_recompensas',
+    descripcion:
+      `Propone cambios sobre premios y castigos que YA existen. ${NO_APLICA} ` +
+      'Mandá solo los campos que cambian: lo que no mandes queda como está.',
+    parametros: {
+      type: 'object',
+      properties: {
+        ediciones: {
+          type: 'array',
+          description: 'Los cambios, uno por ítem. Entre 1 y 25 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Un cambio sobre un premio o castigo existente.',
             properties: {
-              productoId: uuidDe('el producto de la tienda', 'listar_tienda'),
-              precio: {
-                type: 'integer',
-                description: 'Precio nuevo en monedas. Siempre mayor que 0.',
-                minimum: 1,
+              recompensaId: uuidDe('el premio o castigo a editar', 'listar_recompensas'),
+              ...camposRecompensa(),
+            },
+            required: ['recompensaId'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: { type: 'string', description: 'Una línea explicando qué cambia y por qué.' },
+      },
+      required: ['ediciones'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_crear_productos',
+    descripcion:
+      `Propone productos nuevos para la tienda, y las bolsas que algunos entregan. ${NO_APLICA} ` +
+      'La tienda solo existe en modo TIENDA: consultalo con configuracion_del_grupo antes, ' +
+      'porque en modo DIRECTO estarías proponiendo sobre una vitrina que nadie ve. ' +
+      'IMPORTANTE: una bolsa que proponés acá TODAVÍA NO EXISTE, así que no la podés usar en un ' +
+      'producto de esta misma propuesta — proponé primero las bolsas y en un segundo paso los ' +
+      'productos que las venden.',
+    parametros: {
+      type: 'object',
+      properties: {
+        bolsas: {
+          type: 'array',
+          description:
+            'Bolsas a crear: conjuntos de premios de los que después sale uno. Solo premios, ' +
+            'nunca castigos. Podés mandar la lista vacía si no hace falta ninguna.',
+          items: {
+            type: 'object',
+            description: 'Una bolsa de premios.',
+            properties: {
+              nombre: { type: 'string', description: 'Cómo se llama la bolsa. Máximo 120.' },
+              recompensaIds: {
+                type: 'array',
+                description: 'Los premios que contiene. Al menos uno: una bolsa vacía no sirve.',
+                items: uuidDe('un premio de la bolsa', 'listar_recompensas'),
+                minItems: 1,
+                maxItems: 50,
               },
             },
-            required: ['productoId', 'precio'],
+            required: ['nombre', 'recompensaIds'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        productos: {
+          type: 'array',
+          description: 'Los productos a publicar en la vitrina. Podés mandar la lista vacía.',
+          items: {
+            type: 'object',
+            description: 'Un producto de la tienda.',
+            properties: camposProducto(),
+            required: ['nombre', 'precio', 'fuente'],
+            additionalProperties: false,
+          },
+          maxItems: 50,
+        },
+        resumen: {
+          type: 'string',
+          description: 'Una línea con el criterio: contra qué ingreso semanal calibraste.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_editar_productos',
+    descripcion:
+      `Propone cambios sobre productos que YA están en la tienda: el precio, el nombre, o qué ` +
+      `entregan. ${NO_APLICA} ` +
+      'Para que un precio tenga sentido hay que saber cuánto se gana por semana: mirá antes ' +
+      'los rendimientos en monedas, no solo la lista de precios. ' +
+      'Mandá solo los campos que cambian.',
+    parametros: {
+      type: 'object',
+      properties: {
+        ediciones: {
+          type: 'array',
+          description: 'Los cambios, uno por producto. Entre 1 y 50 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Un cambio sobre un producto existente.',
+            properties: {
+              productoId: uuidDe('el producto de la tienda', 'listar_tienda'),
+              ...camposProducto(),
+            },
+            required: ['productoId'],
             additionalProperties: false,
           },
           minItems: 1,
@@ -485,7 +678,64 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
           description: 'Una línea con el criterio: contra qué ingreso semanal calibraste.',
         },
       },
-      required: ['precios'],
+      required: ['ediciones'],
+      additionalProperties: false,
+    },
+  },
+  {
+    nombre: 'proponer_etiquetas',
+    descripcion:
+      `Propone etiquetas nuevas para organizar el catálogo, y a qué premios o castigos ` +
+      `ponérselas. ${NO_APLICA} ` +
+      'Las etiquetas no cambian nada del juego: sirven para agrupar y para publicar productos ' +
+      'en masa. IMPORTANTE: una etiqueta que proponés acá TODAVÍA NO EXISTE, así que no la ' +
+      'podés asignar en esta misma propuesta — primero se crean, después se asignan.',
+    parametros: {
+      type: 'object',
+      properties: {
+        crear: {
+          type: 'array',
+          description: 'Etiquetas nuevas. Podés mandar la lista vacía si solo querés asignar.',
+          items: {
+            type: 'object',
+            description: 'Una etiqueta del catálogo.',
+            properties: {
+              nombre: { type: 'string', description: 'Nombre corto. Máximo 40 caracteres.' },
+              colorHex: {
+                type: 'string',
+                description: 'Color en formato "#RRGGBB", por ejemplo "#22C55E".',
+              },
+            },
+            required: ['nombre', 'colorHex'],
+            additionalProperties: false,
+          },
+          maxItems: 25,
+        },
+        asignar: {
+          type: 'array',
+          description:
+            'A qué ítem le va qué etiqueta. REEMPLAZA las que tenga: mandá la lista completa, ' +
+            'no solo las que agregás. Podés mandar la lista vacía.',
+          items: {
+            type: 'object',
+            description: 'Las etiquetas que quedan puestas en un ítem.',
+            properties: {
+              recompensaId: uuidDe('el premio o castigo a etiquetar', 'listar_recompensas'),
+              etiquetaIds: {
+                type: 'array',
+                description: 'Las etiquetas que le quedan. Máximo 5. Vacío las saca todas.',
+                items: uuidDe('una etiqueta del catálogo', 'listar_etiquetas'),
+                maxItems: 5,
+              },
+            },
+            required: ['recompensaId', 'etiquetaIds'],
+            additionalProperties: false,
+          },
+          maxItems: 50,
+        },
+        resumen: { type: 'string', description: 'Una línea con el criterio de la organización.' },
+      },
+      required: [],
       additionalProperties: false,
     },
   },

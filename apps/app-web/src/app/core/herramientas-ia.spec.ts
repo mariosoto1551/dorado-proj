@@ -11,8 +11,8 @@ describe('describirHerramienta', () => {
   });
 
   it('distingue leer de proponer', () => {
-    expect(describirHerramienta('proponer_precios_tienda', 'corriendo')).toBe(
-      'armando una propuesta de precios'
+    expect(describirHerramienta('proponer_editar_productos', 'corriendo')).toBe(
+      'armando una propuesta de cambios en la tienda'
     );
   });
 

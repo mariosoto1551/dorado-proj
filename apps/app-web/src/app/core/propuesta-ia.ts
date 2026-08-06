@@ -4,6 +4,7 @@ import type {
   OperacionPropuestaIaDto,
   ProductoTiendaDto,
   PropuestaIaDto,
+  RecompensaDto,
   RendimientoAccionDto,
 } from '@dorado/shared-types';
 
@@ -54,11 +55,17 @@ export interface ContextoPropuesta {
   actividades?: readonly ActividadDto[];
   /** fase-14-30 tanda 4: para decir el «antes» de una conducta editada. */
   conductas?: readonly ConductaDto[];
+  /** fase-14-30 tanda 5: el «antes» de un premio o castigo editado. */
+  recompensas?: readonly RecompensaDto[];
   productos?: readonly ProductoTiendaDto[];
   rendimientos?: readonly RendimientoAccionDto[];
   roles?: ReadonlyMap<string, string>;
   personas?: ReadonlyMap<string, string>;
   equipos?: ReadonlyMap<string, string>;
+  /** Los tres de la tanda 5, solo para traducir ids a nombres. */
+  bolsas?: ReadonlyMap<string, string>;
+  etiquetas?: ReadonlyMap<string, string>;
+  umbrales?: ReadonlyMap<string, string>;
 }
 
 /** Etiqueta legible de cada campo del request de una actividad. */
@@ -92,6 +99,17 @@ const ETIQUETAS: Record<string, string> = {
   modo: 'Orden',
   frecuencia: 'Cambia',
   activo: 'Activa',
+  // fase-14-30 tanda 5.
+  umbralZonaId: 'Zona',
+  permiteSeleccion: 'Se puede elegir',
+  permiteAzar: 'Puede salir sorteada',
+  fuente: 'Entrega',
+  mecanica: 'Cómo se obtiene',
+  recompensaId: 'Premio',
+  bolsaId: 'Bolsa',
+  recompensaIds: 'Premios',
+  etiquetaIds: 'Etiquetas',
+  colorHex: 'Color',
 };
 
 const VALORES: Record<string, string> = {
@@ -108,9 +126,18 @@ const VALORES: Record<string, string> = {
   BUENA: 'Buena',
   MALA: 'Mala',
   ORDEN_FIJO: 'El que escribiste',
-  AZAR: 'Al azar en cada vuelta',
+  // «Al azar» a secas y no «al azar en cada vuelta»: el mismo valor es el modo
+  // de una rotación y la mecánica de un producto (fase-14-30 tanda 5), y este
+  // mapa es uno solo para todos los tipos de propuesta.
+  AZAR: 'Al azar',
   SESION: 'Todos los días',
   SECCION: 'Una vez por sección',
+  // fase-14-30 tanda 5.
+  PREMIO: 'Premio',
+  CASTIGO: 'Castigo',
+  ITEM: 'Un premio concreto',
+  BOLSA: 'Algo de una bolsa',
+  ELECCION: 'A elección',
 };
 
 /** Traduce una propuesta entera a filas legibles. */
@@ -140,6 +167,18 @@ export function armarFilas(
 
       case 'TURNOS':
         return filaDeTurno(operacion, contexto);
+
+      case 'CREAR_RECOMPENSAS':
+        return filaDeAlta(operacion, contexto);
+
+      case 'EDITAR_RECOMPENSAS':
+        return filaDeRecompensaEditada(operacion, contexto);
+
+      case 'PRODUCTOS_TIENDA':
+        return filaDeAltaEnLaTienda(operacion, contexto);
+
+      case 'ETIQUETAS':
+        return filaDeEtiquetas(operacion, contexto);
     }
   });
 }
@@ -222,6 +261,91 @@ function filaDeTurno(
         antes: null,
         despues: nombresDe([posicion['usuarioId']], contexto.personas, '—'),
       })),
+    ],
+  };
+}
+
+function filaDeRecompensaEditada(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const actual = (contexto.recompensas ?? []).find(
+    (recompensa) => recompensa.id === idDeLaRuta(operacion.ruta)
+  );
+
+  return {
+    opId: operacion.opId,
+    titulo: `Editar «${actual?.nombre ?? 'un premio o castigo'}»`,
+    cambios: cambiosDe(
+      comoObjeto(operacion.body),
+      contexto,
+      actual as unknown as Record<string, unknown> | undefined
+    ),
+  };
+}
+
+/**
+ * Una propuesta de tienda mezcla dos altas distintas —bolsas y productos— en
+ * un solo array de operaciones, y en ese orden. Se distinguen por la ruta, que
+ * es el dato que ya viaja: agregarle un campo «tipo de operación» al DTO sería
+ * duplicar en la propuesta algo que la ruta ya dice sin ambigüedad.
+ */
+function filaDeAltaEnLaTienda(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const body = comoObjeto(operacion.body);
+  const esBolsa = operacion.ruta.endsWith('/bolsas');
+  const nombre = String(body['nombre'] ?? 'sin nombre');
+
+  return {
+    opId: operacion.opId,
+    titulo: esBolsa ? `Crear bolsa «${nombre}»` : `Publicar «${nombre}»`,
+    cambios: cambiosDe(body, contexto, undefined, ['nombre']),
+  };
+}
+
+/**
+ * Las etiquetas también mezclan dos operaciones: crear una etiqueta del
+ * catálogo (`POST`) y decidir cuáles le quedan puestas a un ítem (`PUT`, que
+ * **reemplaza la lista completa**). La lista vacía es una operación legítima y
+ * la tarjeta lo dice con todas las letras: «se le sacan todas».
+ */
+function filaDeEtiquetas(
+  operacion: OperacionPropuestaIaDto,
+  contexto: ContextoPropuesta
+): FilaPropuesta {
+  const body = comoObjeto(operacion.body);
+
+  if (operacion.metodo === 'POST') {
+    return {
+      opId: operacion.opId,
+      titulo: `Crear etiqueta «${String(body['nombre'] ?? 'sin nombre')}»`,
+      cambios: cambiosDe(body, contexto, undefined, ['nombre']),
+    };
+  }
+
+  const actual = (contexto.recompensas ?? []).find(
+    // La ruta es `/rewards/recompensas/:id/etiquetas`: el id es el anteúltimo.
+    (recompensa) => recompensa.id === operacion.ruta.split('/').filter(Boolean).at(-2)
+  );
+  const ids = (body['etiquetaIds'] ?? []) as string[];
+
+  return {
+    opId: operacion.opId,
+    titulo: `Etiquetas de «${actual?.nombre ?? 'un premio o castigo'}»`,
+    cambios: [
+      {
+        campo: 'Etiquetas',
+        antes: actual
+          ? nombresDe(
+              actual.etiquetas.map((etiqueta) => etiqueta.id),
+              contexto.etiquetas,
+              'ninguna'
+            )
+          : null,
+        despues: ids.length === 0 ? 'ninguna' : nombresDe(ids, contexto.etiquetas, 'ninguna'),
+      },
     ],
   };
 }
@@ -333,6 +457,28 @@ function formatear(campo: string, valor: unknown, contexto: ContextoPropuesta): 
     return nombresDe(valor, contexto.equipos, 'todos');
   }
 
+  if (campo === 'recompensaIds') {
+    return nombresDe(valor, mapaDeRecompensas(contexto), 'ninguno');
+  }
+
+  if (campo === 'etiquetaIds') {
+    return nombresDe(valor, contexto.etiquetas, 'ninguna');
+  }
+
+  // Los tres ids sueltos de la tanda 5. Un id que no está en el mapa se muestra
+  // recortado, igual que en las listas: ocultarlo haría que la tarjeta mienta.
+  if (campo === 'recompensaId') {
+    return nombresDe([valor], mapaDeRecompensas(contexto), '—');
+  }
+
+  if (campo === 'bolsaId') {
+    return nombresDe([valor], contexto.bolsas, '—');
+  }
+
+  if (campo === 'umbralZonaId') {
+    return nombresDe([valor], contexto.umbrales, '—');
+  }
+
   if (campo === 'duracionCronometroMinutos') {
     return `${String(valor)} min`;
   }
@@ -365,6 +511,15 @@ function nombresDe(
   return (valor as string[])
     .map((id) => mapa?.get(id) ?? `${id.slice(0, 8)}…`)
     .join(', ');
+}
+
+/**
+ * Los nombres de premios y castigos, del mismo listado que ya se usa para el
+ * «antes». Se arma acá y no en el contexto para no pedirle a la pantalla que
+ * mande la misma información dos veces con dos formas distintas.
+ */
+function mapaDeRecompensas(contexto: ContextoPropuesta): ReadonlyMap<string, string> {
+  return new Map((contexto.recompensas ?? []).map((fila) => [fila.id, fila.nombre]));
 }
 
 /** El id del final de `/activity/actividades/:id` o `/rewards/productos/:id`. */

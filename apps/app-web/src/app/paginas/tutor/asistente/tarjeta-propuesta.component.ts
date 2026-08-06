@@ -20,6 +20,11 @@ const TITULOS: Record<PropuestaIaDto['tipo'], string> = {
   CREAR_CONDUCTAS: 'Conductas nuevas',
   EDITAR_CONDUCTAS: 'Cambios a las conductas',
   TURNOS: 'Rotación de turnos',
+  // fase-14-30 tanda 5 — familia economía.
+  CREAR_RECOMPENSAS: 'Premios y castigos nuevos',
+  EDITAR_RECOMPENSAS: 'Cambios al catálogo de premios',
+  PRODUCTOS_TIENDA: 'Productos nuevos en la tienda',
+  ETIQUETAS: 'Etiquetas del catálogo',
 };
 
 const ESTADOS: Record<PropuestaIaDto['estado'], string> = {

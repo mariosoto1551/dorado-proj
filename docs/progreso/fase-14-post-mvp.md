@@ -1957,7 +1957,7 @@ Y lo que deja abierto el ítem ya terminado:
 
 ---
 
-## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 4 de 9 (2026-08-05)
+## Ítem 30: Alcance total del asistente sobre la configuración del Grupo — EN CURSO, tandas 1 a 5 de 9 (2026-08-05)
 
 > Spec: `docs/phases/fase-14-30-alcance-total-del-asistente.md` (escrita en esta misma sesión, con José). Prerrequisito: el #29 completo y verificado. **No revisa ninguna decisión de aquel ítem**: agrega herramientas dentro de sus tres reglas estructurales (la IA no escribe, el tenant no es parámetro, un humano ve todo antes de que exista).
 
@@ -2182,7 +2182,7 @@ La decisión 10 pide mirar si lo que sobra es un catálogo mal escrito. No lo es
 - **Migración aplicada contra Postgres real**: `20260805231457_fase_14_30_conductas_y_turnos`, aditiva sobre el enum `TipoPropuesta` (`CREAR_CONDUCTAS`, `EDITAR_CONDUCTAS`, `TURNOS`). Sin backfill: las filas existentes conservan sus cuatro valores.
 - **Lo que NO se verificó y no se va a dar por verificado**: el apply de punta a punta contra los endpoints reales de activity con un JWT de Tutor. La forma del body la garantiza el contrato en tiempo de compilación y las reglas de rechazo están replicadas y testeadas, pero **el cable entero es de la tanda 9 (E2E)** y del pendiente 4 de la tanda 3. No se hizo acá porque no hay forma de obtener un JWT de Tutor del piloto sin la contraseña de José.
 
-#### Qué falta de este ítem
+#### Qué falta después de la tanda 4
 
 Las tandas 5 a 9 de la Parte F. Las 5, 6 y 7 son independientes entre sí; la 8 (frontend) ya tiene hecha la parte de la familia catálogo y la 9 (E2E) cierra todo.
 
@@ -2191,3 +2191,84 @@ Anotado, además de los seis puntos de la tanda 3 que siguen valiendo:
 7. **La tanda 7 va a chocar con el test estructural del tenant.** `usuarioId` está en la regex de parámetros prohibidos y la familia personas lo necesita por contrato. Ver el detalle arriba: es una decisión, no un ajuste.
 8. **El `null` de cada familia se decide por el contrato, no por costumbre.** Recompensas y productos **sí** tienen campos anulables (`descripcion`, `bolsaId`, `recompensaId`), así que la tanda 5 va a necesitar `limpiarVacios(…, false)` en sus PATCH y `true` en sus POST, que es el criterio del #29 y no el de esta tanda.
 9. **El system prompt hay que mirarlo en cada familia.** La capacidad 4 nombra «precios de la tienda y cuántas monedas paga cada acción»; las recompensas, las etiquetas, las zonas, los roles y los equipos **no están en ninguna de las cuatro capacidades**. Sin esa línea, el modelo va a tener herramientas que su propio prompt le dice que no use.
+
+
+### Tanda 5 — familia economía: recompensas, productos, bolsas y etiquetas (2026-08-05)
+
+La familia más grande del ítem: **cinco herramientas** (cuatro nuevas más la ampliación de la decisión 7) contra cuatro endpoints de `rewards-service`, y la que más reglas del destino tuvo que replicar. Con ella el catálogo llega a **23 herramientas**, o sea a un asistente que ya puede armar la economía entera de un grupo nuevo.
+
+#### La decisión 7, y por qué el nombre y el tipo no coinciden
+
+`proponer_precios_tienda` pasó a llamarse **`proponer_editar_productos`** y dejó de cubrir solo el precio: el mismo `PATCH` acepta nombre, descripción, fuente, mecánica y el ítem o la bolsa que entrega, así que el subconjunto anterior era arbitrario. Renombrar la herramienta es gratis —su nombre solo viaja hacia el proveedor dentro de un request, no está persistido en ningún lado—, pero **el valor `PRECIOS_TIENDA` del enum se conserva** porque sí está en filas de la base. Que los dos no coincidan es deliberado y está explicado en los tres lugares donde alguien lo va a mirar: el enum de Prisma, el union de `shared-types` y el tipo del servicio.
+
+#### El chequeo de contrato encontró una propuesta que el endpoint habría rechazado
+
+Escribí `camposRecompensa` compartido entre crear y editar, como en actividades, conductas y productos. **No compiló**, y el error es exactamente el que la decisión 11 existe para producir:
+
+```
+Type 'string | null | undefined' is not assignable to type 'string | undefined'
+```
+
+`CrearRecompensaRequest.descripcion` es `string | undefined` y `EditarRecompensaRequest.descripcion` es `string | null`: en un alta no hay nada que borrar, en un PATCH `null` borra. Compartir el campo habría dejado pasar un alta con `descripcion: null` que el endpoint contesta con 400 — **una propuesta que el Tutor aplica y le sale una fila roja**, que es literalmente lo que la decisión 11 se propuso hacer imposible. Es el único de los tres pares de esta tanda con esa asimetría (producto y etiqueta son anulables en los dos lados), o sea la clase de detalle que no se encuentra leyendo.
+
+Y confirma el pendiente 8 de la tanda 4: **el `null` se decide por contrato y por operación**, no por familia. Acá conviven los tres casos — POST con `limpiarVacios(…, true)`, PATCH con `false`, y un array vacío que **significa algo** (ver etiquetas).
+
+#### Lo que se replicó del destino, que acá es mucho
+
+Cinco reglas que `rewards-service` rechaza, todas leídas en su código y no supuestas:
+
+- **La zona en modo DIRECTO.** `umbralZonaId` es obligatorio y tiene que ser de este grupo; en modo TIENDA se ignora. Por eso el armador lee el modo antes. **Si el servicio no contesta no se inventa el modo**: se valida la zona si vino y decide el endpoint — suponer DIRECTO haría fallar propuestas correctas de un grupo con tienda, y suponer TIENDA dejaría pasar propuestas que mueren al aplicar. Mismo criterio que la tanda 3 con `null` en vez de un default.
+- **Las dos puertas contra el castigo comprable** (fase-14-26 decisión 20): un castigo no puede ser un producto de fuente ITEM ni entrar en una bolsa.
+- **Las referencias excluyentes**: fuente ITEM va con `recompensaId` y sin `bolsaId`, y al revés. En una **edición se valida el estado fusionado** —el producto que ya existe más los cambios—, igual que el endpoint: subirle el precio a un producto de fuente BOLSA no puede exigir que el request repita el `bolsaId`.
+- **La bolsa vacía o archivada**, que si no fallaría recién al comprarse.
+- **El tope de 5 etiquetas por ítem** y que existan y estén activas.
+
+#### El límite de las dos tandas, y por qué el error explica en vez de solo rechazar
+
+Una bolsa recién existe cuando el Tutor aprieta «Aplicar», así que **su id no puede referenciarse en la misma propuesta**. Es el mismo límite que la decisión 5 evitó a nivel propuesta, acá adentro de una. Lo mismo con una etiqueta recién creada.
+
+El producto que apunta a una bolsa desconocida se rechaza con un mensaje que dice **qué hacer** —«proponé primero las bolsas y después, en otra propuesta, los productos que las venden»— y no solo que se equivocó. Es la lección de `invariantes.ts` del #29: un error que describe el problema empuja al modelo a inventar un valor; uno que describe la acción lo saca del pozo. El mensaje además **cambia según si la propuesta está creando bolsas**: si no lo está, el id ajeno es otro error y el consejo es llamar a `listar_tienda`.
+
+#### El array vacío que sí significa algo
+
+`PUT /rewards/recompensas/:id/etiquetas` **reemplaza la lista completa** (fase-14-26), así que `etiquetaIds: []` es una operación legítima —«sacale todas»— y no un «no lo puse». Es el único caso del ítem donde un array vacío tiene sentido, y por eso ese campo **no pasa por `limpiarVacios`**, que descarta arrays vacíos por diseño desde el #29. La tarjeta lo dice con todas las letras («ninguna»), porque una lista que se vacía es justamente lo que el Tutor tiene que ver antes de aprobar.
+
+#### Frontend, otra vez en esta tanda y por el mismo motivo
+
+Los cuatro tipos nuevos entraron a `propuesta-ia.ts` igual que en la tanda 4: la unión creció y `app-web` deja de compilar. Tres cosas propias:
+
+- **Las dos altas de tienda se distinguen por la ruta** (`/bolsas` vs `/productos`), que es el dato que ya viaja. Agregarle al DTO un campo «tipo de operación» habría sido duplicar en la propuesta algo que la ruta ya dice sin ambigüedad.
+- **`AZAR` pasó de «al azar en cada vuelta» a «al azar»**: el mismo valor es el modo de una rotación y la mecánica de un producto, y `VALORES` es un mapa único para todos los tipos. Un mapa por tipo sería la otra salida y no vale lo que cuesta.
+- **El contexto pasó de 6 a 11 lecturas** (recompensas, bolsas, etiquetas y umbrales nuevos), todas en el mismo `allSettled`: que falle una no puede dejar la tarjeta sin las otras.
+
+**Fuera de la Parte F, otra vez**: `core/herramientas-ia.ts` —el rastro de progreso que el Tutor ve mientras el modelo trabaja— tenía las 8 lecturas y 4 propuestas del #29 y nada más. Las cuatro lecturas de las tandas 1 y 3 ya salían con su nombre técnico en pantalla (`configuracion_del_grupo` en vez de «la configuración del grupo»): el archivo degrada a propósito, así que no era un bug, pero era deuda acumulándose en silencio. Quedaron las 23.
+
+Y el system prompt otra vez: la capacidad 4 decía «precios de la tienda y cuántas monedas paga cada acción», que no cubre premios, castigos, etiquetas ni bolsas. **Segunda tanda seguida en que el prompt es lo último que se acuerda de crecer** — queda como punto fijo de la lista para las tandas 6 y 7.
+
+#### El costo en tokens, actualizado (criterio 12)
+
+| | Herramientas | Caracteres | ≈ tokens |
+|---|---|---|---|
+| fase-14-29 | 12 | 16.591 | ~4.148 |
+| tanda 1 | 13 | 17.267 | ~4.317 |
+| tanda 3 | 16 | 18.937 | ~4.734 |
+| tanda 4 | 19 | 25.770 | ~6.443 |
+| tanda 5 | 23 | 35.169 | ~8.792 |
+
+**+112% sobre el catálogo original**, con la familia más grande adentro. Medidas una por una, las cinco de economía pesan entre 1.786 y 2.857 caracteres —`proponer_crear_productos` es la más cara porque lleva dos arrays de objetos, bolsas y productos— y siguen todas muy por debajo de las de actividades (5.805 y 5.561). El bloque entra por caché vía `prompt_cache_key`, así que desde el segundo turno de una conversación se paga ~10%. Con las dos familias que faltan el catálogo va a rondar los ~11k tokens, que es lo que anticipaba la tanda 4.
+
+#### Verificación de la tanda 5
+
+- **`ai-service` 204/204** (+19) y **`app-web` 210/210** (+3).
+- **Workspace entero verde**: activity 357, rewards 206, session 74, scoring 63, gateway 49, identity 48, notification 22 — **sin una regresión**. `admin-web:test` sigue fallando por no tener ningún `.spec.ts` (deuda declarada del #5, no una regresión).
+- **Lint y build 19/19.**
+- **Migración aplicada contra Postgres real**: `20260806002634_fase_14_30_economia`, aditiva (`CREAR_RECOMPENSAS`, `EDITAR_RECOMPENSAS`, `PRODUCTOS_TIENDA`, `ETIQUETAS`). Sin backfill.
+- **Lo que sigue sin verificarse**, igual que en la tanda 4: el apply de punta a punta contra rewards con un JWT de Tutor. Es de la tanda 9.
+
+#### Qué falta de este ítem
+
+Las tandas 6 a 9. Anotado, además de lo de arriba:
+
+10. **La tanda 6 (umbrales) es la única con validación de conjunto.** Los rangos tienen que cubrir la recta sin huecos ni solapes **sobre el estado resultante**, no sobre lo que la propuesta trae — una edición parcial que sola parece rota puede ser correcta junto a las otras. Y es la única propuesta del ítem cuyo efecto **cambia el pasado** (decisión 6): mover un rango recalcula la zona de todos en el acto, incluidas las secciones ya cerradas.
+11. **El aviso de la tarjeta de umbrales necesita `resumen_puntajes`**, que hoy el frontend del asistente no carga: el contexto trae 11 lecturas y ninguna es esa. Entra con la tanda 6 o con la 8, pero entra.
+12. **`proponer_crear_productos` y `proponer_etiquetas` aceptan las dos listas vacías** y el armador rechaza si las dos lo están. Es la primera herramienta del catálogo con `required: []`, y el test estructural que exige `required` vacío es **solo para las de lectura**: si algún día se quiere la misma regla del otro lado, hay que escribirla.

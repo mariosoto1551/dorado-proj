@@ -6,16 +6,23 @@ import { PropuestaIaDto, ResultadoOperacionIa, TenantContext } from '@dorado/sha
 import { ActivityClientService } from '../clientes/activity-client.service';
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { RewardsClientService } from '../clientes/rewards-client.service';
+import { ScoringClientService } from '../clientes/scoring-client.service';
 import { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import { PropuestaNoAplicableException, PropuestaVencidaException } from '../comun/excepciones';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  esquemaAsignarEtiquetas,
   esquemaConfigurarTurno,
   esquemaCrearActividad,
   esquemaCrearConducta,
+  esquemaCrearEtiqueta,
+  esquemaCrearProducto,
+  esquemaCrearRecompensa,
   esquemaEditarActividad,
   esquemaEditarConducta,
   esquemaEditarProducto,
+  esquemaEditarRecompensa,
+  esquemaGuardarBolsa,
   esquemaRendimientos,
   explicarError,
 } from './esquemas';
@@ -40,11 +47,21 @@ export interface OperacionPropuesta {
 type TipoPropuesta =
   | 'CREAR_ACTIVIDADES'
   | 'EDITAR_ACTIVIDADES'
+  /**
+   * El nombre de la herramienta que lo produce es `proponer_editar_productos`
+   * desde el fase-14-30 (decisión 7). El valor NO se renombró y no es un
+   * descuido: el nombre de la herramienta solo viaja hacia el proveedor dentro
+   * de un request, pero este valor **está persistido en filas existentes**.
+   */
   | 'PRECIOS_TIENDA'
   | 'RENDIMIENTOS_MONEDAS'
   | 'CREAR_CONDUCTAS'
   | 'EDITAR_CONDUCTAS'
-  | 'TURNOS';
+  | 'TURNOS'
+  | 'CREAR_RECOMPENSAS'
+  | 'EDITAR_RECOMPENSAS'
+  | 'PRODUCTOS_TIENDA'
+  | 'ETIQUETAS';
 
 /**
  * Lo que el armador le devuelve al loop para que se lo cuente al modelo.
@@ -89,7 +106,8 @@ export class PropuestasService {
     private readonly prisma: PrismaService,
     private readonly activity: ActivityClientService,
     private readonly identity: IdentityClientService,
-    private readonly rewards: RewardsClientService
+    private readonly rewards: RewardsClientService,
+    private readonly scoring: ScoringClientService
   ) {}
 
   /** Punto de entrada del loop: valida los argumentos del modelo y arma la propuesta. */
@@ -115,8 +133,20 @@ export class PropuestasService {
       case 'proponer_configurar_turnos':
         return await this.armarConfigurarTurnos(argumentos, contexto, conversacionId);
 
-      case 'proponer_precios_tienda':
-        return await this.armarPreciosTienda(argumentos, contexto, conversacionId);
+      case 'proponer_crear_recompensas':
+        return await this.armarCrearRecompensas(argumentos, contexto, conversacionId);
+
+      case 'proponer_editar_recompensas':
+        return await this.armarEditarRecompensas(argumentos, contexto, conversacionId);
+
+      case 'proponer_crear_productos':
+        return await this.armarCrearProductos(argumentos, contexto, conversacionId);
+
+      case 'proponer_editar_productos':
+        return await this.armarEditarProductos(argumentos, contexto, conversacionId);
+
+      case 'proponer_etiquetas':
+        return await this.armarEtiquetas(argumentos, contexto, conversacionId);
 
       case 'proponer_rendimientos_monedas':
         return await this.armarRendimientos(argumentos, contexto, conversacionId);
@@ -521,40 +551,280 @@ export class PropuestasService {
     return null;
   }
 
-  private async armarPreciosTienda(
+  /**
+   * Premios y castigos nuevos (fase-14-30 tanda 5).
+   *
+   * La única regla del endpoint destino que rechaza es la zona: en modo
+   * DIRECTO `umbralZonaId` es obligatorio y tiene que ser una zona de ESTE
+   * grupo; en modo TIENDA se ignora. Por eso se lee el modo antes.
+   *
+   * **Si no se pudo leer el modo, no se inventa**: se valida la zona si vino y
+   * el endpoint decide. Suponer DIRECTO haría fallar propuestas correctas de un
+   * grupo con tienda, y suponer TIENDA dejaría pasar propuestas que van a
+   * morir al aplicar — el mismo criterio de la tanda 3 con `null` en vez de un
+   * default.
+   */
+  private async armarCrearRecompensas(
     argumentos: Record<string, unknown>,
     contexto: ContextoHerramienta,
     conversacionId: string
   ): Promise<ResultadoArmado> {
-    const filas = this.arrayDe(argumentos, 'precios');
+    const filas = this.arrayDe(argumentos, 'recompensas');
 
     if (filas.length === 0) {
-      return { ok: false, error: 'Mandá al menos un precio en "precios".' };
+      return { ok: false, error: 'Mandá al menos un premio o castigo en "recompensas".' };
+    }
+
+    const [configuracion, umbrales] = await Promise.all([
+      this.rewards.configuracion(contexto.grupoId),
+      this.scoring.umbrales(contexto.grupoId),
+    ]);
+    const zonas = new Set(umbrales.map((umbral) => umbral.id));
+    const operaciones: OperacionPropuesta[] = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const parseado = esquemaCrearRecompensa.safeParse(
+        limpiarVacios(fila as Record<string, unknown>, true)
+      );
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('recompensas', indice, parseado.error) };
+      }
+
+      const cuerpo = parseado.data;
+      const zona = this.violacionDeZona(cuerpo.umbralZonaId, configuracion?.modo, zonas, true);
+
+      if (zona) {
+        return { ok: false, error: `recompensas.${indice}: ${zona}` };
+      }
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: 'POST',
+        ruta: `/rewards/grupos/${contexto.grupoId}/recompensas`,
+        body: cuerpo,
+        etiqueta: `Crear ${cuerpo.tipo === 'CASTIGO' ? 'castigo' : 'premio'} «${cuerpo.nombre}»`,
+      });
+    }
+
+    return await this.guardar('CREAR_RECOMPENSAS', operaciones, {}, contexto, conversacionId);
+  }
+
+  private async armarEditarRecompensas(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'ediciones');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una edición en "ediciones".' };
+    }
+
+    const [recompensas, configuracion, umbrales] = await Promise.all([
+      this.rewards.recompensas(contexto.grupoId),
+      this.rewards.configuracion(contexto.grupoId),
+      this.scoring.umbrales(contexto.grupoId),
+    ]);
+    const porId = new Map(recompensas.map((recompensa) => [recompensa.id, recompensa]));
+    const zonas = new Set(umbrales.map((umbral) => umbral.id));
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ id: string; nombre: string }> = [];
+
+    for (const [indice, fila] of filas.entries()) {
+      const { recompensaId, ...cambios } = fila as Record<string, unknown>;
+      const existente = typeof recompensaId === 'string' ? porId.get(recompensaId) : undefined;
+
+      if (!existente) {
+        return {
+          ok: false,
+          error:
+            `ediciones.${indice}.recompensaId: no hay ningún premio ni castigo con ese id en ` +
+            'este grupo. Llamá a listar_recompensas y usá un id de ahí.',
+        };
+      }
+
+      // En un PATCH de recompensa `null` SÍ significa algo —`descripcion` es
+      // anulable en el contrato—, así que se conserva. Es al revés que en una
+      // conducta, y la diferencia la decide el contrato destino, no la costumbre.
+      const parseado = esquemaEditarRecompensa.safeParse(limpiarVacios(cambios, false));
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('ediciones', indice, parseado.error) };
+      }
+
+      if (Object.keys(parseado.data).length === 0) {
+        return { ok: false, error: `ediciones.${indice}: no mandaste ningún campo para cambiar.` };
+      }
+
+      // En una edición la zona no es obligatoria: si no viene, queda la que ya
+      // tiene. Solo se valida la que se manda.
+      const zona = this.violacionDeZona(
+        parseado.data.umbralZonaId,
+        configuracion?.modo,
+        zonas,
+        false
+      );
+
+      if (zona) {
+        return { ok: false, error: `ediciones.${indice}: ${zona}` };
+      }
+
+      operaciones.push({
+        opId: `op-${indice + 1}`,
+        metodo: 'PATCH',
+        ruta: `/rewards/recompensas/${existente.id}`,
+        body: parseado.data,
+        etiqueta: `Editar «${existente.nombre}»: ${Object.keys(parseado.data).join(', ')}`,
+      });
+      snapshot.push({ id: existente.id, nombre: existente.nombre });
+    }
+
+    return await this.guardar(
+      'EDITAR_RECOMPENSAS',
+      operaciones,
+      { recompensas: snapshot },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /**
+   * Bolsas y productos, en una propuesta y en ese orden (fase-14-30 tanda 5).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * EL LÍMITE QUE NO SE PUEDE SALTEAR, Y POR QUÉ SE EXPLICA EN VEZ DE FALLAR:
+   *
+   * Una bolsa recién existe cuando el Tutor aprieta «Aplicar», así que **su id
+   * no puede referenciarse en la misma propuesta**. Es el mismo límite que la
+   * decisión 5 evitó a nivel propuesta —nada de operaciones con dependencias
+   * entre sí—, acá adentro de una.
+   *
+   * El producto que apunta a una bolsa desconocida se rechaza con un error que
+   * le dice al modelo QUÉ HACER —proponer la bolsa primero y los productos
+   * después, en dos tandas—, no solo que se equivocó. Es la lección de
+   * `invariantes.ts`: un error que describe el formato empuja al modelo a
+   * inventar un valor; uno que describe la acción lo saca del pozo.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarCrearProductos(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const bolsas = this.arrayDe(argumentos, 'bolsas');
+    const productos = this.arrayDe(argumentos, 'productos');
+
+    if (bolsas.length === 0 && productos.length === 0) {
+      return { ok: false, error: 'Mandá al menos una bolsa en "bolsas" o un producto en "productos".' };
+    }
+
+    const [recompensas, tienda] = await Promise.all([
+      this.rewards.recompensas(contexto.grupoId),
+      this.rewards.tienda(contexto.grupoId),
+    ]);
+    const porId = new Map(recompensas.map((recompensa) => [recompensa.id, recompensa]));
+    const operaciones: OperacionPropuesta[] = [];
+
+    // Las bolsas van primero para que el Tutor las aplique antes que los
+    // productos. No alcanza para que un producto de ESTA propuesta las use
+    // —el id todavía no existe— pero sí para que la próxima propuesta pueda.
+    for (const [indice, fila] of bolsas.entries()) {
+      const parseado = esquemaGuardarBolsa.safeParse(
+        limpiarVacios(fila as Record<string, unknown>, true)
+      );
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('bolsas', indice, parseado.error) };
+      }
+
+      const invalido = this.premioAjeno(parseado.data.recompensaIds, porId);
+
+      if (invalido) {
+        return { ok: false, error: `bolsas.${indice}.recompensaIds: ${invalido}` };
+      }
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'POST',
+        ruta: `/rewards/grupos/${contexto.grupoId}/bolsas`,
+        body: parseado.data,
+        etiqueta: `Crear bolsa «${parseado.data.nombre}» con ${parseado.data.recompensaIds.length} premios`,
+      });
+    }
+
+    for (const [indice, fila] of productos.entries()) {
+      const parseado = esquemaCrearProducto.safeParse(
+        limpiarVacios(fila as Record<string, unknown>, true)
+      );
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('productos', indice, parseado.error) };
+      }
+
+      const referencia = this.violacionDeProducto(parseado.data, porId, tienda, bolsas.length > 0);
+
+      if (referencia) {
+        return { ok: false, error: `productos.${indice}: ${referencia}` };
+      }
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'POST',
+        ruta: `/rewards/grupos/${contexto.grupoId}/productos`,
+        body: parseado.data,
+        etiqueta: `Publicar «${parseado.data.nombre}» a ${parseado.data.precio} monedas`,
+      });
+    }
+
+    return await this.guardar('PRODUCTOS_TIENDA', operaciones, {}, contexto, conversacionId);
+  }
+
+  /**
+   * Cambios sobre productos que ya están en la vitrina.
+   *
+   * Se llamaba `armarPreciosTienda` y cubría solo el precio (fase-14-29). El
+   * subconjunto era arbitrario —el mismo PATCH acepta el resto— y la decisión 7
+   * lo amplió. **El tipo persistido sigue siendo `PRECIOS_TIENDA`**: hay filas
+   * en la base con ese valor.
+   *
+   * La validación mira el estado FUSIONADO —el producto que ya existe más los
+   * cambios—, igual que el endpoint destino: subirle el precio a un producto de
+   * fuente BOLSA no puede exigir que el request repita el `bolsaId`.
+   */
+  private async armarEditarProductos(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'ediciones');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una edición en "ediciones".' };
     }
 
     // fase-14-30 decisión 2: la referencia se valida contra el estado REAL del
     // grupo antes de guardar nada. La decisión 1 hace que el modelo tenga de
     // dónde sacar el id; esto evita que mande uno de otra entidad —o de otro
     // grupo— y que el Tutor se entere recién cuando la fila sale en rojo.
-    const tienda = await this.rewards.tienda(contexto.grupoId);
+    const [tienda, recompensas] = await Promise.all([
+      this.rewards.tienda(contexto.grupoId),
+      this.rewards.recompensas(contexto.grupoId),
+    ]);
     const productos = new Map(tienda.productos.map((producto) => [producto.id, producto]));
+    const porId = new Map(recompensas.map((recompensa) => [recompensa.id, recompensa]));
     const operaciones: OperacionPropuesta[] = [];
     const snapshot: Array<{ id: string; nombre: string; precio: number }> = [];
 
     for (const [indice, fila] of filas.entries()) {
       const { productoId, ...cambios } = fila as Record<string, unknown>;
-
-      if (typeof productoId !== 'string' || !this.esUuid(productoId)) {
-        return { ok: false, error: `precios.${indice}.productoId: falta o no es un uuid.` };
-      }
-
-      const existente = productos.get(productoId);
+      const existente = typeof productoId === 'string' ? productos.get(productoId) : undefined;
 
       if (!existente) {
         return {
           ok: false,
           error:
-            `precios.${indice}.productoId: no hay ningún producto con ese id en la tienda de ` +
+            `ediciones.${indice}.productoId: no hay ningún producto con ese id en la tienda de ` +
             'este grupo. Llamá a listar_tienda y usá un id de ahí.',
         };
       }
@@ -562,23 +832,32 @@ export class PropuestasService {
       const parseado = esquemaEditarProducto.safeParse(limpiarVacios(cambios, false));
 
       if (!parseado.success) {
-        return { ok: false, error: this.errorDeFila('precios', indice, parseado.error) };
+        return { ok: false, error: this.errorDeFila('ediciones', indice, parseado.error) };
       }
 
-      if (parseado.data.precio === undefined) {
-        return { ok: false, error: `precios.${indice}.precio: falta el precio nuevo.` };
+      if (Object.keys(parseado.data).length === 0) {
+        return { ok: false, error: `ediciones.${indice}: no mandaste ningún campo para cambiar.` };
+      }
+
+      const fusionado = { ...existente, ...parseado.data };
+      const referencia = this.violacionDeProducto(fusionado, porId, tienda, false);
+
+      if (referencia) {
+        return { ok: false, error: `ediciones.${indice}: ${referencia}` };
       }
 
       operaciones.push({
         opId: `op-${indice + 1}`,
         metodo: 'PATCH',
-        // NOTA: la Parte D de la spec dice `/rewards/recompensas/:id`, pero el
-        // precio no vive en la Recompensa sino en el ProductoTienda. Ver la
+        // NOTA: la Parte D del fase-14-29 decía `/rewards/recompensas/:id`, pero
+        // el precio no vive en la Recompensa sino en el ProductoTienda. Ver la
         // desviación registrada en docs/progreso.
-        ruta: `/rewards/productos/${productoId}`,
+        ruta: `/rewards/productos/${existente.id}`,
         body: parseado.data,
         etiqueta:
-          `«${existente.nombre}»: ${existente.precio} → ${parseado.data.precio} monedas`,
+          parseado.data.precio !== undefined
+            ? `«${existente.nombre}»: ${existente.precio} → ${parseado.data.precio} monedas`
+            : `Editar «${existente.nombre}»: ${Object.keys(parseado.data).join(', ')}`,
       });
       snapshot.push({ id: existente.id, nombre: existente.nombre, precio: existente.precio });
     }
@@ -590,6 +869,202 @@ export class PropuestasService {
       contexto,
       conversacionId
     );
+  }
+
+  /**
+   * Etiquetas nuevas y a qué ítem va cada una.
+   *
+   * Mismo límite que las bolsas: una etiqueta recién creada no se puede asignar
+   * en la misma propuesta, y el error lo explica en vez de solo rechazar.
+   *
+   * El `PUT` de asignación **reemplaza la lista completa** (fase-14-26), así que
+   * una lista vacía es una operación legítima —saca todas las etiquetas de ese
+   * ítem— y no un «no lo puse»: por eso `etiquetaIds` no pasa por `limpiarVacios`.
+   */
+  private async armarEtiquetas(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const crear = this.arrayDe(argumentos, 'crear');
+    const asignar = this.arrayDe(argumentos, 'asignar');
+
+    if (crear.length === 0 && asignar.length === 0) {
+      return { ok: false, error: 'Mandá al menos una etiqueta en "crear" o una asignación en "asignar".' };
+    }
+
+    const [recompensas, etiquetas] = await Promise.all([
+      this.rewards.recompensas(contexto.grupoId),
+      this.rewards.etiquetas(contexto.grupoId, 'ACTIVA'),
+    ]);
+    const porId = new Map(recompensas.map((recompensa) => [recompensa.id, recompensa]));
+    const disponibles = new Set(etiquetas.map((etiqueta) => etiqueta.id));
+    const operaciones: OperacionPropuesta[] = [];
+
+    for (const [indice, fila] of crear.entries()) {
+      const parseado = esquemaCrearEtiqueta.safeParse(
+        limpiarVacios(fila as Record<string, unknown>, true)
+      );
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('crear', indice, parseado.error) };
+      }
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'POST',
+        ruta: `/rewards/grupos/${contexto.grupoId}/etiquetas`,
+        body: parseado.data,
+        etiqueta: `Crear etiqueta «${parseado.data.nombre}»`,
+      });
+    }
+
+    for (const [indice, fila] of asignar.entries()) {
+      const { recompensaId, etiquetaIds } = fila as Record<string, unknown>;
+      const existente = typeof recompensaId === 'string' ? porId.get(recompensaId) : undefined;
+
+      if (!existente) {
+        return {
+          ok: false,
+          error:
+            `asignar.${indice}.recompensaId: no hay ningún premio ni castigo con ese id en este ` +
+            'grupo. Llamá a listar_recompensas y usá un id de ahí.',
+        };
+      }
+
+      const parseado = esquemaAsignarEtiquetas.safeParse({ etiquetaIds });
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('asignar', indice, parseado.error) };
+      }
+
+      const desconocida = parseado.data.etiquetaIds.find((id) => !disponibles.has(id));
+
+      if (desconocida) {
+        return {
+          ok: false,
+          error:
+            `asignar.${indice}.etiquetaIds: "${desconocida}" no es una etiqueta activa de este ` +
+            'grupo. Si la estás creando en esta misma propuesta, todavía no existe: proponé ' +
+            'primero las etiquetas y en un segundo paso a quién se las ponés.',
+        };
+      }
+
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'PUT',
+        ruta: `/rewards/recompensas/${existente.id}/etiquetas`,
+        body: parseado.data,
+        etiqueta:
+          parseado.data.etiquetaIds.length === 0
+            ? `Sacarle todas las etiquetas a «${existente.nombre}»`
+            : `«${existente.nombre}»: ${parseado.data.etiquetaIds.length} etiqueta(s)`,
+      });
+    }
+
+    return await this.guardar('ETIQUETAS', operaciones, {}, contexto, conversacionId);
+  }
+
+  /** La regla de zona de `POST/PATCH /rewards/…/recompensas`, replicada. */
+  private violacionDeZona(
+    umbralZonaId: string | undefined,
+    modo: string | undefined,
+    zonas: Set<string>,
+    esAlta: boolean
+  ): string | null {
+    if (umbralZonaId !== undefined && !zonas.has(umbralZonaId)) {
+      return `umbralZonaId: "${umbralZonaId}" no es una zona de este grupo.`;
+    }
+
+    if (esAlta && modo === 'DIRECTO' && umbralZonaId === undefined) {
+      return (
+        'umbralZonaId: este grupo entrega las recompensas por zona (modo DIRECTO), así que hay ' +
+        'que decir a qué zona corresponde. Sacá el id de listar_umbrales_zona.'
+      );
+    }
+
+    return null;
+  }
+
+  /** Los premios de una bolsa: del grupo y nunca castigos (fase-14-26 decisión 20). */
+  private premioAjeno(
+    recompensaIds: string[],
+    porId: Map<string, { nombre: string; tipo: string }>
+  ): string | null {
+    for (const id of recompensaIds) {
+      const item = porId.get(id);
+
+      if (!item) {
+        return `"${id}" no es un premio de este grupo. Sacá los ids de listar_recompensas.`;
+      }
+
+      if (item.tipo === 'CASTIGO') {
+        return `«${item.nombre}» es un castigo, y una bolsa es siempre de premios.`;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Las reglas de referencia que `POST/PATCH /rewards/…/productos` rechaza.
+   *
+   * `bolsaNueva` dice si esta misma propuesta está creando bolsas: cambia el
+   * mensaje, no la decisión — un `bolsaId` que no está en la tienda se rechaza
+   * igual, pero si el modelo acaba de proponer bolsas, lo más probable es que
+   * haya inventado el id de una de ellas y lo que necesita saber es el orden.
+   */
+  private violacionDeProducto(
+    producto: {
+      fuente?: string;
+      recompensaId?: string | null;
+      bolsaId?: string | null;
+    },
+    porId: Map<string, { nombre: string; tipo: string }>,
+    tienda: { bolsas: Array<{ id: string; recompensaIds: string[]; estado: string }> },
+    bolsaNueva: boolean
+  ): string | null {
+    if (producto.fuente === 'ITEM') {
+      if (!producto.recompensaId || producto.bolsaId) {
+        return 'con fuente ITEM va recompensaId y NO bolsaId.';
+      }
+
+      const item = porId.get(producto.recompensaId);
+
+      if (!item) {
+        return `recompensaId: "${producto.recompensaId}" no es un ítem de este grupo.`;
+      }
+
+      if (item.tipo === 'CASTIGO') {
+        return `«${item.nombre}» es un castigo: un castigo no se compra en la tienda.`;
+      }
+
+      return null;
+    }
+
+    if (!producto.bolsaId || producto.recompensaId) {
+      return 'con fuente BOLSA va bolsaId y NO recompensaId.';
+    }
+
+    const bolsa = tienda.bolsas.find((fila) => fila.id === producto.bolsaId);
+
+    if (!bolsa) {
+      return bolsaNueva
+        ? 'bolsaId: esa bolsa todavía no existe. Una bolsa recién creada no tiene id hasta que ' +
+            'el Tutor aplica la propuesta, así que va en dos tandas: primero proponé las bolsas ' +
+            'y después, en otra propuesta, los productos que las venden.'
+        : `bolsaId: "${producto.bolsaId}" no es una bolsa de este grupo. Sacá el id de listar_tienda.`;
+    }
+
+    if (bolsa.estado !== 'ACTIVA') {
+      return `la bolsa «${bolsa.id}» está archivada, así que no puede vender nada.`;
+    }
+
+    if (bolsa.recompensaIds.length === 0) {
+      return 'esa bolsa está vacía: un producto que la venda fallaría recién al comprarse.';
+    }
+
+    return null;
   }
 
   /**

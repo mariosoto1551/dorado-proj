@@ -65,6 +65,14 @@ enum TipoPropuesta {
   CREAR_CONDUCTAS
   EDITAR_CONDUCTAS
   TURNOS
+
+  // fase-14-30 tanda 5 — familia economía. PRECIOS_TIENDA sigue siendo el tipo
+  // de `proponer_editar_productos` (decisión 7): la herramienta se renombró,
+  // el valor persistido no.
+  CREAR_RECOMPENSAS
+  EDITAR_RECOMPENSAS
+  PRODUCTOS_TIENDA
+  ETIQUETAS
 }
 
 model Conversacion {

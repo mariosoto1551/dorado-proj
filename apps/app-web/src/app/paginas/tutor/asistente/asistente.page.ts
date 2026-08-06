@@ -28,6 +28,7 @@ import { ActivityApiService } from '../../../core/api/activity-api.service';
 import { IaApiService, ErrorIa } from '../../../core/api/ia-api.service';
 import { IdentityApiService } from '../../../core/api/identity-api.service';
 import { RewardsApiService } from '../../../core/api/rewards-api.service';
+import { ScoringApiService } from '../../../core/api/scoring-api.service';
 import { aplicarOperaciones, resumirAplicado } from '../../../core/aplicar-propuesta';
 import { describirHerramienta, type EstadoHerramienta } from '../../../core/herramientas-ia';
 import type { ContextoPropuesta } from '../../../core/propuesta-ia';
@@ -238,6 +239,8 @@ export class AsistentePage {
 
   private readonly identity = inject(IdentityApiService);
 
+  private readonly scoring = inject(ScoringApiService);
+
   private readonly toast = inject(ToastService);
 
   private readonly hilo = viewChild<ElementRef<HTMLElement>>('hilo');
@@ -409,20 +412,36 @@ export class AsistentePage {
    */
   private async cargarContexto(): Promise<void> {
     const grupoId = this.grupoId();
-    const [actividades, conductas, productos, rendimientos, roles, personas, equipos] =
-      await Promise.allSettled([
-        firstValueFrom(this.activity.listarActividades(grupoId, 'ACTIVA')),
-        firstValueFrom(this.activity.listarConductas(grupoId, 'ACTIVA')),
-        firstValueFrom(this.rewards.tienda(grupoId)),
-        firstValueFrom(this.rewards.rendimientosAcciones(grupoId)),
-        firstValueFrom(this.identity.listarRolesGrupo(grupoId)),
-        firstValueFrom(this.identity.listarUsuarios(grupoId)),
-        firstValueFrom(this.identity.listarEquipos(grupoId)),
-      ]);
+    const [
+      actividades,
+      conductas,
+      recompensas,
+      productos,
+      rendimientos,
+      roles,
+      personas,
+      equipos,
+      bolsas,
+      etiquetas,
+      umbrales,
+    ] = await Promise.allSettled([
+      firstValueFrom(this.activity.listarActividades(grupoId, 'ACTIVA')),
+      firstValueFrom(this.activity.listarConductas(grupoId, 'ACTIVA')),
+      firstValueFrom(this.rewards.listarRecompensas(grupoId, 'ACTIVA')),
+      firstValueFrom(this.rewards.tienda(grupoId)),
+      firstValueFrom(this.rewards.rendimientosAcciones(grupoId)),
+      firstValueFrom(this.identity.listarRolesGrupo(grupoId)),
+      firstValueFrom(this.identity.listarUsuarios(grupoId)),
+      firstValueFrom(this.identity.listarEquipos(grupoId)),
+      firstValueFrom(this.rewards.listarBolsas(grupoId)),
+      firstValueFrom(this.rewards.listarEtiquetas(grupoId, 'ACTIVA')),
+      firstValueFrom(this.scoring.listarUmbrales(grupoId)),
+    ]);
 
     this.contexto.set({
       actividades: valorDe(actividades) ?? [],
       conductas: valorDe(conductas) ?? [],
+      recompensas: valorDe(recompensas) ?? [],
       productos: valorDe(productos) ?? [],
       rendimientos: [
         ...(valorDe(rendimientos)?.actividades ?? []),
@@ -431,6 +450,13 @@ export class AsistentePage {
       roles: mapaDe(valorDe(roles)),
       personas: mapaDe(valorDe(personas)),
       equipos: mapaDe(valorDe(equipos)),
+      bolsas: mapaDe(valorDe(bolsas)),
+      etiquetas: mapaDe(valorDe(etiquetas)),
+      // La zona se nombra por `nombreZona`, que es lo que el Tutor lee en su
+      // pantalla — el `nombre` genérico del mapa no existe en un umbral.
+      umbrales: new Map(
+        (valorDe(umbrales) ?? []).map((umbral) => [umbral.id, umbral.nombreZona])
+      ),
     });
   }
 

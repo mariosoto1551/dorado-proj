@@ -6,6 +6,7 @@ import type {
   OperacionPropuestaIaDto,
   ProductoTiendaDto,
   PropuestaIaDto,
+  RecompensaDto,
   RendimientoAccionDto,
   TipoPropuestaIa,
 } from '@dorado/shared-types';
@@ -270,6 +271,103 @@ describe('armarFilas', () => {
         { campo: 'Turno 2', antes: null, despues: 'Alejandra' },
         { campo: 'Turno 3', antes: null, despues: 'Luciana' },
       ]);
+    });
+  });
+
+  describe('familia economía (fase-14-30 tanda 5)', () => {
+    /**
+     * Una propuesta de tienda mezcla dos altas distintas en un solo array. Se
+     * distinguen por la ruta, que es el dato que ya viaja — sin agregarle al
+     * DTO un campo que diga lo que la ruta ya dice.
+     */
+    it('tienda: la bolsa y el producto se leen distinto según la ruta', () => {
+      const filas = armarFilas(
+        propuesta('PRODUCTOS_TIENDA', [
+          {
+            ruta: '/rewards/grupos/grupo-1/bolsas',
+            body: { nombre: 'Sorpresas', recompensaIds: ['rec-1'] },
+          },
+          {
+            ruta: '/rewards/grupos/grupo-1/productos',
+            body: { nombre: 'Helado', precio: 30, fuente: 'ITEM', recompensaId: 'rec-1' },
+          },
+        ]),
+        { recompensas: [{ id: 'rec-1', nombre: 'Una hora de tele' } as RecompensaDto] }
+      );
+
+      expect(filas[0].titulo).toBe('Crear bolsa «Sorpresas»');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Premios', antes: null, despues: 'Una hora de tele' },
+      ]);
+      expect(filas[1].titulo).toBe('Publicar «Helado»');
+      expect(filas[1].cambios).toEqual([
+        { campo: 'Precio', antes: null, despues: '30 🪙' },
+        { campo: 'Entrega', antes: null, despues: 'Un premio concreto' },
+        { campo: 'Premio', antes: null, despues: 'Una hora de tele' },
+      ]);
+    });
+
+    /**
+     * El PUT reemplaza la lista completa (fase-14-26), así que la tarjeta tiene
+     * que mostrar las dos listas: si solo dijera «se le ponen estas», el Tutor
+     * no vería que además se le sacan las otras.
+     */
+    it('etiquetas: la asignación muestra las que tenía contra las que le quedan', () => {
+      const filas = armarFilas(
+        propuesta('ETIQUETAS', [
+          {
+            metodo: 'PUT',
+            ruta: '/rewards/recompensas/rec-1/etiquetas',
+            body: { etiquetaIds: ['eti-2'] },
+          },
+        ]),
+        {
+          recompensas: [
+            {
+              id: 'rec-1',
+              nombre: 'Una hora de tele',
+              etiquetas: [{ id: 'eti-1', nombre: 'Pantallas' }],
+            } as RecompensaDto,
+          ],
+          etiquetas: new Map([
+            ['eti-1', 'Pantallas'],
+            ['eti-2', 'Fin de semana'],
+          ]),
+        }
+      );
+
+      expect(filas[0].titulo).toBe('Etiquetas de «Una hora de tele»');
+      expect(filas[0].cambios).toEqual([
+        { campo: 'Etiquetas', antes: 'Pantallas', despues: 'Fin de semana' },
+      ]);
+    });
+
+    it('etiquetas: una lista vacía dice «ninguna», que es lo que va a pasar', () => {
+      const filas = armarFilas(
+        propuesta('ETIQUETAS', [
+          {
+            metodo: 'PUT',
+            ruta: '/rewards/recompensas/rec-1/etiquetas',
+            body: { etiquetaIds: [] },
+          },
+        ]),
+        {
+          recompensas: [
+            {
+              id: 'rec-1',
+              nombre: 'Una hora de tele',
+              etiquetas: [{ id: 'eti-1', nombre: 'Pantallas' }],
+            } as RecompensaDto,
+          ],
+          etiquetas: new Map([['eti-1', 'Pantallas']]),
+        }
+      );
+
+      expect(filas[0].cambios[0]).toEqual({
+        campo: 'Etiquetas',
+        antes: 'Pantallas',
+        despues: 'ninguna',
+      });
     });
   });
 

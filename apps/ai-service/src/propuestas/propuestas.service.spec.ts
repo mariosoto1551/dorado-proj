@@ -6,6 +6,7 @@ import { PrincipalType, Rol, TenantContext } from '@dorado/shared-types';
 import type { ActivityClientService } from '../clientes/activity-client.service';
 import type { IdentityClientService } from '../clientes/identity-client.service';
 import type { RewardsClientService } from '../clientes/rewards-client.service';
+import type { ScoringClientService } from '../clientes/scoring-client.service';
 import type { ContextoHerramienta } from '../comun/acceso-grupo.service';
 import { PropuestaNoAplicableException, PropuestaVencidaException } from '../comun/excepciones';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -38,10 +39,22 @@ const ACTIVIDAD_OPCIONAL_ID = '77777777-7777-4777-8777-777777777777';
 
 const OTRO_USUARIO_ID = '88888888-8888-4888-8888-888888888888';
 
+const RECOMPENSA_ID = '99999999-9999-4999-8999-999999999999';
+
+const CASTIGO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+const BOLSA_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+const ETIQUETA_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+const UMBRAL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
 interface Opciones {
   propuesta?: Record<string, unknown> | null;
   /** Pisa los campos de la actividad rotable, para los casos de turnos. */
   actividad?: Record<string, unknown>;
+  /** Pisa el modo de recompensas del grupo (TIENDA por defecto). */
+  configuracion?: Record<string, unknown>;
 }
 
 function crearMocks(opciones: Opciones = {}) {
@@ -125,22 +138,44 @@ function crearMocks(opciones: Opciones = {}) {
           precio: 20,
           fuente: 'ITEM',
           mecanica: 'ELECCION',
-          recompensaId: 'r-1',
+          recompensaId: RECOMPENSA_ID,
           bolsaId: null,
           estado: 'ACTIVA',
         },
       ],
-      bolsas: [],
+      bolsas: [
+        {
+          id: BOLSA_ID,
+          nombre: 'Bolsa de golosinas',
+          recompensaIds: [RECOMPENSA_ID],
+          estado: 'ACTIVA',
+        },
+      ],
     })),
+    recompensas: vi.fn(async () => [
+      { id: RECOMPENSA_ID, nombre: 'Una hora de tele', tipo: 'PREMIO', estado: 'ACTIVA' },
+      { id: CASTIGO_ID, nombre: 'Sin postre', tipo: 'CASTIGO', estado: 'ACTIVA' },
+    ]),
+    etiquetas: vi.fn(async () => [
+      { id: ETIQUETA_ID, nombre: 'Dulces', colorHex: '#EF4444', estado: 'ACTIVA' },
+    ]),
+    // El modo por defecto es TIENDA: en DIRECTO la zona es obligatoria y eso
+    // se prueba aparte, pisándolo.
+    configuracion: vi.fn(async () => ({ modo: 'TIENDA', ...opciones.configuracion })),
   } as unknown as RewardsClientService;
+
+  const scoring = {
+    umbrales: vi.fn(async () => [{ id: UMBRAL_ID, nombreZona: 'Dorado', orden: 4 }]),
+  } as unknown as ScoringClientService;
 
   return {
     prisma,
     activity,
     identity,
     rewards,
+    scoring,
     creadas,
-    servicio: new PropuestasService(prisma, activity, identity, rewards),
+    servicio: new PropuestasService(prisma, activity, identity, rewards, scoring),
   };
 }
 
@@ -621,7 +656,19 @@ describe('PropuestasService', () => {
           },
         ],
       },
-      proponer_precios_tienda: { precios: [{ productoId: PRODUCTO_ID, precio: 30 }] },
+      proponer_crear_recompensas: {
+        recompensas: [{ tipo: 'PREMIO', nombre: 'Una hora de tele' }],
+      },
+      proponer_editar_recompensas: {
+        ediciones: [{ recompensaId: RECOMPENSA_ID, nombre: 'Dos horas de tele' }],
+      },
+      proponer_crear_productos: {
+        productos: [
+          { nombre: 'Helado', precio: 30, fuente: 'ITEM', recompensaId: RECOMPENSA_ID },
+        ],
+      },
+      proponer_editar_productos: { ediciones: [{ productoId: PRODUCTO_ID, precio: 30 }] },
+      proponer_etiquetas: { crear: [{ nombre: 'Dulces', colorHex: '#22C55E' }] },
       proponer_rendimientos_monedas: {
         rendimientos: [{ tipoAccion: 'ACTIVIDAD', origenId: ACTIVIDAD_ID, monedas: 3 }],
       },
@@ -661,8 +708,8 @@ describe('PropuestasService', () => {
       const { servicio, creadas } = crearMocks();
 
       const resultado = await servicio.armar(
-        'proponer_precios_tienda',
-        { precios: [{ productoId: PRODUCTO_ID, precio: 30 }] },
+        'proponer_editar_productos',
+        { ediciones: [{ productoId: PRODUCTO_ID, precio: 30 }] },
         CONTEXTO,
         'conv-1'
       );
@@ -688,10 +735,10 @@ describe('PropuestasService', () => {
       const { servicio, prisma } = crearMocks();
 
       const resultado = await servicio.armar(
-        'proponer_precios_tienda',
+        'proponer_editar_productos',
         // Un uuid válido y ajeno: es exactamente lo que devolvería una lectura
         // de otra entidad, que es el error probable ahora que el id existe.
-        { precios: [{ productoId: ACTIVIDAD_ID, precio: 30 }] },
+        { ediciones: [{ productoId: ACTIVIDAD_ID, precio: 30 }] },
         CONTEXTO,
         'conv-1'
       );
@@ -707,13 +754,329 @@ describe('PropuestasService', () => {
       const { servicio } = crearMocks();
 
       const resultado = await servicio.armar(
-        'proponer_precios_tienda',
-        { precios: [{ productoId: PRODUCTO_ID, precio: 0 }] },
+        'proponer_editar_productos',
+        { ediciones: [{ productoId: PRODUCTO_ID, precio: 0 }] },
         CONTEXTO,
         'conv-1'
       );
 
       expect(resultado.ok).toBe(false);
+    });
+  });
+
+  describe('economía (fase-14-30 tanda 5)', () => {
+    describe('premios y castigos', () => {
+      it('en modo DIRECTO la zona es obligatoria y el error dice de dónde sacarla', async () => {
+        const { servicio, prisma } = crearMocks({ configuracion: { modo: 'DIRECTO' } });
+
+        const resultado = await servicio.armar(
+          'proponer_crear_recompensas',
+          { recompensas: [{ tipo: 'PREMIO', nombre: 'Una hora de tele' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('umbralZonaId');
+        expect((resultado as { error: string }).error).toContain('listar_umbrales_zona');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('en modo TIENDA no la pide: ahí un ítem no está atado a una zona', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_crear_recompensas',
+          { recompensas: [{ tipo: 'PREMIO', nombre: 'Una hora de tele' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+      });
+
+      /**
+       * Si no se pudo leer el modo NO se inventa: suponer DIRECTO haría fallar
+       * propuestas correctas de un grupo con tienda, y suponer TIENDA dejaría
+       * pasar propuestas que mueren al aplicar. Se valida lo que sí se sabe.
+       */
+      it('con el servicio caído no exige la zona ni la inventa', async () => {
+        const { servicio } = crearMocks();
+
+        vi.mocked(
+          (servicio as unknown as { rewards: { configuracion: () => Promise<null> } }).rewards
+            .configuracion
+        ).mockResolvedValue(null);
+
+        const resultado = await servicio.armar(
+          'proponer_crear_recompensas',
+          { recompensas: [{ tipo: 'PREMIO', nombre: 'Una hora de tele' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+      });
+
+      it('una zona que no es de este grupo no se guarda', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_crear_recompensas',
+          { recompensas: [{ tipo: 'PREMIO', nombre: 'Tele', umbralZonaId: ACTIVIDAD_ID }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('umbralZonaId');
+      });
+
+      /**
+       * Al revés que en una conducta: acá `descripcion` SÍ es anulable en el
+       * contrato, así que un `null` explícito borra el campo y se conserva.
+       */
+      it('en una edición el null se conserva, porque acá borra de verdad', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_editar_recompensas',
+          { ediciones: [{ recompensaId: RECOMPENSA_ID, descripcion: null }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        expect(operaciones[0].metodo).toBe('PATCH');
+        expect(operaciones[0].ruta).toBe(`/rewards/recompensas/${RECOMPENSA_ID}`);
+        expect(operaciones[0].body).toEqual({ descripcion: null });
+      });
+    });
+
+    describe('bolsas y productos', () => {
+      it('las bolsas se aplican antes que los productos', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_crear_productos',
+          {
+            productos: [
+              { nombre: 'Helado', precio: 30, fuente: 'ITEM', recompensaId: RECOMPENSA_ID },
+            ],
+            bolsas: [{ nombre: 'Sorpresas', recompensaIds: [RECOMPENSA_ID] }],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        expect(operaciones.map((operacion) => operacion.ruta)).toEqual([
+          '/rewards/grupos/grupo-1/bolsas',
+          '/rewards/grupos/grupo-1/productos',
+        ]);
+        expect(operaciones.map((operacion) => operacion.opId)).toEqual(['op-1', 'op-2']);
+      });
+
+      /**
+       * CRITERIO DE ACEPTACIÓN 6. El error no dice solo «no existe»: dice qué
+       * hacer, que es la lección de `invariantes.ts` — un mensaje que solo
+       * describe el problema empuja al modelo a inventar un valor.
+       */
+      it('un producto que apunta a una bolsa de la misma propuesta explica el orden', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_crear_productos',
+          {
+            bolsas: [{ nombre: 'Sorpresas', recompensaIds: [RECOMPENSA_ID] }],
+            productos: [
+              // Un id inventado: la bolsa recién existe cuando el Tutor aplica.
+              { nombre: 'Sorpresa', precio: 20, fuente: 'BOLSA', bolsaId: ACTIVIDAD_ID },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('dos tandas');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('un castigo no se puede vender ni meter en una bolsa', async () => {
+        const { servicio } = crearMocks();
+
+        const producto = await servicio.armar(
+          'proponer_crear_productos',
+          {
+            productos: [
+              { nombre: 'Sin postre', precio: 5, fuente: 'ITEM', recompensaId: CASTIGO_ID },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(producto.ok).toBe(false);
+        expect((producto as { error: string }).error).toContain('castigo');
+
+        const bolsa = await servicio.armar(
+          'proponer_crear_productos',
+          { bolsas: [{ nombre: 'Sorpresas', recompensaIds: [CASTIGO_ID] }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(bolsa.ok).toBe(false);
+        expect((bolsa as { error: string }).error).toContain('castigo');
+      });
+
+      it('rechaza mandar los dos ids juntos', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_crear_productos',
+          {
+            productos: [
+              {
+                nombre: 'Helado',
+                precio: 30,
+                fuente: 'ITEM',
+                recompensaId: RECOMPENSA_ID,
+                bolsaId: BOLSA_ID,
+              },
+            ],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('fuente ITEM');
+      });
+
+      /**
+       * La edición valida el estado FUSIONADO, igual que el endpoint destino:
+       * subirle el precio a un producto de fuente BOLSA no puede exigir que el
+       * request repita el `bolsaId` que ya tiene.
+       */
+      it('una edición de solo precio no exige repetir las referencias', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_editar_productos',
+          { ediciones: [{ productoId: PRODUCTO_ID, precio: 45 }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        expect(operaciones[0].body).toEqual({ precio: 45 });
+        expect(operaciones[0].etiqueta).toBe('«Helado»: 20 → 45 monedas');
+      });
+
+      it('una edición que cambia la fuente a BOLSA sin bolsaId se rechaza', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_editar_productos',
+          { ediciones: [{ productoId: PRODUCTO_ID, fuente: 'BOLSA' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('fuente BOLSA');
+      });
+    });
+
+    describe('etiquetas', () => {
+      it('crear y asignar salen como POST y PUT, en ese orden', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_etiquetas',
+          {
+            crear: [{ nombre: 'Dulces', colorHex: '#22C55E' }],
+            asignar: [{ recompensaId: RECOMPENSA_ID, etiquetaIds: [ETIQUETA_ID] }],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        expect(operaciones[0].metodo).toBe('POST');
+        expect(operaciones[0].ruta).toBe('/rewards/grupos/grupo-1/etiquetas');
+        expect(operaciones[1].metodo).toBe('PUT');
+        expect(operaciones[1].ruta).toBe(`/rewards/recompensas/${RECOMPENSA_ID}/etiquetas`);
+        expect(operaciones[1].body).toEqual({ etiquetaIds: [ETIQUETA_ID] });
+      });
+
+      it('asignar una etiqueta de la misma propuesta explica el orden en dos pasos', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_etiquetas',
+          {
+            crear: [{ nombre: 'Dulces', colorHex: '#22C55E' }],
+            asignar: [{ recompensaId: RECOMPENSA_ID, etiquetaIds: [ACTIVIDAD_ID] }],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('todavía no existe');
+      });
+
+      /**
+       * El PUT reemplaza la lista completa (fase-14-26), así que la lista vacía
+       * es una operación legítima —«sacale todas»— y no un «no lo puse». Es la
+       * única del ítem donde un array vacío significa algo.
+       */
+      it('una lista vacía saca todas las etiquetas y NO se descarta como vacío', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_etiquetas',
+          { asignar: [{ recompensaId: RECOMPENSA_ID, etiquetaIds: [] }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        expect(operaciones[0].body).toEqual({ etiquetaIds: [] });
+        expect(operaciones[0].etiqueta).toContain('Sacarle todas');
+      });
+
+      it('rechaza un color que no es #RRGGBB', async () => {
+        const { servicio } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_etiquetas',
+          { crear: [{ nombre: 'Dulces', colorHex: 'verde' }] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('colorHex');
+      });
     });
   });
 

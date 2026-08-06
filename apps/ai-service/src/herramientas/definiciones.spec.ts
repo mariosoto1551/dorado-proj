@@ -153,7 +153,15 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         'proponer_crear_conductas',
         'proponer_editar_conductas',
         'proponer_configurar_turnos',
-        'proponer_precios_tienda',
+        // fase-14-30 tanda 5 — familia economía. `proponer_precios_tienda` pasó
+        // a `proponer_editar_productos` (decisión 7): renombrar la herramienta
+        // es gratis porque su nombre no está persistido en ningún lado — el
+        // valor `PRECIOS_TIENDA` del enum sí, y por eso ese no se tocó.
+        'proponer_crear_recompensas',
+        'proponer_editar_recompensas',
+        'proponer_crear_productos',
+        'proponer_editar_productos',
+        'proponer_etiquetas',
         'proponer_rendimientos_monedas',
       ]);
 
@@ -309,9 +317,9 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
     });
 
     it('los ids de la tienda salen de listar_tienda, que es el defecto que cerró el ítem', () => {
-      const productoId = todasLasPropiedades(propuesta('proponer_precios_tienda').parametros).find(
-        ({ ruta }) => ruta === 'precios[].productoId'
-      );
+      const productoId = todasLasPropiedades(
+        propuesta('proponer_editar_productos').parametros
+      ).find(({ ruta }) => ruta === 'ediciones[].productoId');
 
       expect(productoId?.propiedad).toMatchObject({ formato: 'uuid', origen: ['listar_tienda'] });
       expect(NOMBRES_HERRAMIENTAS_LECTURA).toContain('listar_tienda');
@@ -320,7 +328,7 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
 
   describe('lo que viaja al proveedor', () => {
     it('aJsonSchema saca los metadatos, que no son JSON Schema', () => {
-      const limpio = aJsonSchema(propuesta('proponer_precios_tienda').parametros);
+      const limpio = aJsonSchema(propuesta('proponer_editar_productos').parametros);
       const serializado = JSON.stringify(limpio);
 
       expect(serializado).not.toContain('formato');

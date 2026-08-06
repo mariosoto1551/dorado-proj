@@ -18,13 +18,27 @@ const ACCIONES: Record<string, string> = {
   listar_recompensas: 'las recompensas',
   listar_rendimientos_monedas: 'lo que paga cada acción',
   resumen_cumplimiento: 'qué se cumple y qué no',
+  // fase-14-30, tandas 1 y 3.
+  listar_tienda: 'la tienda',
+  listar_etiquetas: 'las etiquetas del catálogo',
+  listar_turnos: 'las rotaciones de turnos',
+  configuracion_del_grupo: 'la configuración del grupo',
 };
 
 const PROPUESTAS: Record<string, string> = {
   proponer_crear_actividades: 'una propuesta de actividades nuevas',
   proponer_editar_actividades: 'una propuesta de cambios al catálogo',
-  proponer_precios_tienda: 'una propuesta de precios',
   proponer_rendimientos_monedas: 'una propuesta de rendimientos',
+  // fase-14-30 tanda 4.
+  proponer_crear_conductas: 'una propuesta de conductas nuevas',
+  proponer_editar_conductas: 'una propuesta de cambios a las conductas',
+  proponer_configurar_turnos: 'una propuesta de rotación de turnos',
+  // fase-14-30 tanda 5.
+  proponer_crear_recompensas: 'una propuesta de premios y castigos',
+  proponer_editar_recompensas: 'una propuesta de cambios a los premios',
+  proponer_crear_productos: 'una propuesta de productos para la tienda',
+  proponer_editar_productos: 'una propuesta de cambios en la tienda',
+  proponer_etiquetas: 'una propuesta de etiquetas',
 };
 
 export type EstadoHerramienta = 'corriendo' | 'ok' | 'error';

@@ -2,18 +2,27 @@ import { z } from 'zod';
 
 import {
   AlcanceActividad,
+  AsignarEtiquetasRequest,
   ComportamientoAlCierre,
   ConfigurarRendimientosAccionesRequest,
   ConfigurarTurnoRequest,
   CrearActividadRequest,
   CrearConductaRequest,
+  CrearEtiquetaRequest,
+  CrearProductoRequest,
+  CrearRecompensaRequest,
   EditarActividadRequest,
   EditarConductaRequest,
   EditarProductoRequest,
+  EditarRecompensaRequest,
   FrecuenciaTurno,
+  FuenteProducto,
+  GuardarBolsaRequest,
+  MecanicaProducto,
   ModoTurno,
   TipoAccionRendimiento,
   TipoConducta,
+  TipoItemCatalogo,
   TipoLimiteTiempo,
   TipoPuntaje,
 } from '@dorado/shared-types';
@@ -99,15 +108,97 @@ const crearActividad = z.object(camposActividad).strict();
 
 const editarActividad = z.object(camposActividad).partial().strict();
 
-const editarProducto = z
+/**
+ * Economía (fase-14-30 tanda 5).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ `imagenUrl` ESTÁ ACÁ Y NO EN LA DEFINICIÓN QUE LEE EL MODELO:
+ *
+ * La spec lo deja **fuera de lo que se le expone al modelo** —no tiene de dónde
+ * sacar una URL válida y la inventaría—, pero sí es parte del contrato del
+ * endpoint. Declararlo acá es lo que hace que `Exhaustivo` siga sirviendo:
+ * renombrarlo en rewards tiene que romper este build igual, aunque hoy ninguna
+ * propuesta lo mande. Sacarlo del esquema para "que coincida con la
+ * herramienta" apagaría la única alarma que avisa de ese cambio.
+ *
+ * El modelo no puede mandarlo de todos modos: la definición no lo declara y
+ * todas llevan `additionalProperties: false`.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const camposProducto = {
+  nombre: z.string().trim().min(1).max(120),
+  descripcion: z.string().max(500).nullish(),
+  imagenUrl: z.string().nullish(),
+  precio: enteroPositivo,
+  fuente: z.enum(FuenteProducto),
+  mecanica: z.enum(MecanicaProducto).optional(),
+  recompensaId: uuid.nullish(),
+  bolsaId: uuid.nullish(),
+};
+
+const crearProducto = z.object(camposProducto).strict();
+
+/**
+ * Todos opcionales. Dejó de ser solo el precio en el fase-14-30 (decisión 7):
+ * el mismo PATCH acepta el resto, y el subconjunto anterior era arbitrario.
+ */
+const editarProducto = z.object(camposProducto).partial().strict();
+
+const camposRecompensa = {
+  tipo: z.enum(TipoItemCatalogo),
+  umbralZonaId: uuid.optional(),
+  nombre: z.string().trim().min(1).max(120),
+  permiteSeleccion: z.boolean().optional(),
+  permiteAzar: z.boolean().optional(),
+};
+
+/**
+ * `descripcion` e `imagenUrl` **no se comparten entre crear y editar**, que es
+ * lo contrario de lo que hacen la actividad, la conducta y el producto.
+ *
+ * No es una inconsistencia: en `CrearRecompensaRequest` los dos son
+ * `string | undefined` y en `EditarRecompensaRequest` son `string | null`,
+ * porque en un alta no hay nada que borrar y en un PATCH `null` borra. Compartir
+ * el campo compiló hasta que el `z.ZodType<Contrato>` lo rechazó — o sea que el
+ * cable de la decisión 11 encontró acá una propuesta que el endpoint habría
+ * contestado con 400.
+ */
+const crearRecompensa = z
   .object({
-    nombre: z.string().trim().min(1).max(120).optional(),
-    descripcion: z.string().max(500).nullish(),
-    imagenUrl: z.string().nullish(),
-    precio: enteroPositivo.optional(),
-    recompensaId: uuid.nullish(),
-    bolsaId: uuid.nullish(),
+    ...camposRecompensa,
+    descripcion: z.string().max(1000).optional(),
+    imagenUrl: z.string().optional(),
   })
+  .strict();
+
+const editarRecompensa = z
+  .object({
+    ...camposRecompensa,
+    descripcion: z.string().max(1000).nullish(),
+    imagenUrl: z.string().nullish(),
+  })
+  .partial()
+  .strict();
+
+/** `#RRGGBB`, igual que `UmbralZona.colorHex`. */
+const COLOR_HEX = /^#[0-9a-fA-F]{6}$/;
+
+const colorHex = z.string().regex(COLOR_HEX, 'colorHex debe ser "#RRGGBB" (ej. "#22C55E")');
+
+const crearEtiqueta = z.object({ nombre: z.string().trim().min(1).max(40), colorHex }).strict();
+
+/**
+ * El PUT reemplaza la lista COMPLETA, no agrega (fase-14-26). El tope de 5 lo
+ * pone el endpoint destino: se replica acá porque rechaza.
+ */
+const asignarEtiquetas = z.object({ etiquetaIds: z.array(uuid).max(5) }).strict();
+
+/**
+ * Sin ítems no hay bolsa: una bolsa vacía falla recién al comprar, que es el
+ * peor momento para enterarse.
+ */
+const guardarBolsa = z
+  .object({ nombre: z.string().trim().min(1).max(120), recompensaIds: z.array(uuid).min(1) })
   .strict();
 
 /**
@@ -211,6 +302,34 @@ type _ConfigurarTurnoCompleto = Exhaustivo<
   ClavesNoCubiertas<ConfigurarTurnoRequest, z.infer<typeof configurarTurno>>
 >;
 
+type _CrearProductoCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearProductoRequest, z.infer<typeof crearProducto>>
+>;
+
+type _EditarProductoCompleto = Exhaustivo<
+  ClavesNoCubiertas<EditarProductoRequest, z.infer<typeof editarProducto>>
+>;
+
+type _CrearRecompensaCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearRecompensaRequest, z.infer<typeof crearRecompensa>>
+>;
+
+type _EditarRecompensaCompleto = Exhaustivo<
+  ClavesNoCubiertas<EditarRecompensaRequest, z.infer<typeof editarRecompensa>>
+>;
+
+type _CrearEtiquetaCompleto = Exhaustivo<
+  ClavesNoCubiertas<CrearEtiquetaRequest, z.infer<typeof crearEtiqueta>>
+>;
+
+type _AsignarEtiquetasCompleto = Exhaustivo<
+  ClavesNoCubiertas<AsignarEtiquetasRequest, z.infer<typeof asignarEtiquetas>>
+>;
+
+type _GuardarBolsaCompleto = Exhaustivo<
+  ClavesNoCubiertas<GuardarBolsaRequest, z.infer<typeof guardarBolsa>>
+>;
+
 export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
 
 export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
@@ -221,14 +340,24 @@ export const esquemaEditarConducta: z.ZodType<EditarConductaRequest> = editarCon
 
 export const esquemaConfigurarTurno: z.ZodType<ConfigurarTurnoRequest> = configurarTurno;
 
+export const esquemaCrearProducto: z.ZodType<CrearProductoRequest> = crearProducto;
+
 /**
- * **A propósito NO cubre todas las claves del contrato**, y por eso no lleva el
- * chequeo `Exhaustivo` de arriba: `fuente`, `mecanica` y el resto definen QUÉ
- * es el producto, no cuánto sale. El asistente calibra precios; cambiarle la
- * mecánica a un producto ya publicado es otra decisión y la toma el Tutor en su
- * pantalla.
+ * Cubría solo el precio hasta el fase-14-30 (decisión 7). El subconjunto era
+ * arbitrario —el mismo PATCH acepta el resto— y ahora está entero, con su
+ * chequeo `Exhaustivo` como todos los demás.
  */
 export const esquemaEditarProducto: z.ZodType<EditarProductoRequest> = editarProducto;
+
+export const esquemaCrearRecompensa: z.ZodType<CrearRecompensaRequest> = crearRecompensa;
+
+export const esquemaEditarRecompensa: z.ZodType<EditarRecompensaRequest> = editarRecompensa;
+
+export const esquemaCrearEtiqueta: z.ZodType<CrearEtiquetaRequest> = crearEtiqueta;
+
+export const esquemaAsignarEtiquetas: z.ZodType<AsignarEtiquetasRequest> = asignarEtiquetas;
+
+export const esquemaGuardarBolsa: z.ZodType<GuardarBolsaRequest> = guardarBolsa;
 
 export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesRequest> =
   rendimientos;

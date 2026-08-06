@@ -143,12 +143,22 @@ export interface EnviarMensajeIaResponse {
 export type TipoPropuestaIa =
   | 'CREAR_ACTIVIDADES'
   | 'EDITAR_ACTIVIDADES'
+  /**
+   * Lo produce `proponer_editar_productos` desde el fase-14-30 (decisión 7).
+   * La herramienta se renombró y el valor no: el nombre de la herramienta solo
+   * viaja hacia el proveedor dentro de un request, este valor está persistido.
+   */
   | 'PRECIOS_TIENDA'
   | 'RENDIMIENTOS_MONEDAS'
   // fase-14-30 tanda 4 (familia catálogo).
   | 'CREAR_CONDUCTAS'
   | 'EDITAR_CONDUCTAS'
-  | 'TURNOS';
+  | 'TURNOS'
+  // fase-14-30 tanda 5 (familia economía).
+  | 'CREAR_RECOMPENSAS'
+  | 'EDITAR_RECOMPENSAS'
+  | 'PRODUCTOS_TIENDA'
+  | 'ETIQUETAS';
 
 export type EstadoPropuestaIa =
   | 'BORRADOR'
