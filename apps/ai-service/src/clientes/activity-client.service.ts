@@ -5,6 +5,7 @@ import {
   ActividadDto,
   ConductaDto,
   ConfiguracionActividadInternaDto,
+  EstadoDeHoyInternoDto,
   ResumenCumplimientoDto,
   TurnoActividadInternoDto,
 } from '@dorado/shared-types';
@@ -68,6 +69,22 @@ export class ActivityClientService extends ClienteInternoBase {
   async resumenCumplimiento(grupoId: string, dias: number): Promise<ResumenCumplimientoDto | null> {
     return await this.get<ResumenCumplimientoDto>(
       `/internal/activity/grupos/${grupoId}/resumen-cumplimiento?dias=${dias}`
+    );
+  }
+
+  /**
+   * El estado operativo del día (fase-14-31).
+   *
+   * Si no se pudo leer se devuelve `sesionAbierta: false` y no una lista vacía
+   * con la sesión en true: el default seguro es «hoy no se puede anotar», que
+   * hace que la propuesta no se arme. Al revés, la IA propondría marcar contra
+   * una sesión que no sabe si existe.
+   */
+  async estadoDeHoy(grupoId: string): Promise<EstadoDeHoyInternoDto> {
+    return (
+      (await this.get<EstadoDeHoyInternoDto>(
+        `/internal/activity/grupos/${grupoId}/estado-de-hoy`
+      )) ?? { sesionAbierta: false, participantes: [] }
     );
   }
 }

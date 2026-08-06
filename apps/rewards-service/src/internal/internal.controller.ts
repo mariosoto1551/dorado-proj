@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
 import {
+  BilleterasInternasDto,
   ConfiguracionRecompensasInternaDto,
   EtiquetaInternaDto,
   FuenteProducto,
@@ -12,6 +13,8 @@ import {
   TipoAccionRendimiento,
 } from '@dorado/shared-types';
 
+import { ObjetivoService } from '../billetera/objetivo.service';
+import { IdentityClientService } from '../clientes/identity-client.service';
 import { recompensaADto } from '../comun/mapeadores';
 import { ConfiguracionService } from '../configuracion/configuracion.service';
 import { EtiquetasService } from '../etiquetas/etiquetas.service';
@@ -38,7 +41,9 @@ export class InternalController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly etiquetas: EtiquetasService,
-    private readonly configuracion: ConfiguracionService
+    private readonly configuracion: ConfiguracionService,
+    private readonly identity: IdentityClientService,
+    private readonly objetivos: ObjetivoService
   ) {}
 
   /**
@@ -160,6 +165,48 @@ export class InternalController {
    * Sin `puedeComprar` ni `faltan`: se calculan contra el saldo de una persona
    * y acá no hay ninguna.
    */
+  /**
+   * Los saldos del grupo (fase-14-31 Parte B).
+   *
+   * El ajuste de monedas es lo único de la familia de ajustes que tiene un
+   * límite duro —**no puede dejar el saldo bajo 0**, decisión 4 del #22— y sin
+   * ver los saldos la IA solo puede adivinar. Es la misma derivación que usa la
+   * pantalla del Tutor: el saldo no se guarda, se suma el ledger al leerlo.
+   */
+  @Get('grupos/:grupoId/billeteras')
+  async billeterasDelGrupo(
+    @Param('grupoId') grupoId: string
+  ): Promise<BilleterasInternasDto> {
+    const config = await this.configuracion.leer(grupoId);
+    const [saldos, usuarios, objetivos] = await Promise.all([
+      this.prisma.client.eventoMoneda.groupBy({
+        by: ['usuarioId'],
+        where: { grupoId },
+        _sum: { monto: true },
+      }),
+      this.identity.usuariosDelGrupo(grupoId),
+      this.objetivos.resolverParaGrupo(grupoId),
+    ]);
+    const porUsuario = new Map(saldos.map((fila) => [fila.usuarioId, fila._sum.monto ?? 0]));
+
+    return {
+      nombreMoneda: config.nombreMoneda,
+      iconoMoneda: config.iconoMoneda,
+      participantes: usuarios.map((usuario) => {
+        const saldo = porUsuario.get(usuario.id) ?? 0;
+        const objetivo = objetivos.get(usuario.id) ?? null;
+
+        return {
+          usuarioId: usuario.id,
+          nombre: usuario.nombre,
+          saldo,
+          objetivoNombre: objetivo?.nombre ?? null,
+          objetivoFaltan: objetivo ? Math.max(0, objetivo.precio - saldo) : null,
+        };
+      }),
+    };
+  }
+
   @Get('grupos/:grupoId/tienda')
   async tiendaDelGrupo(@Param('grupoId') grupoId: string): Promise<TiendaInternaDto> {
     const [productos, bolsas] = await Promise.all([

@@ -376,6 +376,19 @@ export class RegistroService {
     grupoId: string,
     usuarioId: string
   ): Promise<MiEstadoHoyDto> {
+    return await this.estadoHoyInterno(grupoId, usuarioId);
+  }
+
+  /**
+   * El mismo estado **sin tenant**, para el REST interno (fase-14-31).
+   *
+   * El cuerpo estaba en `estadoHoyDe` y nunca usó `tenant`: el aislamiento lo
+   * pone el controlador (guard de rol + filtro automático), no esta función.
+   * Separarlo es lo que evita el atajo de fabricar un `TenantContext` falso en
+   * el camino interno — un tenant inventado es exactamente la clase de cosa
+   * que después nadie encuentra cuando la regla 3 se rompe.
+   */
+  async estadoHoyInterno(grupoId: string, usuarioId: string): Promise<MiEstadoHoyDto> {
     const seccion = await this.session.obtenerSeccionActual(grupoId);
     const sesionAbierta =
       seccion?.estado === EstadoSeccion.ABIERTA

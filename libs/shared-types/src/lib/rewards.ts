@@ -78,6 +78,33 @@ export interface BilleteraDto {
 }
 
 /**
+ * Los saldos del grupo por REST interno (fase-14-31).
+ *
+ * Sin `grupoId` en cada fila —la decisión 9 del #30: ninguna lectura del
+ * asistente devuelve una clave de tenant— y con el nombre de la moneda una vez
+ * arriba en vez de repetido en cada participante.
+ *
+ * Existe para que una propuesta de ajuste **no proponga un descuento que deje
+ * el saldo bajo 0**, que es lo único que el endpoint destino rechaza. Sin esta
+ * lectura, la IA arma una fila que muere al aplicar.
+ */
+export interface BilleterasInternasDto {
+  nombreMoneda: string;
+  iconoMoneda: string;
+  participantes: BilleteraInternaDto[];
+}
+
+export interface BilleteraInternaDto {
+  usuarioId: string;
+  nombre: string;
+  saldo: number;
+  /** Para qué está ahorrando, o `null`. */
+  objetivoNombre: string | null;
+  /** Cuánto le falta para ese objetivo; `null` si no tiene. */
+  objetivoFaltan: number | null;
+}
+
+/**
  * El objetivo de ahorro del participante (fase-14-25). `faltan` se deriva
  * contra el saldo del momento, igual que en la vitrina — no se guarda.
  */

@@ -50,6 +50,11 @@ const NOMBRES = [
   'listar_turnos',
   'configuracion_del_grupo',
   'resumen_cumplimiento',
+  // fase-14-31: las dos que hacen posible el alcance operativo. `estado_de_hoy`
+  // es además la única lectura que devuelve ids de REGISTRO — sin ella,
+  // `proponer_quitar_marcas` no podría existir sin violar la decisión 1.
+  'estado_de_hoy',
+  'listar_billeteras',
 ] as const;
 
 export type NombreHerramientaLectura = (typeof NOMBRES)[number];
@@ -262,6 +267,28 @@ export const HERRAMIENTAS_LECTURA: DefinicionHerramienta[] = [
       required: [],
       additionalProperties: false,
     },
+  },
+  {
+    nombre: 'estado_de_hoy',
+    descripcion:
+      'Devuelve, por cada integrante, qué actividades tiene HOY, cuáles ya están marcadas y ' +
+      'cuáles no se le pueden marcar (con el motivo), más todo lo que hoy se le puede quitar o ' +
+      'deshacer con el id que lo hace. ' +
+      'Empezá SIEMPRE por acá antes de proponer anotar o quitar algo: si `sesionAbierta` es ' +
+      'false, hoy no se puede registrar nada y hay que decirlo, no armar una propuesta. ' +
+      'Marcar algo que ya está marcado, o una actividad que hoy no le toca a esa persona, ' +
+      'falla al aplicar — todo eso está acá resuelto.',
+    parametros: sinParametros(),
+  },
+  {
+    nombre: 'listar_billeteras',
+    descripcion:
+      'Devuelve cuántas monedas tiene cada integrante, cómo se llama la moneda del grupo y para ' +
+      'qué está ahorrando cada uno. ' +
+      'Mirala antes de proponer un descuento en monedas: **el saldo no puede quedar por debajo ' +
+      'de 0** y el sistema rechaza el ajuste que lo intente. No dice nada de los puntos, que ' +
+      'son otro número: para eso está resumen_puntajes.',
+    parametros: sinParametros(),
   },
 ];
 

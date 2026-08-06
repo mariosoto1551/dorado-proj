@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
+  BilleterasInternasDto,
   ConfiguracionRecompensasInternaDto,
   EtiquetaInternaDto,
   RecompensaDto,
@@ -79,6 +80,17 @@ export class RewardsClientService extends ClienteInternoBase {
   async configuracion(grupoId: string): Promise<ConfiguracionRecompensasInternaDto | null> {
     return await this.get<ConfiguracionRecompensasInternaDto>(
       `/internal/rewards/grupos/${grupoId}/configuracion`
+    );
+  }
+
+  /**
+   * Los saldos del Grupo (fase-14-31). `null` si no se pudo leer: sin saldos no
+   * se puede validar que un descuento no deje a alguien bajo 0, y suponer que
+   * todos tienen de sobra es justo el error que el endpoint destino rechaza.
+   */
+  async billeteras(grupoId: string): Promise<BilleterasInternasDto | null> {
+    return await this.get<BilleterasInternasDto>(
+      `/internal/rewards/grupos/${grupoId}/billeteras`
     );
   }
 }

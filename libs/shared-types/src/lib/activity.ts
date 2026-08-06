@@ -252,6 +252,65 @@ export interface MiEstadoActividadHoyDto {
   turno: TurnoDeHoyDto | null;
 }
 
+// --- Estado operativo del día por REST interno (fase-14-31) ---
+
+/**
+ * Lo que hace falta para **anotar y para desanotar** sin marcar a ciegas.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ ESTE DTO EXISTE Y NO ALCANZABA `MiEstadoHoyDto`:
+ *
+ * Por la decisión 1 del #30, *ninguna herramienta de propuesta puede aceptar un
+ * id que ninguna herramienta de lectura devuelva*. `proponer_quitar_marcas`
+ * necesita `registroId`, y hasta acá **ninguna lectura devolvía uno**: el
+ * modelo solo podría inventarlo. Esa es la mitad del contenido de este DTO.
+ *
+ * La otra mitad son los tres booleanos: sin ellos la IA propone marcar lo que
+ * ya está marcado, o una actividad que hoy no le toca a esa persona, y la
+ * propuesta muere al aplicar. **Las reglas se calculan donde vive el endpoint
+ * que las hace cumplir**, no en quien arma el request.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export interface EstadoDeHoyInternoDto {
+  /** `false` = no hay Sesión ABIERTA: hoy no se puede anotar nada. */
+  sesionAbierta: boolean;
+  participantes: ParticipanteDeHoyInternoDto[];
+}
+
+export interface ParticipanteDeHoyInternoDto {
+  usuarioId: string;
+  nombre: string;
+  actividades: ActividadDeHoyInternaDto[];
+  /** Todo lo que hoy se le puede quitar o revertir, con el id que lo hace. */
+  marcas: MarcaDeHoyInternaDto[];
+}
+
+export interface ActividadDeHoyInternaDto {
+  actividadId: string;
+  nombre: string;
+  tipoPuntaje: TipoPuntaje;
+  valorPuntos: number;
+  vecesHechas: number;
+  /** Cuántas veces más admite hoy. 0 = ya no se puede marcar como hecha. */
+  vecesQueAdmite: number;
+  puedeMarcarHizo: boolean;
+  puedeMarcarNoHizo: boolean;
+  /** Por qué hoy no se le puede marcar. `null` = se puede. */
+  motivoNoDisponible: string | null;
+}
+
+export type TipoMarcaDeHoy = 'COMPLETADA' | 'NO_HIZO' | 'REPETICION_QUITADA' | 'CONDUCTA';
+
+export interface MarcaDeHoyInternaDto {
+  /** El id que se manda al endpoint que la quita o la revierte. */
+  registroId: string;
+  tipo: TipoMarcaDeHoy;
+  /** Legible: «Tender la cama», «Gritar». Es lo que va a leer el Tutor. */
+  descripcion: string;
+  /** Lo que esta marca le suma o le resta hoy al puntaje. */
+  puntos: number;
+}
+
 export interface MiEstadoHoyDto {
   /** null si no hay Sesión ABIERTA (actividades queda vacío). */
   sesionId: string | null;

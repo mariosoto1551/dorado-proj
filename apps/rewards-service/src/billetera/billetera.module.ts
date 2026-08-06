@@ -15,6 +15,8 @@ import { ObjetivoService } from './objetivo.service';
   imports: [ClientesModule, ConfiguracionModule],
   controllers: [BilleteraController],
   providers: [BilleteraService, ObjetivoService, AccesoGrupoService],
-  exports: [BilleteraService],
+  // fase-14-31: `ObjetivoService` sale también, para el interno de billeteras
+  // —el objetivo es la mitad de por qué un saldo importa—.
+  exports: [BilleteraService, ObjetivoService],
 })
 export class BilleteraModule {}

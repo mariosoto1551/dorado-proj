@@ -14,5 +14,9 @@ import { RegistroService } from './registro.service';
   imports: [ClientesModule, PlanDiaModule, TurnosModule],
   controllers: [RegistroController],
   providers: [ContextoParticipanteService, RegistroService],
+  // fase-14-31: lo exporta para el endpoint interno de estado del día, que
+  // necesita la MISMA lista que ve el integrante — componerla de nuevo sería
+  // reimplementar las reglas de visibilidad de cinco ítems.
+  exports: [RegistroService],
 })
 export class RegistroModule {}

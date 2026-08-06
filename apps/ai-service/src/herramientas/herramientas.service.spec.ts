@@ -114,6 +114,38 @@ function crearMocks() {
         },
       ],
     })),
+    // fase-14-31: el estado del día ya viene moldeado del interno — sin claves
+    // de tenant y con los `registroId` que ninguna otra lectura devuelve.
+    estadoDeHoy: vi.fn(async () => ({
+      sesionAbierta: true,
+      participantes: [
+        {
+          usuarioId: 'u-1',
+          nombre: 'Luciana',
+          actividades: [
+            {
+              actividadId: 'act-1',
+              nombre: 'Tender la cama',
+              tipoPuntaje: 'OBLIGATORIA',
+              valorPuntos: 10,
+              vecesHechas: 0,
+              vecesQueAdmite: 1,
+              puedeMarcarHizo: true,
+              puedeMarcarNoHizo: true,
+              motivoNoDisponible: null,
+            },
+          ],
+          marcas: [
+            {
+              registroId: 'reg-1',
+              tipo: 'COMPLETADA',
+              descripcion: '«Lavar los platos» hecha',
+              puntos: 5,
+            },
+          ],
+        },
+      ],
+    })),
   } as unknown as ActivityClientService;
 
   const identity = {
@@ -232,6 +264,21 @@ function crearMocks() {
       ],
       bolsas: [
         { id: 'bol-1', nombre: 'Premios chicos', estado: 'ACTIVA', recompensaIds: ['r-1'] },
+      ],
+    })),
+    // fase-14-31: los saldos, sin `grupoId` por fila y con la moneda una vez.
+    billeteras: vi.fn(async () => ({
+      nombreMoneda: 'estrellas',
+      iconoMoneda: '⭐',
+      participantes: [
+        {
+          usuarioId: 'u-1',
+          nombre: 'Luciana',
+          saldo: 12,
+          objetivoNombre: 'Helado',
+          objetivoFaltan: 8,
+        },
+        { usuarioId: 'u-2', nombre: 'José', saldo: 0, objetivoNombre: null, objetivoFaltan: null },
       ],
     })),
   } as unknown as RewardsClientService;
@@ -368,7 +415,7 @@ describe('HerramientasService', () => {
   describe('ninguna lectura manda el tenant hacia el proveedor (decisión 9 del fase-14-30)', () => {
     const PROHIBIDO = /organizacionId|grupoId|tenant/i;
 
-    it('las doce lecturas devuelven respuestas sin ninguna clave de tenant', async () => {
+    it('las catorce lecturas devuelven respuestas sin ninguna clave de tenant', async () => {
       const { servicio } = crearMocks();
       const infractoras: string[] = [];
 
@@ -392,7 +439,7 @@ describe('HerramientasService', () => {
       ).toEqual([]);
     });
 
-    it('tampoco viaja ningún dato de contacto en ninguna de las doce', async () => {
+    it('tampoco viaja ningún dato de contacto en ninguna de las catorce', async () => {
       const { servicio } = crearMocks();
 
       for (const nombre of NOMBRES_HERRAMIENTAS_LECTURA) {
@@ -426,6 +473,71 @@ describe('HerramientasService', () => {
         puntosMin: 20,
         puntosMax: 45,
         colorHex: '#22C55E',
+      });
+    });
+  });
+
+  /**
+   * fase-14-31: `estado_de_hoy` es a la familia de marcas lo que `listar_tienda`
+   * fue al `productoId` — la lectura que hace que una propuesta pueda existir
+   * sin que el modelo invente un id (decisión 1 del #30).
+   */
+  describe('estado_de_hoy y listar_billeteras (fase-14-31)', () => {
+    it('el estado del día devuelve los registroId, que ninguna otra lectura devuelve', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.ejecutar('estado_de_hoy', {}, CONTEXTO);
+      const datos = (resultado as { datos: { participantes: Array<Record<string, unknown>> } })
+        .datos;
+      const marcas = datos.participantes[0]['marcas'] as Array<Record<string, unknown>>;
+
+      expect(marcas[0]).toMatchObject({ registroId: 'reg-1', tipo: 'COMPLETADA' });
+    });
+
+    it('el estado del día trae resuelto si se puede marcar y por qué no', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.ejecutar('estado_de_hoy', {}, CONTEXTO);
+      const datos = (resultado as { datos: { participantes: Array<Record<string, unknown>> } })
+        .datos;
+      const actividades = datos.participantes[0]['actividades'] as Array<Record<string, unknown>>;
+
+      // Las reglas se calculan donde vive el endpoint que las hace cumplir: acá
+      // viajan resueltas para que el armador no las replique por tercera vez.
+      expect(actividades[0]).toMatchObject({
+        puedeMarcarHizo: true,
+        puedeMarcarNoHizo: true,
+        motivoNoDisponible: null,
+      });
+    });
+
+    it('los saldos vienen con la moneda una vez y el objetivo de cada uno', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.ejecutar('listar_billeteras', {}, CONTEXTO);
+
+      expect(resultado).toEqual({
+        ok: true,
+        datos: {
+          nombreMoneda: 'estrellas',
+          iconoMoneda: '⭐',
+          participantes: [
+            {
+              usuarioId: 'u-1',
+              nombre: 'Luciana',
+              saldo: 12,
+              objetivoNombre: 'Helado',
+              objetivoFaltan: 8,
+            },
+            {
+              usuarioId: 'u-2',
+              nombre: 'José',
+              saldo: 0,
+              objetivoNombre: null,
+              objetivoFaltan: null,
+            },
+          ],
+        },
       });
     });
   });

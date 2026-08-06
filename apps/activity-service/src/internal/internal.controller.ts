@@ -9,6 +9,7 @@ import {
   ConductaDto,
   ConfiguracionActividadInternaDto,
   CumplimientoActividadDto,
+  EstadoDeHoyInternoDto,
   ResumenCumplimientoDto,
   TipoPuntaje,
   TurnoActividadInternoDto,
@@ -17,6 +18,7 @@ import {
 import { actividadADto, conductaADto } from '../comun/mapeadores';
 import { ConfiguracionContenidoService } from '../contenido-usuario/configuracion-contenido.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EstadoDeHoyInternoService } from './estado-de-hoy.service';
 
 /**
  * Ventana por defecto del resumen de cumplimiento, en días. Un mes cubre varias
@@ -42,7 +44,8 @@ const DIAS_CUMPLIMIENTO_MAX = 365;
 export class InternalController {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configuracion: ConfiguracionContenidoService
+    private readonly configuracion: ConfiguracionContenidoService,
+    private readonly estadoDeHoyInterno: EstadoDeHoyInternoService
   ) {}
 
   @Get('actividades/:id')
@@ -233,6 +236,19 @@ export class InternalController {
    * Las actividades sin ninguna marca se devuelven igual, con todo en cero: son
    * justamente el caso que la herramienta existe para encontrar.
    */
+  /**
+   * fase-14-31 (herramienta `estado_de_hoy`): qué tiene hoy cada integrante,
+   * qué ya está marcado, y **con qué id se quita cada marca**.
+   *
+   * Ese último dato es el que hace posible la familia de quitar marcas: por la
+   * decisión 1 del #30, un id que ninguna lectura devuelve es un id que el
+   * modelo solo puede inventar.
+   */
+  @Get('grupos/:grupoId/estado-de-hoy')
+  async estadoDeHoy(@Param('grupoId') grupoId: string): Promise<EstadoDeHoyInternoDto> {
+    return await this.estadoDeHoyInterno.delGrupo(grupoId);
+  }
+
   @Get('grupos/:grupoId/resumen-cumplimiento')
   async resumenCumplimiento(
     @Param('grupoId') grupoId: string,

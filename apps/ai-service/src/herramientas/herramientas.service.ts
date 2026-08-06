@@ -127,6 +127,17 @@ export class HerramientasService {
           datos: await this.resumenCumplimiento(grupoId, this.dias(argumentos)),
         };
 
+      // fase-14-31: las dos ya vienen moldeadas del endpoint interno —sin
+      // claves de tenant y con los nombres pensados para que los lea un
+      // modelo—, así que acá no hay nada que recortar. Ver la decisión 9 del
+      // #30: la regla es que la respuesta se arme campo por campo, y armarla
+      // del otro lado del cable la cumple igual.
+      case 'estado_de_hoy':
+        return { ok: true, datos: await this.activity.estadoDeHoy(grupoId) };
+
+      case 'listar_billeteras':
+        return { ok: true, datos: await this.rewards.billeteras(grupoId) };
+
       // Inalcanzable con el catálogo actual (el nombre ya se validó arriba),
       // pero es la rama que se va a ejecutar el día que alguien agregue una
       // definición y se olvide del case. Mejor un error que le vuelve al modelo
