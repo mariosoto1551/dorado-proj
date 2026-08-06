@@ -1191,6 +1191,70 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
       additionalProperties: false,
     },
   },
+  {
+    nombre: 'proponer_ajustes_manuales',
+    descripcion:
+      `Propone darle o sacarle puntos y/o monedas a una persona por algo que pasó FUERA del ` +
+      `catálogo: "ayudó con la mudanza", "se portó mal en lo de la abuela". ${NO_APLICA} ` +
+      'Una fila por persona, con el número que corresponda y un motivo que los explica a los ' +
+      'dos. Podés mandar solo puntos, solo monedas o los dos, pero al menos uno. ' +
+      'Son dos números independientes y ninguno se calcula del otro: los puntos deciden la ' +
+      'zona, las monedas lo que puede comprar. No conviertas de uno al otro. ' +
+      'Mirá listar_billeteras antes de descontar monedas —**el saldo no puede quedar bajo 0**— ' +
+      'y acordate de que un ajuste de PUNTOS necesita la sesión de hoy abierta. ' +
+      'Para marcar una actividad del catálogo NO es esta: es la de anotar. Esto es para lo que ' +
+      'no está en ninguna lista.',
+    parametros: {
+      type: 'object',
+      properties: {
+        ajustes: {
+          type: 'array',
+          description: 'Una fila por persona. Entre 1 y 25 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'El ajuste de una persona.',
+            properties: {
+              participanteId: uuidDe(
+                'la persona a la que se le ajusta (el usuarioId que devuelve la lectura)',
+                'listar_participantes',
+                'listar_billeteras'
+              ),
+              puntos: {
+                type: 'integer',
+                description:
+                  'Con signo: positivo suma, negativo resta. Nunca 0. Omitilo si el ajuste es ' +
+                  'solo de monedas. El puntaje puede quedar negativo — la zona más baja existe.',
+              },
+              monedas: {
+                type: 'integer',
+                description:
+                  'Con signo: positivo acredita, negativo descuenta. Nunca 0. Omitilo si el ' +
+                  'ajuste es solo de puntos. **Descontar más de lo que la persona tiene se ' +
+                  'rechaza**: mirá el saldo en listar_billeteras.',
+              },
+              motivo: {
+                type: 'string',
+                description:
+                  'Por qué. Obligatorio, y cubre los dos números. **Queda en el historial y en ' +
+                  'la auditoría**, así que escribí el hecho concreto ("ayudó con la mudanza") y ' +
+                  'no una valoración de la persona. Máximo 200 caracteres.',
+              },
+            },
+            required: ['participanteId', 'motivo'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 25,
+        },
+        resumen: {
+          type: 'string',
+          description: 'Una línea con el criterio, para que el Tutor entienda de dónde salió.',
+        },
+      },
+      required: ['ajustes'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export const NOMBRES_HERRAMIENTAS_PROPUESTA: readonly string[] = HERRAMIENTAS_PROPUESTA.map(

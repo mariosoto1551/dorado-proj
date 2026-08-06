@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import {
   AgregarMiembroEquipoRequest,
+  AjustarMonedasRequest,
+  AjustarPuntosRequest,
   AlcanceActividad,
   AsignarEtiquetasRequest,
   AsignarRolGrupoRequest,
@@ -340,6 +342,44 @@ const agregarMiembro = z.object({ usuarioId: uuid }).strict();
 
 const sustituirJefe = z.object({ nuevoJefeUsuarioId: uuid }).strict();
 
+/**
+ * Los dos ajustes manuales (fase-14-31 tanda 5).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SON DOS ESQUEMAS Y NO UNO, Y ES LA DECISIÓN 1 DEL fase-14-28 SOSTENIDA ACÁ:
+ *
+ * puntos y monedas son números independientes —uno decide la zona, el otro lo
+ * que se puede comprar— y ninguno se deriva del otro. La herramienta le muestra
+ * al modelo UNA fila con los dos, porque el acto es uno solo («ayudó con la
+ * mudanza»), pero lo que se guarda son dos requests distintos contra dos
+ * servicios distintos, cada uno tipado contra su propio contrato.
+ *
+ * El motivo es obligatorio en los dos (decisión 10): un movimiento manual sin
+ * explicación es inauditable, y con un modelo de lenguaje redactándolo, doble.
+ * Que sea el MISMO motivo para los dos es cosa del armador, no de acá.
+ *
+ * `NotEquals(0)` de los DTOs destino se replica con `.refine`: un ajuste de 0
+ * es una fila del ledger que no dice nada, y el endpoint lo rechaza igual.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const motivoDelAjuste = z.string().trim().min(1).max(200);
+
+const distintoDeCero = (valor: number): boolean => valor !== 0;
+
+const ajustePuntos = z
+  .object({
+    puntos: z.number().int().refine(distintoDeCero, 'puntos no puede ser 0'),
+    motivo: motivoDelAjuste,
+  })
+  .strict();
+
+const ajusteMonedas = z
+  .object({
+    monto: z.number().int().refine(distintoDeCero, 'monto no puede ser 0'),
+    motivo: motivoDelAjuste,
+  })
+  .strict();
+
 const rendimientos = z
   .object({
     rendimientos: z
@@ -468,6 +508,14 @@ type _SustituirJefeCompleto = Exhaustivo<
   ClavesNoCubiertas<SustituirJefeEquipoRequest, z.infer<typeof sustituirJefe>>
 >;
 
+type _AjustePuntosCompleto = Exhaustivo<
+  ClavesNoCubiertas<AjustarPuntosRequest, z.infer<typeof ajustePuntos>>
+>;
+
+type _AjusteMonedasCompleto = Exhaustivo<
+  ClavesNoCubiertas<AjustarMonedasRequest, z.infer<typeof ajusteMonedas>>
+>;
+
 export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
 
 export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
@@ -520,6 +568,10 @@ export const esquemaSustituirJefe: z.ZodType<SustituirJefeEquipoRequest> = susti
 
 export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesRequest> =
   rendimientos;
+
+export const esquemaAjustePuntos: z.ZodType<AjustarPuntosRequest> = ajustePuntos;
+
+export const esquemaAjusteMonedas: z.ZodType<AjustarMonedasRequest> = ajusteMonedas;
 
 /**
  * Los dos únicos esquemas del archivo **sin `z.ZodType<Contrato>`**, y no es un

@@ -23,6 +23,9 @@ const ACCIONES: Record<string, string> = {
   listar_etiquetas: 'las etiquetas del catálogo',
   listar_turnos: 'las rotaciones de turnos',
   configuracion_del_grupo: 'la configuración del grupo',
+  // fase-14-31 tanda 3.
+  estado_de_hoy: 'qué está anotado hoy',
+  listar_billeteras: 'los saldos de monedas',
 };
 
 const PROPUESTAS: Record<string, string> = {
@@ -44,6 +47,12 @@ const PROPUESTAS: Record<string, string> = {
   // fase-14-30 tanda 7.
   proponer_roles_grupo: 'una propuesta de roles del grupo',
   proponer_equipos: 'una propuesta de equipos',
+  // fase-14-31, tandas 4 y 5. Las dos primeras dicen «archivar» y «quitar» y no
+  // un verbo suave: el rastro tiene que sonar como lo que se va a proponer, y
+  // «una propuesta de cambios» ahí sería un eufemismo.
+  proponer_archivar: 'una propuesta de qué archivar',
+  proponer_quitar_marcas: 'una propuesta de marcas a quitar',
+  proponer_ajustes_manuales: 'una propuesta de puntos y monedas a mano',
 };
 
 export type EstadoHerramienta = 'corriendo' | 'ok' | 'error';

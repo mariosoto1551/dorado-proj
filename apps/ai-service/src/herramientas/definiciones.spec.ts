@@ -173,6 +173,10 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         // propone y aplica un humano.
         'proponer_archivar',
         'proponer_quitar_marcas',
+        // fase-14-31 tanda 5 — familia de ajustes. Es la primera herramienta
+        // que escribe en un ledger, y sigue proponiendo: lo que la hace segura
+        // no es el verbo del nombre sino que no tiene con qué aplicarla.
+        'proponer_ajustes_manuales',
       ]);
 
       for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {

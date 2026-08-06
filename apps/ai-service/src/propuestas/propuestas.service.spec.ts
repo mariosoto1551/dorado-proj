@@ -308,6 +308,29 @@ function crearMocks(opciones: Opciones = {}) {
     // El modo por defecto es TIENDA: en DIRECTO la zona es obligatoria y eso
     // se prueba aparte, pisándolo.
     configuracion: vi.fn(async () => ({ modo: 'TIENDA', ...opciones.configuracion })),
+    // fase-14-31: los saldos, que son lo único que puede rechazar un ajuste de
+    // monedas. Luciana tiene 30 y Alejandra 0 — la de saldo 0 es la que hace
+    // que el chequeo del descuento se ejercite con un caso real.
+    billeteras: vi.fn(async () => ({
+      nombreMoneda: 'estrellas',
+      iconoMoneda: '⭐',
+      participantes: [
+        {
+          usuarioId: USUARIO_ID,
+          nombre: 'Luciana',
+          saldo: 30,
+          objetivoNombre: null,
+          objetivoFaltan: null,
+        },
+        {
+          usuarioId: OTRO_USUARIO_ID,
+          nombre: 'Alejandra',
+          saldo: 0,
+          objetivoNombre: null,
+          objetivoFaltan: null,
+        },
+      ],
+    })),
   } as unknown as RewardsClientService;
 
   const scoring = {
@@ -865,6 +888,9 @@ describe('PropuestasService', () => {
       proponer_quitar_marcas: {
         marcas: [{ registroId: REGISTRO_COMPLETADA_ID, tipo: 'COMPLETADA' }],
       },
+      proponer_ajustes_manuales: {
+        ajustes: [{ participanteId: USUARIO_ID, puntos: 10, motivo: 'ayudó con la mudanza' }],
+      },
     };
 
     it('la tabla cubre TODAS las herramientas de propuesta del catálogo', () => {
@@ -1054,6 +1080,237 @@ describe('PropuestasService', () => {
 
       expect(resultado).toMatchObject({ ok: false });
       expect((resultado as { error: string }).error).toContain('sesión abierta');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * FAMILIA DE AJUSTES (fase-14-31 tanda 5).
+   *
+   * Lo que estos tests cuidan es que **una fila del modelo se parta en los dos
+   * requests correctos y en ninguno más**: puntos a scoring, monedas a rewards,
+   * el mismo motivo en los dos, y ningún número derivado del otro (decisión 1
+   * del #28). Más las dos reglas del destino que si no se replican acá aparecen
+   * recién cuando el Tutor aprieta «Aplicar».
+   */
+  describe('ajustes manuales de puntos y monedas', () => {
+    it('una fila con los dos números arma dos operaciones, una por servicio', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        {
+          ajustes: [
+            {
+              participanteId: USUARIO_ID,
+              puntos: 10,
+              monedas: 5,
+              motivo: 'ayudó con la mudanza',
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(creadas[0]['tipo']).toBe('AJUSTES_MANUALES');
+      expect(operaciones).toHaveLength(2);
+      // El body de cada uno es el request LITERAL de su endpoint, con el nombre
+      // del número que usa ese contrato: `puntos` en scoring, `monto` en
+      // rewards. Aplicar es un `for`, no una traducción.
+      expect(operaciones[0]).toMatchObject({
+        metodo: 'POST',
+        ruta: `/scoring/grupos/grupo-1/usuarios/${USUARIO_ID}/ajuste`,
+        body: { puntos: 10, motivo: 'ayudó con la mudanza' },
+      });
+      expect(operaciones[1]).toMatchObject({
+        metodo: 'POST',
+        ruta: `/rewards/grupos/grupo-1/usuarios/${USUARIO_ID}/ajuste`,
+        body: { monto: 5, motivo: 'ayudó con la mudanza' },
+      });
+      // El signo explícito y el saldo resultante: «+5 estrellas» sin saber con
+      // cuántas queda no alcanza para aprobar un movimiento manual.
+      expect(operaciones[0].etiqueta).toContain('+10 puntos');
+      expect(operaciones[1].etiqueta).toContain('+5 estrellas');
+      expect(operaciones[1].etiqueta).toContain('queda con 35');
+    });
+
+    it('solo monedas no consulta la sesión: ese ledger no vive en una sección', async () => {
+      const { servicio, activity, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, monedas: -10, motivo: 'rompió el vidrio' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+      expect(activity.estadoDeHoy).not.toHaveBeenCalled();
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones).toHaveLength(1);
+      expect(operaciones[0].etiqueta).toContain('-10 estrellas');
+      expect(operaciones[0].etiqueta).toContain('queda con 20');
+    });
+
+    /** Criterio de aceptación 10 de la spec. */
+    it('un descuento que deja el saldo bajo 0 NO crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      // Alejandra tiene 0: cualquier descuento la deja en negativo, que es lo
+      // único que el endpoint destino rechaza (#22 decisión 4).
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: OTRO_USUARIO_ID, monedas: -5, motivo: 'llegó tarde' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      // El error le dice al modelo cuánto se puede sacar, no solo que no se puede.
+      expect((resultado as { error: string }).error).toContain('lo máximo');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('sin saldos leídos tampoco se propone un descuento, pero sí una acreditación', async () => {
+      const { servicio, rewards } = crearMocks();
+
+      (rewards.billeteras as unknown as Mock).mockResolvedValue(null);
+
+      const descuento = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, monedas: -5, motivo: 'llegó tarde' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      // Suponer que hay de sobra es justo el error que la lectura vino a evitar.
+      expect(descuento).toMatchObject({ ok: false });
+
+      const acreditacion = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, monedas: 5, motivo: 'ayudó' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      // Sumar no puede dejar a nadie en negativo: no hay nada que validar.
+      expect(acreditacion).toMatchObject({ ok: true });
+    });
+
+    it('un ajuste de puntos sin sesión abierta no se propone (409 asegurado)', async () => {
+      const { servicio, activity, prisma } = crearMocks();
+
+      (activity.estadoDeHoy as unknown as Mock).mockResolvedValue({
+        sesionAbierta: false,
+        participantes: [],
+      });
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, puntos: 10, motivo: 'ayudó' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      // El error ofrece la salida que sí funciona hoy.
+      expect((resultado as { error: string }).error).toContain('monedas');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('un ajuste de 0 no crea propuesta: es una fila del ledger que no dice nada', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, puntos: 0, motivo: 'nada' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('una fila sin ningún número no crea propuesta', async () => {
+      const { servicio } = crearMocks();
+
+      // El modelo no puede omitir una propiedad del esquema y manda `null`: es
+      // lo mismo que no mandarla, y lo que queda es una fila que no ajusta nada.
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, puntos: null, monedas: null, motivo: 'algo' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('monedas');
+    });
+
+    it('el motivo es obligatorio: un movimiento manual sin explicación es inauditable', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, puntos: 10 }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('motivo');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('dos filas para la misma persona no se guardan: el chequeo de saldo dejaría de cerrar', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      // Cada una sola pasa el chequeo (30 - 20 = 10); las dos juntas dejan el
+      // saldo en -10 y ninguna se habría dado cuenta.
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        {
+          ajustes: [
+            { participanteId: USUARIO_ID, monedas: -20, motivo: 'rompió el vidrio' },
+            { participanteId: USUARIO_ID, monedas: -20, motivo: 'y la ventana' },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('un participante de otro grupo no crea propuesta', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        {
+          ajustes: [
+            {
+              participanteId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+              puntos: 10,
+              motivo: 'ayudó',
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('listar_participantes');
       expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
     });
   });

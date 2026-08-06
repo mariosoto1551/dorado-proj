@@ -20,6 +20,8 @@ import {
 } from './escala';
 import {
   esquemaAgregarMiembro,
+  esquemaAjusteMonedas,
+  esquemaAjustePuntos,
   esquemaArchivar,
   esquemaAsignarEtiquetas,
   esquemaAsignarRol,
@@ -252,6 +254,9 @@ export class PropuestasService {
 
       case 'proponer_quitar_marcas':
         return await this.armarQuitarMarcas(argumentos, contexto, conversacionId);
+
+      case 'proponer_ajustes_manuales':
+        return await this.armarAjustesManuales(argumentos, contexto, conversacionId);
 
       default:
         return { ok: false, error: `No existe una herramienta llamada "${nombreHerramienta}".` };
@@ -2202,6 +2207,215 @@ export class PropuestasService {
     return `/activity/registros-actividad/${registroId}/revertir`;
   }
 
+  /**
+   * Puntos y monedas a mano (fase-14-31 tanda 5).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * UNA HERRAMIENTA, DOS ENDPOINTS, Y ES A PROPÓSITO.
+   *
+   * *«Ayudó con la mudanza, ponele 10 puntos y 5 monedas»* es **un solo acto**
+   * del Tutor, y la tarjeta tiene que mostrar eso y no la plomería de que son
+   * dos servicios distintos. Por eso el modelo manda una fila por persona y el
+   * armador la parte en los dos requests que hacen falta, con el mismo motivo
+   * en los dos.
+   *
+   * Lo que NO se junta son los números: `puntos` y `monedas` viajan
+   * independientes y ninguno se deriva del otro (decisión 1 del fase-14-28).
+   * Convertir de uno al otro «porque quedan proporcionales» sería inventar una
+   * relación que el producto no tiene.
+   *
+   * Las dos reglas del destino que se replican acá, para no armar una propuesta
+   * que muere al aplicar (decisión 11 del #29):
+   *
+   * 1. **Un descuento no puede dejar el saldo bajo 0** (#22). Se valida contra
+   *    lo que devolvió `listar_billeteras`, y si no se pudieron leer los saldos
+   *    el descuento **no se propone**: adivinar que hay de sobra es exactamente
+   *    el error que la lectura vino a evitar.
+   * 2. **Un ajuste de puntos necesita la sesión de hoy abierta** (decisión 5):
+   *    sin Sesión no hay dónde caer el asiento y scoring devuelve `409`. Se
+   *    consulta una sola vez y solo si hay algún ajuste de puntos — el de
+   *    monedas no la necesita, porque el ledger de monedas no vive en una
+   *    sección.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarAjustesManuales(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'ajustes');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una fila en "ajustes".' };
+    }
+
+    const [participantes, billeteras] = await Promise.all([
+      this.identity.participantes(contexto.grupoId),
+      this.rewards.billeteras(contexto.grupoId),
+    ]);
+    const gente = new Map(participantes.map((usuario) => [usuario.id, usuario]));
+    const saldos = new Map(
+      (billeteras?.participantes ?? []).map((fila) => [fila.usuarioId, fila.saldo])
+    );
+    const moneda = billeteras?.nombreMoneda ?? 'monedas';
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ participanteId: string; nombre: string; saldoActual: number | null }> =
+      [];
+    // Una fila por persona: dos filas para la misma haría que el chequeo de
+    // saldo de cada una diera bien y la suma de las dos, no.
+    const yaAjustados = new Set<string>();
+    let hayAjusteDePuntos = false;
+
+    for (const [indice, fila] of filas.entries()) {
+      // `null` es «no lo puse» en los dos números: el modelo no tiene forma de
+      // omitir una propiedad del esquema y suele mandarla en null.
+      const { participanteId, puntos, monedas, motivo } = limpiarVacios(
+        fila as Record<string, unknown>,
+        true
+      );
+      const persona = typeof participanteId === 'string' ? gente.get(participanteId) : undefined;
+
+      if (!persona) {
+        return {
+          ok: false,
+          error:
+            `ajustes.${indice}.participanteId: no hay ningún participante con ese id en este ` +
+            'grupo. Llamá a listar_participantes y usá un usuarioId de ahí.',
+        };
+      }
+
+      if (yaAjustados.has(persona.id)) {
+        return {
+          ok: false,
+          error:
+            `ajustes.${indice}.participanteId: ya hay una fila para ${persona.nombre}. Poné los ` +
+            'dos números en una sola: un mismo motivo explica el ajuste de puntos y el de monedas.',
+        };
+      }
+
+      yaAjustados.add(persona.id);
+
+      if (puntos === undefined && monedas === undefined) {
+        return {
+          ok: false,
+          error:
+            `ajustes.${indice}: mandá "puntos", "monedas" o los dos. Una fila sin ningún número ` +
+            'no ajusta nada.',
+        };
+      }
+
+      if (puntos !== undefined) {
+        const parseado = esquemaAjustePuntos.safeParse({ puntos, motivo });
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('ajustes', indice, parseado.error) };
+        }
+
+        hayAjusteDePuntos = true;
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'POST',
+          ruta: `/scoring/grupos/${contexto.grupoId}/usuarios/${persona.id}/ajuste`,
+          body: parseado.data,
+          etiqueta:
+            `${persona.nombre}: ${conSigno(parseado.data.puntos)} puntos — ` +
+            `${parseado.data.motivo}`,
+        });
+      }
+
+      if (monedas !== undefined) {
+        const parseado = esquemaAjusteMonedas.safeParse({ monto: monedas, motivo });
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('ajustes', indice, parseado.error) };
+        }
+
+        const saldo = saldos.get(persona.id) ?? null;
+        const problema = this.violacionDeSaldo(parseado.data.monto, saldo, persona.nombre);
+
+        if (problema) {
+          return { ok: false, error: `ajustes.${indice}.monedas: ${problema}` };
+        }
+
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'POST',
+          ruta: `/rewards/grupos/${contexto.grupoId}/usuarios/${persona.id}/ajuste`,
+          body: parseado.data,
+          etiqueta:
+            `${persona.nombre}: ${conSigno(parseado.data.monto)} ${moneda}` +
+            // El saldo resultante es la mitad de lo que hace aprobable un
+            // descuento: «-20 monedas» no dice nada si no se sabe con cuántas
+            // se queda.
+            (saldo === null ? '' : ` (queda con ${saldo + parseado.data.monto})`) +
+            ` — ${parseado.data.motivo}`,
+        });
+      }
+
+      snapshot.push({
+        participanteId: persona.id,
+        nombre: persona.nombre,
+        saldoActual: saldos.get(persona.id) ?? null,
+      });
+    }
+
+    if (hayAjusteDePuntos) {
+      const estado = await this.activity.estadoDeHoy(contexto.grupoId);
+
+      if (!estado.sesionAbierta) {
+        return {
+          ok: false,
+          error:
+            'no hay ninguna sesión abierta en este grupo, y un ajuste de PUNTOS necesita una ' +
+            'sesión donde caer (el de monedas no). Decile al Tutor que abra la sesión del día, ' +
+            'o proponé solo el ajuste de monedas.',
+        };
+      }
+    }
+
+    return await this.guardar(
+      'AJUSTES_MANUALES',
+      operaciones,
+      { ajustados: snapshot },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /**
+   * La única regla dura de la familia: **el saldo no puede quedar bajo 0**
+   * (decisión 4 del fase-14-22). Devuelve el motivo del rechazo o `null`.
+   *
+   * Los puntos no tienen equivalente y es deliberado: un puntaje negativo es un
+   * estado legítimo del producto —la zona más baja existe— y un saldo negativo
+   * sería una deuda que nadie puede pagar.
+   */
+  private violacionDeSaldo(
+    monto: number,
+    saldo: number | null,
+    nombre: string
+  ): string | null {
+    if (monto >= 0) {
+      return null;
+    }
+
+    if (saldo === null) {
+      return (
+        `no pude ver el saldo de ${nombre}, así que no puedo proponer un descuento sin saber si ` +
+        'lo deja en negativo. Probá listar_billeteras de nuevo antes de proponerlo.'
+      );
+    }
+
+    if (saldo + monto < 0) {
+      return (
+        `${nombre} tiene ${saldo} y el descuento la dejaría en ${saldo + monto}. El saldo no ` +
+        `puede quedar bajo 0: lo máximo que se le puede sacar es ${saldo}.`
+      );
+    }
+
+    return null;
+  }
+
   private async guardar(
     tipo: TipoPropuesta,
     operaciones: OperacionPropuesta[],
@@ -2439,6 +2653,17 @@ function zonaCompleta(datos: Partial<CamposDeZona>): CamposDeZona | null {
  */
 function normalizar(nombre: string): string {
   return nombre.trim().toLowerCase();
+}
+
+/**
+ * «+10» / «-5» para la etiqueta de un ajuste manual (fase-14-31 tanda 5).
+ *
+ * El `+` explícito no es decoración: en una tarjeta con varias filas, «10» y
+ * «-10» se distinguen mal de un vistazo y son la diferencia entre premiar y
+ * castigar a alguien.
+ */
+function conSigno(valor: number): string {
+  return valor > 0 ? `+${valor}` : String(valor);
 }
 
 /** «de 0 a 20 puntos» / «de 61 puntos para arriba», para la etiqueta. */

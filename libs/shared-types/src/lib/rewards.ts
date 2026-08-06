@@ -127,6 +127,28 @@ export interface MiBilleteraResponse extends BilleteraDto {
   objetivo: ObjetivoDto | null;
 }
 
+/**
+ * `POST /rewards/grupos/:grupoId/usuarios/:usuarioId/ajuste` (fase-14-22).
+ *
+ * El contrato existía como clase con decoradores en rewards-service desde el
+ * #22 y **no tenía interfaz acá** hasta el fase-14-31, porque hasta entonces el
+ * único que armaba este request era el frontend del Tutor. Ahora también lo
+ * arma una propuesta del asistente (`proponer_ajustes_manuales`), y la regla de
+ * la decisión 11 del #29 es que todo esquema Zod de propuesta se tipe contra el
+ * contrato real: sin la interfaz, renombrar `monto` en rewards se descubriría
+ * recién con el Tutor apretando «Aplicar».
+ *
+ * `monto` y no `puntos`: son dos números independientes (decisión 1 del #28), y
+ * el ajuste de puntos —`AjustarPuntosRequest`, en `scoring.ts`— espeja este
+ * campo por campo salvo justamente el nombre del número.
+ */
+export interface AjustarMonedasRequest {
+  /** Con signo: positivo acredita, negativo descuenta. Nunca 0. */
+  monto: number;
+  /** Obligatorio: un movimiento manual sin explicación es inauditable. */
+  motivo: string;
+}
+
 /** Body de `PUT /rewards/grupos/:grupoId/mi-objetivo` (fase-14-25). */
 export interface FijarObjetivoRequest {
   productoId: string;

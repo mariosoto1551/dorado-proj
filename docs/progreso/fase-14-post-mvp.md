@@ -2619,15 +2619,34 @@ Sin una línea de `ai-service`, y primero a propósito: es un hueco del producto
 - El id se valida contra la entidad que dice ser (un id de actividad declarado como `CONDUCTA` no crea propuesta), y sacarle la rotación a una actividad que no rota tampoco: proponer un no-op es peor que rechazarlo.
 - `esquemaArchivar` y `esquemaQuitarMarca` son los **dos únicos esquemas Zod del archivo sin `implements`**, y está explicado en el código: estos endpoints no tienen body contra el cual tipar (el motivo va como query param, fase-14-12).
 
+### Tanda 5 — la familia de ajustes (2026-08-06)
+
+`proponer_ajustes_manuales`: **una herramienta, dos endpoints**, y es a propósito. *«Ayudó con la mudanza, ponele 10 puntos y 5 monedas»* es un solo acto del Tutor, así que el modelo manda una fila por persona y el armador la parte en los dos requests que hacen falta, con el mismo motivo en los dos. La tarjeta muestra el acto y no la plomería.
+
+Lo que **no** se junta son los números: `puntos` y `monedas` viajan independientes y ninguno se deriva del otro (decisión 1 del #28). La descripción de la herramienta se lo dice al modelo con todas las letras, porque convertir de uno al otro «para que queden proporcionales» es exactamente lo que un LLM hace solo.
+
+- Las dos reglas del destino que se replican en el armador, para no armar una propuesta que muere al aplicar: **un descuento no puede dejar el saldo bajo 0** (validado contra `listar_billeteras`) y **un ajuste de puntos necesita la sesión de hoy abierta** (scoring devuelve `409` sin ella). La segunda se consulta **una sola vez y solo si hay algún ajuste de puntos** — el de monedas no la necesita, porque el ledger de monedas no vive en una sección.
+- **Si no se pudieron leer los saldos, el descuento no se propone** (la acreditación sí). Suponer que hay de sobra es justo el error que la lectura de la tanda 3 vino a evitar.
+- **Dos filas para la misma persona se rechazan.** Cada una sola pasa el chequeo de saldo y las dos juntas lo violan: 30 − 20 − 20 = −10, y ninguna se habría dado cuenta. El error le dice al modelo que junte los dos números en una fila, que además es la forma que la spec pide.
+- La etiqueta lleva **signo explícito y saldo resultante**: en una tarjeta de varias filas, «10» y «-10» se distinguen mal de un vistazo y son la diferencia entre premiar y castigar; y «-20 estrellas» no dice nada si no se sabe con cuántas queda.
+
+**Un hueco de contratos que apareció acá:** la Parte D de la spec daba por existente `AjustarMonedasRequest` en `shared-types/rewards.ts`, y **solo existía como clase con decoradores en rewards-service** — hasta ahora el único que armaba ese request era el frontend del Tutor. Se escribió la interfaz y la clase del #22 pasó a `implements` con su chequeo de cobertura, igual que hizo la tanda 1 con el de puntos. Sin eso, el esquema Zod no tenía contra qué tiparse y renombrar `monto` se habría descubierto con el Tutor apretando «Aplicar».
+
+**Dos correcciones de arrastre de las tandas 3 y 4, hechas en esta:**
+
+- **El system prompt seguía diciendo que el asistente NO puede archivar ni dar puntos.** Las herramientas existían desde la tanda 4 y el prompt las contradecía, o sea que el modelo tenía instrucción explícita de no usarlas. Se agregaron las capacidades 7 y 8, se sacó de la lista de «esto se hace desde la app» lo que ya no es cierto, y se sumó la línea que la decisión 2 necesita en la conversación y no solo en la tarjeta: *decí qué se pierde y qué no*.
+- **`core/herramientas-ia.ts` no tenía las cinco herramientas de las tandas 3, 4 y 5**, así que el rastro en pantalla las mostraba con su nombre crudo (el archivo está escrito para degradar así, pero es igual una etiqueta faltante).
+
+**Lo que NO hizo falta y la spec preveía:** la Parte E pedía sumarle billeteras y estado de hoy a `ContextoPropuesta` «para que las filas digan *Juan · Tender la cama* y no dos uuid». No hace falta: las cuatro familias operativas se pintan con `filaDeActo`, y **la etiqueta ya viene armada del servidor con los nombres adentro** — que es donde se conoce el estado del grupo. Sumar el contexto sería pedirle a la pantalla que mande lo mismo dos veces.
+
 ### Estado al cortar la sesión (2026-08-06)
 
-**4 de 9 tandas.** Verde en los seis proyectos tocados: `ai-service` 263, `app-web` 229, `activity-service` 357, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
+**5 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 274, `app-web` 229, `activity-service` 357, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
 
-**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo y corregir las marcas de hoy, con la tarjeta roja y la confirmación fila por fila.
+**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy y ajustar puntos y monedas a mano, con la tarjeta roja y la confirmación fila por fila en las dos destructivas.
 
 **Lo que falta, en orden (Parte G de la spec):**
 
-5. **Familia de ajustes** — `proponer_ajustes_manuales` (`AJUSTES_MANUALES`): una fila por persona con `puntos?`, `monedas?` y un `motivo` que cubre las dos. Endpoints destino: `POST /scoring/grupos/:g/usuarios/:u/ajuste` (tanda 1) y `POST /rewards/grupos/:g/usuarios/:u/ajuste`. Validar contra `listar_billeteras` que un descuento no deje el saldo bajo 0.
 6. **Familia de anotaciones** — `proponer_anotar` (`ANOTAR_REGISTROS`): filas `{ participanteId, tipo: HIZO|NO_HIZO|CONDUCTA, id, motivo? }`. El armador traduce `participanteId` → `usuarioId` en el body. Las reglas ya vienen resueltas de `estado_de_hoy`: alcanza con rechazar lo que traiga `puedeMarcarHizo: false` citando el `motivoNoDisponible`.
 7. **La escala** — `borrar: [umbralZonaId]` dentro de `proponer_umbrales_zona`, con los pasos de borrado en `escala.ts` (`estadoResultante`, `violacionDeLaEscala`, `ordenAplicable`). Es la decisión 8: sacar una zona del medio casi siempre exige ensanchar a una vecina en el mismo movimiento.
 8. **El aviso v2** (decisión 11) — `ConfiguracionIaOrganizacion` suma `avisoVersion`; los consentimientos del #29 valen como versión 1 y **el asistente queda apagado hasta que un `ORG_ADMIN` acepte la versión 2**, porque las lecturas nuevas mandan saldo y cumplimiento por persona hacia el proveedor. Más las dos entradas de contexto (integrantes y billeteras).
@@ -2639,3 +2658,4 @@ Sin una línea de `ai-service`, y primero a propósito: es un hueco del producto
 - **Aplicar las dos migraciones contra la base local**, que todavía no se corrieron contra Postgres (solo se generó el cliente): `20260806090000_ajuste_manual_puntos_fase14_31` en scoring y `20260806094500_fase_14_31_alcance_operativo` en ai. Las dos son aditivas.
 - **El endpoint de ajuste de puntos no se probó contra la base real**, solo con la BD en memoria de los tests. Es lo primero a verificar en la próxima sesión, con el stack levantado.
 - La tarjeta destructiva se verificó con tests de componente (5 nuevos), **no todavía en el navegador**.
+- **Nada de la tanda 5 se probó contra un proveedor real**: los once tests nuevos llaman al armador directo. Lo que la E2E de la tanda 9 tiene que cubrir de esta familia es el camino completo con el proveedor stubbeado, incluido que aplicar las dos operaciones de una misma fila escriba en los dos servicios.
