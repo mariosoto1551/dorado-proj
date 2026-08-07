@@ -13,10 +13,25 @@ export interface ConfiguracionIaDto {
   disponibleEnPlan: boolean;
   /** El ORG_ADMIN lo prendió (fase-14-29 decisión 5). */
   habilitada: boolean;
-  /** Si ya se aceptó el aviso sobre los datos que se envían al proveedor. */
+  /**
+   * Si el aviso **vigente** está aceptado.
+   *
+   * Cambió de significado en el fase-14-31 (decisión 11): antes era «alguna vez
+   * se aceptó», ahora es «se aceptó la versión que rige hoy». Quien aceptó una
+   * lista de datos más corta no aceptó ésta, así que ese `true` de ayer sería
+   * un consentimiento que nadie dio.
+   */
   avisoAceptado: boolean;
-  /** ISO-8601, null si nunca se aceptó. */
+  /** ISO-8601 de la última aceptación, null si nunca se aceptó. */
   aceptoAvisoEn: string | null;
+  /**
+   * Qué versión del aviso se aceptó. `null` = nunca. Las aceptaciones del
+   * fase-14-29 valen como **1** aunque su columna esté en NULL: son anteriores
+   * al campo, no aceptaciones vacías.
+   */
+  avisoVersionAceptada: number | null;
+  /** La versión que rige hoy. Si es mayor que la aceptada, hay que volver a aceptar. */
+  avisoVersionVigente: number;
   /** Techo mensual de tokens de la organización. null = sin límite. */
   cuotaTokensMensuales: number | null;
   /**
@@ -25,18 +40,41 @@ export interface ConfiguracionIaDto {
    */
   tokensConsumidosMes: number;
   /**
-   * Si el asistente puede usarse AHORA: exige plan, switch prendido y cuota
-   * disponible. Es el único campo que la pantalla necesita mirar para decidir
-   * si habilita el chat — los otros son para explicar por qué no.
+   * Si el asistente puede usarse AHORA: exige plan, switch prendido, **aviso
+   * vigente aceptado** (fase-14-31 decisión 11) y cuota disponible. Es el único
+   * campo que la pantalla necesita mirar para decidir si habilita el chat — los
+   * otros son para explicar por qué no.
    */
   puedeUsarse: boolean;
 }
+
+/**
+ * La versión del aviso de datos que rige hoy (fase-14-31 decisión 11).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ ES UNA CONSTANTE COMPARTIDA Y NO UN NÚMERO EN CADA LADO:
+ *
+ * el backend decide si el asistente se puede usar y el frontend decide qué
+ * texto mostrar, y las dos decisiones tienen que hablar de la **misma** versión
+ * o el resultado es una pantalla que dice «ya lo aceptaste» sobre un asistente
+ * que responde 403. Subir esto de número es lo único que hace falta para volver
+ * a pedir el consentimiento, y por eso el texto del aviso y este número se
+ * tocan juntos: **si cambia lo que sale hacia el proveedor, sube la versión.**
+ *
+ * Historia: **1** = el aviso del fase-14-29 (nombres, catálogo, puntajes).
+ * **2** = suma el saldo en monedas y el estado de cumplimiento del día por
+ * persona, que son las dos clases de dato que agregaron las lecturas nuevas del
+ * fase-14-31.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const AVISO_IA_VERSION_VIGENTE = 2;
 
 /** `PUT /api/ai/configuracion` — solo ORG_ADMIN. */
 export interface CambiarConfiguracionIaRequest {
   habilitada: boolean;
   /**
-   * Obligatorio en `true` para habilitar por primera vez (decisión 5).
+   * Obligatorio en `true` para habilitar por primera vez **y cada vez que el
+   * aviso cambia de versión** (decisión 5 del #29, decisión 11 del #31).
    * Se ignora al deshabilitar: un consentimiento dado no se retira apagando
    * el switch, queda registrado como el hecho que fue.
    */

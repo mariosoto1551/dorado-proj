@@ -10,6 +10,7 @@ import {
 
 import { AccesoGrupoService, ContextoHerramienta } from '../comun/acceso-grupo.service';
 import {
+  AvisoDesactualizadoException,
   CuotaIaAgotadaException,
   FeatureNoDisponibleException,
   IaNoHabilitadaException,
@@ -267,13 +268,17 @@ export class ConversacionesService {
 
   /**
    * Gate de uso, **en este orden y no en otro** (regla que dejó anotada la
-   * tanda 1): primero la feature del plan, después el switch del dueño, y
-   * recién al final la cuota.
+   * tanda 1): primero la feature del plan, después el switch del dueño, después
+   * el aviso vigente (fase-14-31 decisión 11) y recién al final la cuota.
    *
    * El orden importa porque `cuotaTokensMensuales === null` significa SIN
    * LÍMITE, que es lo contrario de lo seguro: leer la cuota sin haber pasado
    * por el gate de la feature convertiría a una organización sin plan en una
    * organización sin tope.
+   *
+   * Y el del aviso va **antes** que la cuota por el mismo criterio con el que
+   * fue puesto: es un permiso, no un recurso. Una organización sin
+   * consentimiento vigente no debe llegar ni a que se le cuenten los tokens.
    */
   private async asegurarUsable(tenant: TenantContext): Promise<void> {
     const estado = await this.configuracion.obtener(tenant);
@@ -284,6 +289,19 @@ export class ConversacionesService {
 
     if (!estado.habilitada) {
       throw new IaNoHabilitadaException();
+    }
+
+    // El switch está prendido y el consentimiento quedó viejo: el asistente no
+    // funciona hasta que un ORG_ADMIN acepte el aviso nuevo. Es la única parte
+    // del fase-14-31 que le interrumpe el uso a alguien que ya lo tenía
+    // andando, y es a propósito — las lecturas nuevas mandan hacia el proveedor
+    // el saldo en monedas y el cumplimiento del día por persona, que antes no
+    // salían, y eso no está cubierto por el consentimiento que dio.
+    if (!estado.avisoAceptado) {
+      throw new AvisoDesactualizadoException(
+        estado.avisoVersionAceptada,
+        estado.avisoVersionVigente
+      );
     }
 
     // Pre-flight (Parte E, punto 5a): se corta ANTES de llamar al proveedor.

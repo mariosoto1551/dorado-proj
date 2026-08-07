@@ -11,6 +11,7 @@ import { forkJoin } from 'rxjs';
 
 import type { BilleteraDto, UsuarioDto } from '@dorado/shared-types';
 
+import { EntradaAsistenteComponent } from '../../../componentes/entrada-asistente.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { IdentityApiService } from '../../../core/api/identity-api.service';
@@ -25,7 +26,13 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
 @Component({
   selector: 'app-billeteras',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalComponent, CampoComponent, EstadoVacioComponent, FormsModule],
+  imports: [
+    ModalComponent,
+    CampoComponent,
+    EstadoVacioComponent,
+    EntradaAsistenteComponent,
+    FormsModule,
+  ],
   template: `
     <p class="text-sm text-slate-500 dark:text-slate-400">
       Cuánto tiene cada integrante y ajustes a mano.
@@ -71,6 +78,24 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
           </li>
         }
       </ul>
+
+      <!--
+        fase-14-31 tanda 8. Variante «enlace» y no «tarjeta» (nada de backticks
+        acá adentro: esto vive dentro del template literal del componente y una
+        comilla invertida lo corta). La pantalla ya tiene lo suyo y el asistente
+        acá es una segunda opinión, no la forma de empezar.
+        Es la única entrada del monorepo que apunta a una propuesta que
+        MUEVE UN NÚMERO —las otras seis proponen configuración—, así que la
+        pregunta nombra el acto («ayudó con la mudanza») en vez de pedir un
+        análisis: es lo que el Tutor está haciendo cuando abre esta pantalla.
+      -->
+      <app-entrada-asistente
+        class="mt-4 block"
+        [grupoId]="grupoId()"
+        [pregunta]="PREGUNTA_BILLETERAS"
+        titulo="Que la IA proponga un ajuste"
+        variante="enlace"
+      />
     }
 
     <ui-modal
@@ -125,6 +150,16 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
 })
 export class BilleterasComponent {
   readonly grupoId = input.required<string>();
+
+  /**
+   * La pregunta con la que entra al asistente. Nombra un caso concreto en vez
+   * de pedir un análisis porque el ajuste manual **no se decide con datos**: el
+   * Tutor ya sabe qué pasó, y lo que necesita es que alguien lo convierta en
+   * puntos y monedas con un motivo escrito.
+   */
+  protected readonly PREGUNTA_BILLETERAS =
+    'Quiero reconocerle algo a un integrante que pasó fuera de las actividades. ' +
+    'Mostrame cómo viene cada uno de puntos y monedas y proponeme un ajuste.';
 
   private readonly api = inject(RewardsApiService);
 

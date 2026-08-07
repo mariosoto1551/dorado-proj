@@ -2675,21 +2675,45 @@ Esa conclusión vive en `SOLO_LA_MAS_ALTA` (una constante exportada, no un strin
 - **La fila del frontend** es la única de la familia que no es un diff: no hay «después», hay una zona que deja de existir. Se muestra con el rango que se pierde de un lado y esa advertencia del otro.
 - La propuesta se pinta destructiva **por su operación y no por su tipo** (criterio de aceptación 6): la misma herramienta produce ediciones normales y propuestas rojas, y `esPropuestaDestructiva` ya lo resolvía desde la tanda 2 sin tocarse.
 
+### Tanda 8 — el aviso que se vuelve a pedir, y las dos entradas (2026-08-06)
+
+La decisión 11, que es **la única parte del ítem que puede interrumpirle el uso a alguien que ya lo tenía andando**. Las lecturas de la tanda 3 mandan hacia el proveedor dos clases de dato que antes no salían —el **saldo en monedas** y el **cumplimiento del día por persona**— y la decisión 5 del #29 hizo del aviso el fundamento del opt-in: quien aceptó una lista más corta no aceptó ésta, así que seguir andando con ese consentimiento sería usarlo para algo que nadie autorizó.
+
+- `ConfiguracionIaOrganizacion` suma `avisoVersion Int?`, **nullable y sin backfill**. Un `DEFAULT 1` escribiría en filas existentes un dato que nadie afirmó —el 1 es una interpretación de este código, no algo que la organización declaró— y borraría la única señal que distingue «aceptó la v1» de «aceptó antes de que el campo existiera». El service las lee como 1 en un solo lugar (`versionAceptada`).
+- `AVISO_IA_VERSION_VIGENTE` vive en `shared-types` y no como un número en cada lado: el backend decide si el asistente se puede usar y el frontend decide qué texto mostrar, y si hablan de versiones distintas el resultado es una pantalla que dice «ya lo aceptaste» sobre un asistente que responde 403. **Subir ese número es lo único que hace falta para volver a pedir el consentimiento**, y por eso el texto y la constante se tocan juntos.
+- **`avisoAceptado` cambió de significado**: pasó de «alguna vez se aceptó» a «se aceptó la versión que rige hoy». Es un cambio de contrato y está documentado en el DTO, porque el `true` de ayer sobre la lista nueva sería un consentimiento que nadie dio.
+- El gate del servidor (`asegurarUsable`) suma el aviso **entre el switch y la cuota**: es un permiso, no un recurso, y una organización sin consentimiento vigente no debe llegar ni a que se le cuenten los tokens. Con `code` propio (`AVISO_DESACTUALIZADO`) y no `IA_NO_HABILITADA`, porque **el switch está prendido**: mandar al Tutor a pedir que prendan un interruptor que ya está en sí sería la peor versión de este error.
+- La aceptación **se reescribe** cuando sube la versión, y es el único caso en que se pisa: la fecha y el usuario que hay que poder mostrar y auditar son los de la aceptación vigente. Lo que no se borra nunca sigue siendo al deshabilitar.
+
+**En la pantalla del dueño**, lo que puede salir mal no es que se use sin consentimiento —de eso ya se ocupa el backend— sino **que el dueño no entienda qué le están pidiendo**. Dos confusiones concretas, las dos evitadas y las dos con test:
+
+1. Decirle «Prendido» cuando el asistente no anda. El bloque muestra **«Apagado hasta que aceptes el aviso»**: el switch está en sí y el estado real es apagado, y mostrar el switch sería mentirle sobre lo único que vino a mirar.
+2. Decirle que nunca aceptó nada cuando sí aceptó, hace meses, otra lista. El texto distingue **«El aviso cambió»** de «Antes de prenderlo», conserva la fecha que sí dio y muestra las dos versiones.
+
+Aceptar el aviso nuevo es **una acción propia** y no un «apagar y volver a prender»: eso último dejaría el asistente apagado si el segundo paso falla, y además significa otra cosa —el dueño no está reconsiderando la feature, está firmando una lista más larga—. El botón de apagar sigue estando al lado, y también tiene test: **el que lee el aviso nuevo y no quiere que esos datos salgan tiene que poder apagarlo ahí mismo**, sin que aceptar sea la única salida.
+
+**Las dos entradas de contexto** (séptima y octava del monorepo), las dos en variante «enlace» porque esas pantallas ya tienen su contenido y el asistente es una segunda opinión:
+
+- **Billeteras**: es la única entrada que apunta a una propuesta que **mueve un número** —las otras siete proponen configuración— así que la pregunta nombra el acto («reconocerle algo que pasó fuera de las actividades») en vez de pedir un análisis: el ajuste manual no se decide con datos, el Tutor ya sabe qué pasó.
+- **Integrantes**: la primera sobre personas, y la pregunta pide un panorama a propósito. Todo lo que el asistente puede proponer desde ahí —roles, equipos, ajustes, anotaciones— sale de mirar primero cómo viene cada uno; arrancar por el verbo lo haría proponer sobre gente que no miró. Va en la lista de integrantes y no en «Invitaciones» porque **dar de alta o de baja a alguien no lo hace la IA** (decisión 4 del #30, intacta).
+
+**Una trampa de Angular que se cobró un build:** un backtick dentro de un comentario HTML del `template` corta el template literal del componente. El comentario decía *variante `enlace`* y el parser murió con un «',' expected» a 50 líneas de distancia. Quedó anotado en el propio comentario.
+
 ### Estado al cortar la sesión (2026-08-06)
 
-**7 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 294, `app-web` 231, `activity-service` 362, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
+**8 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 300, `app-web` 237, `activity-service` 362, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
 
-**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy, ajustar puntos y monedas a mano, anotar lo del día y borrar una zona de la escala — con la tarjeta roja y la confirmación fila por fila en las tres destructivas.
+**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy, ajustar puntos y monedas a mano, anotar lo del día y borrar una zona de la escala — con la tarjeta roja y la confirmación fila por fila en las tres destructivas, y con el consentimiento v2 exigido antes de todo eso.
 
-**Lo que falta, en orden (Parte G de la spec):**
+**Lo que falta (Parte G de la spec):**
 
-8. **El aviso v2** (decisión 11) — `ConfiguracionIaOrganizacion` suma `avisoVersion`; los consentimientos del #29 valen como versión 1 y **el asistente queda apagado hasta que un `ORG_ADMIN` acepte la versión 2**, porque las lecturas nuevas mandan saldo y cumplimiento por persona hacia el proveedor. Más las dos entradas de contexto (integrantes y billeteras).
 9. **E2E** — ampliar `asistente-ia.e2e.ts`: ruteo, validación de referencias, aplicado parcial, aislamiento, y que la tarjeta destructiva **no tenga «Aplicar todo»**.
 
 **Qué verificar antes de seguir:**
 
 - Correr `npx nx run-many -t test -p ai-service app-web activity-service rewards-service scoring-service`.
-- **Aplicar las dos migraciones contra la base local**, que todavía no se corrieron contra Postgres (solo se generó el cliente): `20260806090000_ajuste_manual_puntos_fase14_31` en scoring y `20260806094500_fase_14_31_alcance_operativo` en ai. Las dos son aditivas.
+- **Aplicar las tres migraciones contra la base local**, que todavía no se corrieron contra Postgres (solo se generó el cliente): `20260806090000_ajuste_manual_puntos_fase14_31` en scoring, y `20260806094500_fase_14_31_alcance_operativo` + `20260806210000_aviso_ia_version` en ai. Las tres son aditivas.
+- **La E2E del asistente sigue verde sin tocarla** porque acepta el aviso por API (`aceptaAviso: true`), y eso ahora escribe la versión 2. Lo que la tanda 9 sí tiene que agregar es el criterio 14: una organización con `avisoVersion` NULL y el switch prendido **encuentra el asistente apagado** hasta aceptar de nuevo.
 - **El endpoint de ajuste de puntos no se probó contra la base real**, solo con la BD en memoria de los tests. Es lo primero a verificar en la próxima sesión, con el stack levantado.
 - La tarjeta destructiva se verificó con tests de componente (5 nuevos), **no todavía en el navegador**.
 - **Nada de la tanda 5 se probó contra un proveedor real**: los once tests nuevos llaman al armador directo. Lo que la E2E de la tanda 9 tiene que cubrir de esta familia es el camino completo con el proveedor stubbeado, incluido que aplicar las dos operaciones de una misma fila escriba en los dos servicios.

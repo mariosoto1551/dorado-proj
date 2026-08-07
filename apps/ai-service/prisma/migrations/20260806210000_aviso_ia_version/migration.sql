@@ -1,0 +1,17 @@
+-- AlterTable
+-- fase-14-31 tanda 8 (decisión 11): qué versión del aviso de datos aceptó la
+-- organización.
+--
+-- Aditiva y SIN backfill a propósito. Las filas que ya tienen `aceptoAvisoEn`
+-- quedan con `avisoVersion = NULL` y el service las lee como versión 1: un
+-- `DEFAULT 1` escribiría en filas existentes un dato que nadie afirmó —el 1 es
+-- una interpretación de este código, no algo que la organización declaró— y
+-- además borraría la única señal que distingue «aceptó la v1» de «aceptó antes
+-- de que el campo existiera».
+--
+-- Consecuencia buscada: toda organización que había aceptado el aviso del
+-- fase-14-29 queda con el asistente APAGADO hasta que un ORG_ADMIN acepte la
+-- versión 2. Es la única parte del ítem que puede interrumpirle el uso a
+-- alguien, y es a propósito: las lecturas nuevas mandan al proveedor el saldo
+-- en monedas y el cumplimiento del día por persona, que antes no salían.
+ALTER TABLE "ConfiguracionIaOrganizacion" ADD COLUMN "avisoVersion" INTEGER;

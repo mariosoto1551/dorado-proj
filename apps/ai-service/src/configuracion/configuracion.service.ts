@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
-import { CambiarConfiguracionIaRequest, ConfiguracionIaDto, TenantContext } from '@dorado/shared-types';
+import {
+  AVISO_IA_VERSION_VIGENTE,
+  CambiarConfiguracionIaRequest,
+  ConfiguracionIaDto,
+  TenantContext,
+} from '@dorado/shared-types';
 
 import { BillingClientService } from '../clientes/billing-client.service';
 import { AvisoNoAceptadoException, FeatureNoDisponibleException } from '../comun/excepciones';
@@ -10,6 +15,36 @@ import { PrismaService } from '../prisma/prisma.service';
 interface EstadoDelPlan {
   disponibleEnPlan: boolean;
   cuotaTokensMensuales: number | null;
+}
+
+/** Lo que hace falta de la fila para decidir sobre el consentimiento. */
+interface FilaDeConsentimiento {
+  aceptoAvisoEn: Date | null;
+  avisoVersion: number | null;
+}
+
+/**
+ * Qué versión aceptó, leyendo el `null` como corresponde (fase-14-31 decisión 11).
+ *
+ * Una fila con fecha de aceptación y `avisoVersion` en NULL **no es una
+ * aceptación vacía**: es una del fase-14-29, anterior al campo, y vale como
+ * versión 1. Sin esta lectura, subir el aviso a 2 haría ver a esas
+ * organizaciones como si nunca hubieran aceptado nada, que es falso y además
+ * borraría la fecha que sí dieron.
+ */
+function versionAceptada(fila: FilaDeConsentimiento | null): number | null {
+  if (!fila || fila.aceptoAvisoEn === null) {
+    return null;
+  }
+
+  return fila.avisoVersion ?? 1;
+}
+
+/** Si el consentimiento que hay cubre el aviso que rige hoy. */
+function avisoAlDia(fila: FilaDeConsentimiento | null): boolean {
+  const aceptada = versionAceptada(fila);
+
+  return aceptada !== null && aceptada >= AVISO_IA_VERSION_VIGENTE;
 }
 
 @Injectable()
@@ -50,20 +85,27 @@ export class ConfiguracionService {
     const fila = await this.prisma.client.configuracionIaOrganizacion.findUnique({
       where: { organizacionId: tenant.organizacionId },
     });
-    const yaAcepto = fila?.aceptoAvisoEn != null;
+    const yaAcepto = avisoAlDia(fila);
 
-    // Habilitar exige aceptar el aviso, salvo que ya se haya aceptado antes:
+    // Habilitar exige aceptar el aviso VIGENTE, salvo que ya esté aceptado:
     // apagar y volver a prender no vuelve a preguntar (el consentimiento ya
-    // está dado y registrado).
+    // está dado y registrado), pero un aviso que cambió de versión sí, porque
+    // quien aceptó una lista de datos más corta no aceptó ésta (decisión 11).
     if (datos.habilitada && !yaAcepto && datos.aceptaAviso !== true) {
       throw new AvisoNoAceptadoException();
     }
 
-    // El consentimiento se escribe una sola vez y NO se borra al deshabilitar:
-    // un consentimiento dado es un hecho, no un estado.
+    // La aceptación se REESCRIBE cuando sube la versión, y ese es el único caso
+    // en que se pisa: la fecha y el usuario pasan a ser los de la aceptación
+    // vigente, que es la que hay que poder mostrar y auditar. Lo que no se
+    // borra nunca es al deshabilitar — un consentimiento dado es un hecho.
     const aceptacion =
       datos.habilitada && !yaAcepto
-        ? { aceptoAvisoEn: new Date(), aceptoAvisoPorUsuarioId: tenant.principalId }
+        ? {
+            aceptoAvisoEn: new Date(),
+            aceptoAvisoPorUsuarioId: tenant.principalId,
+            avisoVersion: AVISO_IA_VERSION_VIGENTE,
+          }
         : {};
 
     const actualizada = await this.prisma.client.configuracionIaOrganizacion.upsert({
@@ -118,7 +160,7 @@ export class ConfiguracionService {
 
   private aDto(
     plan: EstadoDelPlan,
-    fila: { habilitada: boolean; aceptoAvisoEn: Date | null } | null,
+    fila: ({ habilitada: boolean } & FilaDeConsentimiento) | null,
     tokensConsumidosMes: number
   ): ConfiguracionIaDto {
     const habilitada = fila?.habilitada === true;
@@ -127,15 +169,21 @@ export class ConfiguracionService {
     // una columna nullable nueva deja las filas viejas en NULL).
     const hayCuotaDisponible =
       plan.cuotaTokensMensuales === null || tokensConsumidosMes < plan.cuotaTokensMensuales;
+    const avisoAceptado = avisoAlDia(fila);
 
     return {
       disponibleEnPlan: plan.disponibleEnPlan,
       habilitada,
-      avisoAceptado: fila?.aceptoAvisoEn != null,
+      avisoAceptado,
       aceptoAvisoEn: fila?.aceptoAvisoEn?.toISOString() ?? null,
+      avisoVersionAceptada: versionAceptada(fila),
+      avisoVersionVigente: AVISO_IA_VERSION_VIGENTE,
       cuotaTokensMensuales: plan.cuotaTokensMensuales,
       tokensConsumidosMes,
-      puedeUsarse: plan.disponibleEnPlan && habilitada && hayCuotaDisponible,
+      // El aviso entra al gate (decisión 11): una organización que dejó el
+      // switch prendido con un consentimiento viejo NO puede usarlo. Es la
+      // única parte del ítem que interrumpe a alguien, y es a propósito.
+      puedeUsarse: plan.disponibleEnPlan && habilitada && avisoAceptado && hayCuotaDisponible,
     };
   }
 }

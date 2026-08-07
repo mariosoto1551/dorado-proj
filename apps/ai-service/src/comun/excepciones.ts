@@ -51,6 +51,27 @@ export class AvisoNoAceptadoException extends DomainException {
 }
 
 /**
+ * El aviso cambió y el consentimiento que hay es de una versión anterior
+ * (fase-14-31 decisión 11).
+ *
+ * Es un `code` propio y no `IA_NO_HABILITADA` porque **el switch está
+ * prendido**: la pantalla del Tutor tiene que decir «el dueño tiene que aceptar
+ * un aviso nuevo», no «pedile que lo prenda», que lo mandaría a mirar un
+ * interruptor que ya está en sí.
+ */
+export class AvisoDesactualizadoException extends DomainException {
+  constructor(aceptada: number | null, vigente: number) {
+    super(
+      'AVISO_DESACTUALIZADO',
+      'El aviso sobre los datos que se envían al proveedor cambió: un administrador de la ' +
+        'organización tiene que aceptarlo de nuevo para volver a usar el asistente',
+      403,
+      { aceptada, vigente }
+    );
+  }
+}
+
+/**
  * Se agotó la cuota mensual de tokens de la organización (decisión 1). Se
  * lanza ANTES de llamar al proveedor, nunca después: los tokens los paga la
  * plataforma, así que cortar tarde ya costó dinero.

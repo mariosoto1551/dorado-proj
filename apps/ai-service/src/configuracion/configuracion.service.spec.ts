@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { EntitlementsDto, PrincipalType, Rol, TenantContext } from '@dorado/shared-types';
+import {
+  AVISO_IA_VERSION_VIGENTE,
+  EntitlementsDto,
+  PrincipalType,
+  Rol,
+  TenantContext,
+} from '@dorado/shared-types';
 
 import type { BillingClientService } from '../clientes/billing-client.service';
 import { AvisoNoAceptadoException, FeatureNoDisponibleException } from '../comun/excepciones';
@@ -30,8 +36,22 @@ function entitlements(asistenteIa: boolean, tokens: number | null): Entitlements
 }
 
 interface OpcionesMock {
-  fila?: { habilitada: boolean; aceptoAvisoEn: Date | null } | null;
+  fila?: {
+    habilitada: boolean;
+    aceptoAvisoEn: Date | null;
+    /** `undefined` = la columna nunca se escribió (fila del fase-14-29). */
+    avisoVersion?: number | null;
+  } | null;
   tokens?: number;
+}
+
+/**
+ * Una fila con el consentimiento AL DÍA. Se usa en todos los tests que no son
+ * sobre el aviso: desde el fase-14-31 el consentimiento vigente es parte del
+ * gate, así que una fila sin versión ya no representa «todo en orden».
+ */
+function filaVigente(habilitada = true, aceptoAvisoEn = new Date()) {
+  return { habilitada, aceptoAvisoEn, avisoVersion: AVISO_IA_VERSION_VIGENTE };
 }
 
 function crearMocks(opciones: OpcionesMock = {}) {
@@ -42,6 +62,7 @@ function crearMocks(opciones: OpcionesMock = {}) {
     }) => ({
       habilitada: false,
       aceptoAvisoEn: null,
+      avisoVersion: null,
       ...opciones.fila,
       ...args.update,
     })
@@ -85,7 +106,7 @@ describe('ConfiguracionService — GET /ai/configuracion', () => {
 
   it('PRO con el switch prendido y cuota libre puede usarse', async () => {
     const { prisma } = crearMocks({
-      fila: { habilitada: true, aceptoAvisoEn: new Date('2026-08-04T12:00:00Z') },
+      fila: filaVigente(true, new Date('2026-08-04T12:00:00Z')),
       tokens: 1000,
     });
     const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
@@ -102,7 +123,7 @@ describe('ConfiguracionService — GET /ai/configuracion', () => {
 
   it('PRO habilitada pero con la cuota agotada NO puede usarse', async () => {
     const { prisma } = crearMocks({
-      fila: { habilitada: true, aceptoAvisoEn: new Date() },
+      fila: filaVigente(),
       tokens: 2_000_000,
     });
     const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
@@ -116,7 +137,7 @@ describe('ConfiguracionService — GET /ai/configuracion', () => {
 
   it('cuota null significa SIN LÍMITE, no cuota 0', async () => {
     const { prisma } = crearMocks({
-      fila: { habilitada: true, aceptoAvisoEn: new Date() },
+      fila: filaVigente(),
       tokens: 99_000_000,
     });
     const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, null)));
@@ -128,7 +149,7 @@ describe('ConfiguracionService — GET /ai/configuracion', () => {
   });
 
   it('billing caído apaga el asistente (fail-closed, al revés que fase-04)', async () => {
-    const { prisma } = crearMocks({ fila: { habilitada: true, aceptoAvisoEn: new Date() } });
+    const { prisma } = crearMocks({ fila: filaVigente() });
     const servicio = new ConfiguracionService(prisma, crearBilling(null));
 
     await expect(servicio.obtener(TENANT)).resolves.toMatchObject({
@@ -201,7 +222,7 @@ describe('ConfiguracionService — PUT /ai/configuracion', () => {
 
   it('deshabilitar NO borra el consentimiento: un hecho no se retira', async () => {
     const aceptoAvisoEn = new Date('2026-08-01T09:00:00Z');
-    const { prisma, upsert } = crearMocks({ fila: { habilitada: true, aceptoAvisoEn } });
+    const { prisma, upsert } = crearMocks({ fila: filaVigente(true, aceptoAvisoEn) });
     const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
 
     await servicio.cambiar(TENANT, { habilitada: false });
@@ -213,12 +234,103 @@ describe('ConfiguracionService — PUT /ai/configuracion', () => {
 
   it('volver a prender después de apagar no vuelve a pedir el aviso', async () => {
     const aceptoAvisoEn = new Date('2026-08-01T09:00:00Z');
-    const { prisma, upsert } = crearMocks({ fila: { habilitada: false, aceptoAvisoEn } });
+    const { prisma, upsert } = crearMocks({ fila: filaVigente(false, aceptoAvisoEn) });
     const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
 
     await servicio.cambiar(TENANT, { habilitada: true });
 
     const { update } = upsert.mock.calls[0][0];
     expect(update).toEqual({ habilitada: true });
+  });
+});
+
+/**
+ * EL AVISO QUE SE VUELVE A PEDIR (fase-14-31 decisión 11).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Es la única parte del ítem que puede interrumpirle el uso a alguien que ya lo
+ * tenía andando, y es a propósito: las lecturas nuevas mandan hacia el proveedor
+ * el **saldo en monedas** y el **cumplimiento del día por persona**, dos clases
+ * de dato que antes no salían. La decisión 5 del #29 hizo del aviso el
+ * fundamento del opt-in, así que quien aceptó una lista más corta no aceptó
+ * ésta — y seguir andando con ese consentimiento sería usarlo para algo que
+ * nadie autorizó.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe('ConfiguracionService — la versión del aviso', () => {
+  /** Criterio de aceptación 14 de la spec. */
+  it('la aceptación del #29 vale como versión 1 y deja el asistente APAGADO', async () => {
+    // La fila real de una organización que aceptó antes de que el campo
+    // existiera: con fecha y `avisoVersion` en NULL.
+    const { prisma } = crearMocks({
+      fila: { habilitada: true, aceptoAvisoEn: new Date('2026-08-04T12:00:00Z') },
+    });
+    const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
+
+    await expect(servicio.obtener(TENANT)).resolves.toMatchObject({
+      // El switch sigue prendido: lo que caducó es el permiso, no la decisión.
+      habilitada: true,
+      avisoAceptado: false,
+      // Y NO es «nunca aceptó»: la fecha que dio sigue estando, y la versión se
+      // lee como 1. La pantalla necesita las dos cosas para decir «cambió»
+      // en vez de «aceptalo por primera vez».
+      avisoVersionAceptada: 1,
+      avisoVersionVigente: AVISO_IA_VERSION_VIGENTE,
+      aceptoAvisoEn: '2026-08-04T12:00:00.000Z',
+      puedeUsarse: false,
+    });
+  });
+
+  it('la que aceptó la vigente sigue andando sin que le pregunten nada', async () => {
+    const { prisma } = crearMocks({ fila: filaVigente() });
+    const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
+
+    await expect(servicio.obtener(TENANT)).resolves.toMatchObject({
+      avisoAceptado: true,
+      avisoVersionAceptada: AVISO_IA_VERSION_VIGENTE,
+      puedeUsarse: true,
+    });
+  });
+
+  it('la que nunca aceptó se distingue de la que aceptó una versión vieja', async () => {
+    const { prisma } = crearMocks({ fila: { habilitada: false, aceptoAvisoEn: null } });
+    const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
+
+    await expect(servicio.obtener(TENANT)).resolves.toMatchObject({
+      avisoAceptado: false,
+      avisoVersionAceptada: null,
+      aceptoAvisoEn: null,
+    });
+  });
+
+  it('con el consentimiento viejo, prender sin aceptar de nuevo se rechaza', async () => {
+    const { prisma, upsert } = crearMocks({
+      fila: { habilitada: false, aceptoAvisoEn: new Date('2026-08-01T09:00:00Z') },
+    });
+    const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
+
+    // Este es justo el caso que la regla vieja dejaba pasar: «ya aceptó alguna
+    // vez» era true, así que el `aceptaAviso` no hacía falta.
+    await expect(servicio.cambiar(TENANT, { habilitada: true })).rejects.toThrow(
+      AvisoNoAceptadoException
+    );
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('aceptar de nuevo guarda la versión y reescribe fecha y usuario', async () => {
+    const { prisma, upsert } = crearMocks({
+      fila: { habilitada: true, aceptoAvisoEn: new Date('2026-08-01T09:00:00Z') },
+    });
+    const servicio = new ConfiguracionService(prisma, crearBilling(entitlements(true, 2_000_000)));
+
+    await servicio.cambiar(TENANT, { habilitada: true, aceptaAviso: true });
+
+    const { update } = upsert.mock.calls[0][0];
+
+    expect(update['avisoVersion']).toBe(AVISO_IA_VERSION_VIGENTE);
+    // La fecha se pisa —es el único caso en que se pisa— porque la que hay que
+    // poder mostrar y auditar es la de la aceptación VIGENTE.
+    expect(update['aceptoAvisoEn']).toBeInstanceOf(Date);
+    expect(update['aceptoAvisoPorUsuarioId']).toBe('tutor-1');
   });
 });

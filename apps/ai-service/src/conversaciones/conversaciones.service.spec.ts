@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  AVISO_IA_VERSION_VIGENTE,
   ConfiguracionIaDto,
   EventoIaSse,
   PrincipalType,
@@ -11,6 +12,7 @@ import {
 
 import type { AccesoGrupoService } from '../comun/acceso-grupo.service';
 import {
+  AvisoDesactualizadoException,
   CuotaIaAgotadaException,
   FeatureNoDisponibleException,
   IaNoHabilitadaException,
@@ -35,6 +37,8 @@ function estado(parcial: Partial<ConfiguracionIaDto> = {}): ConfiguracionIaDto {
     habilitada: true,
     avisoAceptado: true,
     aceptoAvisoEn: '2026-08-04T00:00:00.000Z',
+    avisoVersionAceptada: AVISO_IA_VERSION_VIGENTE,
+    avisoVersionVigente: AVISO_IA_VERSION_VIGENTE,
     cuotaTokensMensuales: 2_000_000,
     tokensConsumidosMes: 0,
     puedeUsarse: true,
@@ -130,7 +134,7 @@ function crearMocks(opciones: Opciones = {}) {
 }
 
 describe('ConversacionesService', () => {
-  describe('el gate, en su orden (plan → switch → cuota)', () => {
+  describe('el gate, en su orden (plan → switch → aviso → cuota)', () => {
     it('una organización sin la feature recibe 402 y no se llama al proveedor', async () => {
       const { servicio, loop } = crearMocks({
         estado: estado({ disponibleEnPlan: false, puedeUsarse: false }),
@@ -150,6 +154,31 @@ describe('ConversacionesService', () => {
       await expect(
         servicio.crear(TENANT, { grupoId: 'grupo-1', primerMensaje: 'hola' })
       ).rejects.toBeInstanceOf(IaNoHabilitadaException);
+      expect(loop.ejecutar).not.toHaveBeenCalled();
+    });
+
+    /**
+     * fase-14-31 decisión 11, y el criterio de aceptación 14 del lado del uso:
+     * el switch está PRENDIDO y el asistente igual no funciona, porque el aviso
+     * cambió y el consentimiento que hay es de la versión anterior.
+     *
+     * El `code` es propio y no `IA_NO_HABILITADA` justamente por eso: mandar al
+     * Tutor a pedir que prendan un interruptor que ya está en sí sería la peor
+     * versión de este error.
+     */
+    it('con el aviso desactualizado recibe 403 aunque el switch esté prendido', async () => {
+      const { servicio, loop } = crearMocks({
+        estado: estado({
+          habilitada: true,
+          avisoAceptado: false,
+          avisoVersionAceptada: 1,
+          puedeUsarse: false,
+        }),
+      });
+
+      await expect(
+        servicio.crear(TENANT, { grupoId: 'grupo-1', primerMensaje: 'hola' })
+      ).rejects.toBeInstanceOf(AvisoDesactualizadoException);
       expect(loop.ejecutar).not.toHaveBeenCalled();
     });
 

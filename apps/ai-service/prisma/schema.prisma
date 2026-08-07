@@ -33,6 +33,15 @@ model ConfiguracionIaOrganizacion {
   aceptoAvisoEn           DateTime?
   aceptoAvisoPorUsuarioId String?
 
+  /// Qué versión del aviso se aceptó (fase-14-31 decisión 11).
+  ///
+  /// Nullable y SIN backfill a propósito: las filas del fase-14-29 se leen como
+  /// versión 1 en el service. Un `DEFAULT 1` escribiría en filas existentes un
+  /// dato que nadie afirmó —el 1 es una interpretación de este código, no algo
+  /// que la organización haya declarado— y además borraría la única señal que
+  /// distingue «aceptó la v1» de «aceptó antes de que existiera el campo».
+  avisoVersion Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

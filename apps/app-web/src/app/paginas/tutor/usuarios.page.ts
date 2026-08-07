@@ -17,6 +17,7 @@ import {
 } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { EntradaAsistenteComponent } from '../../componentes/entrada-asistente.component';
 import { IconoComponent } from '../../componentes/icono.component';
 import { ToastService } from '../../componentes/toast.service';
 import { IdentityApiService } from '../../core/api/identity-api.service';
@@ -32,6 +33,7 @@ import { mensajeDeError } from '../../core/api/errores';
     IconoComponent,
     ConfirmDialogComponent,
     EstadoVacioComponent,
+    EntradaAsistenteComponent,
     ModalComponent,
     CampoComponent,
   ],
@@ -98,6 +100,23 @@ import { mensajeDeError } from '../../core/api/errores';
             </li>
           }
         </ul>
+
+        <!--
+          fase-14-31 tanda 8. La séptima entrada de contexto, y la primera sobre
+          PERSONAS. La pregunta pide un panorama y no una acción a propósito: lo
+          que el asistente puede hacer desde acá —proponer roles, equipos,
+          ajustes, anotar— sale de mirar cómo viene cada uno, y arrancar por el
+          verbo llevaría a que proponga sobre gente que no miró. Dar de alta o de
+          baja a alguien NO lo hace la IA (decisión 4 del #30), y por eso la
+          entrada no está arriba de «Invitaciones» sino acá.
+        -->
+        <app-entrada-asistente
+          class="mt-4 block"
+          [grupoId]="grupoId()"
+          [pregunta]="PREGUNTA_INTEGRANTES"
+          titulo="Preguntarle a la IA cómo viene cada uno"
+          variante="enlace"
+        />
       }
     </section>
 
@@ -142,6 +161,16 @@ import { mensajeDeError } from '../../core/api/errores';
 })
 export class UsuariosPage {
   readonly grupoId = input.required<string>();
+
+  /**
+   * Panorama y no acción: desde esta pantalla el asistente puede proponer
+   * roles, equipos, ajustes de puntos o anotaciones del día, y todas esas
+   * salen de mirar primero cómo viene cada uno. Una pregunta que arrancara por
+   * el verbo lo haría proponer sobre gente que todavía no miró.
+   */
+  protected readonly PREGUNTA_INTEGRANTES =
+    'Contame cómo viene cada integrante del grupo: puntaje, zona, qué cumple y qué no, ' +
+    'y decime si ves algo para ajustar.';
 
   private readonly api = inject(IdentityApiService);
 

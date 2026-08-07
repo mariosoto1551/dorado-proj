@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 
-import type { ConfiguracionIaDto } from '@dorado/shared-types';
+import { AVISO_IA_VERSION_VIGENTE, type ConfiguracionIaDto } from '@dorado/shared-types';
 
 import { IaApiService } from '../core/api/ia-api.service';
 import { EntradaAsistenteComponent } from './entrada-asistente.component';
@@ -13,6 +13,11 @@ function configuracion(puedeUsarse: boolean): ConfiguracionIaDto {
     habilitada: puedeUsarse,
     avisoAceptado: puedeUsarse,
     aceptoAvisoEn: puedeUsarse ? new Date().toISOString() : null,
+    // fase-14-31 decisión 11: con el aviso viejo, `puedeUsarse` viene en false
+    // desde el servidor y la entrada no se muestra — que es exactamente lo que
+    // este componente ya hacía sin enterarse del campo nuevo.
+    avisoVersionAceptada: puedeUsarse ? AVISO_IA_VERSION_VIGENTE : null,
+    avisoVersionVigente: AVISO_IA_VERSION_VIGENTE,
     cuotaTokensMensuales: null,
     tokensConsumidosMes: 0,
     puedeUsarse,
