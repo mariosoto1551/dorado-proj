@@ -8,8 +8,8 @@
  *
  * Qué hace:
  *   1. Infra (Postgres + RabbitMQ) vía docker-compose.
- *   2. Migraciones de las 8 bases.
- *   3. Los 9 servicios backend (con CORS_ALLOW_LAN=true para aceptar la red local).
+ *   2. Migraciones de las 9 bases.
+ *   3. Los 10 servicios backend (con CORS_ALLOW_LAN=true para aceptar la red local).
  *   4. app-web y public-site servidos en 0.0.0.0 (accesibles desde otros equipos).
  *   5. Te imprime un QR + el nombre de red de la PC para pasarle a tu familia.
  *
@@ -43,8 +43,23 @@ const SERVICIOS_DB = [
   'rewards-service',
   'notification-service',
   'audit-service',
+  // fase-14-29: base ai_db. Va acá y no como caso aparte porque migra igual
+  // que los otros ocho.
+  'ai-service',
 ];
 const BACKEND = ['gateway', ...SERVICIOS_DB];
+
+/**
+ * Servicios cuya caída NO aborta el arranque de la casa.
+ *
+ * `ai-service` es el único, y es por diseño: la decisión 9 de la Parte E del
+ * fase-14-29 dice que el asistente **nunca está en el camino crítico** —si no
+ * levanta, el Gateway responde 503 en `/api/ai/*` y ninguna otra pantalla
+ * cambia—. Hacer que su falla tire abajo las otras diez piezas sería contradecir
+ * eso justo en el script que usa la familia. Igual se reporta en rojo: no
+ * arrancar en silencio es lo que este script existe para evitar.
+ */
+const NO_CRITICOS = new Set(['ai-service']);
 
 /**
  * Puerto de cada pieza. Se usa para dos cosas: el healthcheck del final y la
@@ -60,6 +75,7 @@ const PUERTOS = {
   'rewards-service': 3006,
   'notification-service': 3007,
   'audit-service': 3008,
+  'ai-service': 3009,
 };
 
 /** Puertos de los frontends, que también quedan tomados por huérfanos. */
@@ -295,12 +311,15 @@ async function esperar(url, timeoutMs) {
 }
 
 /**
- * Espera el healthcheck de LOS 9 servicios, no solo el del gateway, y aborta si
- * alguno no levantó. Chequear solo el gateway (como se hacía antes) esconde el
- * problema: los otros 8 pueden estar caídos y el script igual anuncia "LISTO".
+ * Espera el healthcheck de LOS 10 servicios, no solo el del gateway, y aborta si
+ * alguno crítico no levantó. Chequear solo el gateway (como se hacía antes)
+ * esconde el problema: los otros 9 pueden estar caídos y el script igual anuncia
+ * "LISTO".
  *
- * En paralelo y con un único deadline: en serie, 9 timeouts de 180s podrían
+ * En paralelo y con un único deadline: en serie, 10 timeouts de 180s podrían
  * sumar media hora antes de avisar.
+ *
+ * Los de `NO_CRITICOS` se reportan igual pero no abortan — ver ahí el porqué.
  */
 async function esperarBackend(timeoutMs = 180_000) {
   log(`esperando a que respondan los ${BACKEND.length} servicios…`);
@@ -314,16 +333,25 @@ async function esperarBackend(timeoutMs = 180_000) {
 
   console.log('');
   for (const { servicio, ok } of resultados) {
-    const marca = ok ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
-    console.log(`     ${marca} ${servicio.padEnd(22)} :${PUERTOS[servicio]}`);
+    const marca = ok ? '\x1b[32m✓\x1b[0m' : NO_CRITICOS.has(servicio) ? '\x1b[33m!\x1b[0m' : '\x1b[31m✗\x1b[0m';
+    const nota = !ok && NO_CRITICOS.has(servicio) ? '  (opcional — el resto funciona igual)' : '';
+    console.log(`     ${marca} ${servicio.padEnd(22)} :${PUERTOS[servicio]}${nota}`);
   }
   console.log('');
 
   const caidos = resultados.filter((r) => !r.ok).map((r) => r.servicio);
+  const criticos = caidos.filter((servicio) => !NO_CRITICOS.has(servicio));
 
-  if (caidos.length > 0) {
+  for (const servicio of caidos.filter((s) => NO_CRITICOS.has(s))) {
+    log(
+      `\x1b[33m${servicio} no levantó. No es bloqueante: la app anda igual y solo queda sin\x1b[0m\n` +
+        `       \x1b[33mel asistente de IA. Si lo querés, mirá su error en los logs de arriba.\x1b[0m`
+    );
+  }
+
+  if (criticos.length > 0) {
     throw new Error(
-      `no arrancaron ${caidos.length} de ${BACKEND.length} servicios: ${caidos.join(', ')}.\n` +
+      `no arrancaron ${criticos.length} de ${BACKEND.length} servicios: ${criticos.join(', ')}.\n` +
         `Buscá el error de esos servicios en los logs de arriba (Nx los prefija con el nombre\n` +
         `del proyecto). Las causas más comunes: una migración que falló, una variable de\n` +
         `entorno que falta en .env, o el puerto tomado por otro programa.`
@@ -349,7 +377,7 @@ function prefijar(stream, servicio) {
 /**
  * Arranca un servicio ya compilado, directo con node.
  *
- * NO se usa `nx run-many -t serve` para esto: los 9 `serve` son tareas
+ * NO se usa `nx run-many -t serve` para esto: los 10 `serve` son tareas
  * `continuous` y lanzarlas juntas hace que Nx crea ver un ciclo entre ellas
  * ("Recursive task invocation detected") y aborte el batch entero a mitad de
  * camino — dejando algunos servicios arriba, otros no, y procesos huérfanos

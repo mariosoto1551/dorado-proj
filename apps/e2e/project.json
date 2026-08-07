@@ -13,7 +13,8 @@
     "scoring-service",
     "rewards-service",
     "notification-service",
-    "audit-service"
+    "audit-service",
+    "ai-service"
   ],
   "targets": {
     "e2e": {

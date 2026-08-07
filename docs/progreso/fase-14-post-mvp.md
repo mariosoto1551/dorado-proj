@@ -2719,3 +2719,140 @@ Aceptar el aviso nuevo es **una acción propia** y no un «apagar y volver a pre
 - **Nada de la tanda 5 se probó contra un proveedor real**: los once tests nuevos llaman al armador directo. Lo que la E2E de la tanda 9 tiene que cubrir de esta familia es el camino completo con el proveedor stubbeado, incluido que aplicar las dos operaciones de una misma fila escriba en los dos servicios.
 - **La corrección de `puedeMarcarHizo` (tanda 6) toca una lectura interna que ya estaba en uso** y se verificó solo con los tests nuevos del propio servicio. Vale mirar en la E2E que `estado_de_hoy` de un grupo con obligatorias devuelva `puedeMarcarHizo: false` para ellas.
 - La tanda 6 tampoco cubre **deadline vencido ni cronómetro no iniciado**: son estado del instante, la fila falla al aplicar y queda en el resultado por fila. Si aparece seguido en el piloto, la salida es agregarlos a `estado_de_hoy`, no replicar la regla en el armador.
+
+### Tanda 9 — la E2E, y el servicio que no arrancaba (2026-08-06/07)
+
+La última del ítem, y la única que **levanta el sistema de verdad**. Lo primero que
+encontró no fue un test rojo sino un servicio que no bootea:
+
+> **`scoring-service` no arrancaba desde la tanda 1.** `AjustesModule` declaraba
+> `AjustesService` sin importar `ClientesModule`, y ese módulo **no es global**
+> (Prisma y Eventos sí lo son; los clientes REST internos los importa quien los
+> usa, como hacen `PuntajesModule` y `DescalificacionesModule`). El bootstrap
+> moría con `UnknownDependenciesException: … argument IdentityClientService at
+> index [1]`.
+
+Es la clase de defecto que **ninguna de las tres verificaciones de la tanda 1
+podía ver**: los tests del service construyen sus dependencias a mano, el lint no
+mira el grafo de DI y el build compila un módulo mal cableado sin una queja. Ocho
+tandas de trabajo se apoyaron sobre un endpoint que en un stack real devolvía
+`502` — y la propia tanda 1 lo dejó anotado sin saberlo: *«el endpoint de ajuste
+de puntos no se probó contra la base real»*. Un `imports: [ClientesModule]` lo
+arregla; lo que vale la pena que quede escrito es **por qué apareció recién acá**.
+
+#### Las tres suites, y qué criterio cierra cada una
+
+| Archivo | Criterios | Por qué está separado |
+|---|---|---|
+| `ajuste-manual-puntos.e2e.ts` (nuevo, 5 tests) | 1, 2, 3 | La Parte A **no es del asistente**: es el hueco del producto que el ítem encontró. Mezclarla con la suite de IA diría que el ajuste manual existe por la IA, y es al revés. |
+| `asistente-ia.e2e.ts` (+7 tests, bloque propio) | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 | Comparte lo caro —el stub del proveedor y el lector de SSE— con los ítems 29 y 30, y las tres mitades son el mismo sistema. |
+| `tarjeta-destructiva.e2e.ts` (nuevo, 2 tests, `E2E_UI=1`) | 5 | Lo que verifica **solo existe en la pantalla**: el DTO de una propuesta destructiva es idéntico al de una normal y la diferencia entera es de render. El criterio 5 pide explícitamente verificarlo «no solo a ojo». |
+
+El criterio 4 (la lista blanca de `DELETE` sobre las 18 herramientas) ya era un
+test estructural de `ai-service` desde la tanda 2 y no se duplicó acá: es una
+propiedad del armador, no del stack.
+
+#### Un escenario nuevo, porque `GrupoRico` no alcanzaba
+
+El #30 podía testear con un grupo lleno de catálogo. Las cuatro familias de este
+ítem **se rechazan enteras sin Sesión abierta**, así que con aquel escenario la
+suite habría pasado verde sin ejercer una sola. `montarGrupoOperativo` arma un
+grupo con **el día en marcha**: sesión abierta, una marca viva (de ahí sale el
+`registroId`, que ninguna otra lectura devuelve), saldo en la billetera, dos
+participantes y una actividad **dirigida a uno solo** — que es la única forma de
+provocar el «esa hoy no le toca» del criterio 9 sin inventar ids.
+
+Se montan **dos** grupos así, y el segundo existe para lo que un uuid inventado
+no prueba: un `registroId` **real y vivo de la otra organización** se rechaza
+igual que uno falso (criterio 11), y las dos lecturas nuevas no filtran nada de
+ella (criterio 12).
+
+#### Lo que se verificó por primera vez, y las tandas 4 a 7 dejaban pendiente
+
+Todas ellas anotaron lo mismo: *«nada se probó contra el proveedor ni contra los
+servicios destino»*. Acá el camino completo corre entero —modelo stubbeado →
+armador → `Propuesta` → el `for` del frontend con el JWT del Tutor → activity,
+rewards y scoring— y lo que se confirma es que **las operaciones se ejecutan tal
+como salen del DTO**, sin traducir un campo:
+
+- **Anotar** escribe en activity y el puntaje sube por el bus (+7 y +5).
+- **Un ajuste manual es una fila del modelo y dos requests a dos servicios
+  distintos**: `puntos` a scoring y `monto` a rewards, con el mismo motivo. Los
+  dos números viajan independientes, como fijó la decisión 1 del #28.
+- **Quitar una completada baja el puntaje** y el motivo va **en la query**, no en
+  el body — el `DELETE` con cuerpo no habría llegado al destino (fase-14-12).
+- **Archivar no lo mueve**: el puntaje de los dos participantes es idéntico antes
+  y después, que es exactamente lo que la fila de la tarjeta le prometió al
+  Tutor. Los criterios 7 y 8 son la misma promesa mirada de los dos lados y por
+  eso los dos tests afirman sobre la etiqueta además del número.
+- **Borrar una zona** sale con el `DELETE` primero y el `PATCH` después, y
+  aplicarlo al revés **devuelve 400** — el orden que resolvió el armador no es
+  cosmético, y el test lo prueba rompiéndolo a propósito.
+
+#### El aviso, verificado como lo va a vivir una organización real
+
+El criterio 14 no se puede montar con una organización nueva: hay que **simular
+una del #29**. El test prende el switch, acepta, y después pone `avisoVersion` en
+NULL por SQL — que es literalmente el estado en que quedaron las filas que
+aceptaron antes de que la columna existiera. Desde ahí: `avisoVersionAceptada: 1`
+con su fecha intacta (no «nunca aceptó»), `puedeUsarse: false`, y conversar
+devuelve **403 `AVISO_DESACTUALIZADO` sin llamar al proveedor** — el gate corta
+antes de gastar un token de alguien que no autorizó que sus datos salgan.
+
+#### El conteo de herramientas se había quedado viejo otra vez
+
+`expect(nombres).toHaveLength(26)` era falso desde la tanda 3. Es **exactamente
+lo que el #30 documentó como su primer hallazgo** —quedó en 12 durante siete
+tandas— y volvió a pasar por el mismo motivo: la suite no corre sola. Ahora dice
+32 (14 lecturas + 18 propuestas) y la lista de las doce lecturas se subió al
+scope del archivo, para que el bloque del #31 afirme sobre **las catorce** en vez
+de mantener una copia que se desincroniza en silencio.
+
+#### Verificación de la tanda 9
+
+- **Suite completa: 115 passed, 1 skipped, 0 failed** (3,4 min), con los tres
+  frontends servidos (`E2E_UI=1`) — el único salteado es el paseo de capturas,
+  que tiene su propio gate y no es un test.
+- **Las tres suites del ítem, verdes dos corridas seguidas** (criterio 16): 39
+  tests entre las tres, corridas juntas y por separado.
+- `scoring-service` y `e2e`: test, lint y build verdes tras el arreglo del módulo.
+- **Las tres migraciones aditivas se aplicaron contra Postgres local**, que era el
+  pendiente que dejó la tanda 8: `20260806090000_ajuste_manual_puntos_fase14_31`
+  en scoring, y `20260806094500_fase_14_31_alcance_operativo` +
+  `20260806210000_aviso_ia_version` en ai.
+- `apps/e2e/project.json` suma `ai-service` a `implicitDependencies`: la suite lo
+  ejerce desde el #29 y el grafo de Nx no lo sabía.
+
+#### Con esto el ítem 31 está completo
+
+Las nueve tandas, y los dieciséis criterios de aceptación cubiertos: el 4 como
+test estructural de `ai-service` desde la tanda 2, y los quince restantes acá.
+
+**Lo que el ítem deja como precedente**, más allá de las capacidades:
+
+1. **Una decisión que se revisa no se borra: se convierte en una lista blanca.**
+   La decisión 3 del #30 —*ninguna operación usa `DELETE`*— pasó a *«solo estos
+   tres tipos lo usan»*, que es más fuerte y más específico. Desaparecer es lo
+   que hace que una regla se pierda sin que nadie lo note.
+2. **La mitad más importante del ítem no era de la IA.** El ajuste manual de
+   puntos le faltaba al Tutor desde la Fase 7 y la única forma de encontrarlo era
+   preguntarse dónde aplicaría una capacidad nueva. Es el mismo modo de
+   descubrimiento que el #30 anotó para sus dos defectos: *leer el código con una
+   pregunta nueva encima*.
+
+#### Deuda que deja esta tanda
+
+23. **No existe en el monorepo ningún test que verifique que un servicio
+    ARRANCA.** El defecto de `AjustesModule` estuvo ocho tandas invisible para
+    test, lint y build, y hoy lo único que lo ve es que la E2E no puede correr
+    con el stack caído. La salida barata es un spec por servicio que compile su
+    `AppModule` (`Test.createTestingModule({ imports: [AppModule] }).compile()`);
+    hay que evaluar antes qué hacen Prisma y RabbitMQ en ese `compile()`, y por
+    eso no entró acá.
+24. **La E2E sigue sin correr sola** (pendiente 21 del #30, intacto): necesita el
+    stack levantado a mano. Los dos hallazgos de esta tanda —el módulo y el
+    conteo viejo— son el costo medido de eso, otra vez.
+25. **`tarjeta-destructiva.e2e.ts` hereda el gate `E2E_UI=1`** y no corre en CI,
+    como las otras cinco suites de navegador. Es la única verificación del
+    criterio 5, así que si algún día se sirve `app-web` en CI, esta es de las
+    primeras que conviene prender.

@@ -11,6 +11,7 @@ import {
   poll,
   sufijo,
   type Organizacion,
+  type SeccionAbierta,
 } from './support/escenario';
 import { actividadPropuesta, StubProveedor } from './support/stub-proveedor';
 
@@ -144,9 +145,120 @@ async function montarGrupoRico(base: Api, etiqueta: string): Promise<GrupoRico> 
 }
 
 /**
+ * Un grupo con el DÍA EN MARCHA (fase-14-31): sesión abierta, una marca viva,
+ * saldo en la billetera y una actividad que le toca a uno solo.
+ *
+ * `GrupoRico` alcanzaba para el #30 porque aquel ítem era sobre configurar; las
+ * cuatro familias de éste se rechazan enteras sin Sesión abierta, así que sin
+ * esto la suite pasaría verde sin ejercer una sola.
+ */
+interface GrupoOperativo {
+  org: Organizacion;
+  seccion: SeccionAbierta;
+  /** Los dos participantes. Con uno solo no se puede probar «esa no le toca». */
+  ana: string;
+  beto: string;
+  /** OPCIONAL de 10 puntos que Ana YA hizo: de ahí sale `registroDeAna`. */
+  leerId: string;
+  nombreLeer: string;
+  /** OPCIONAL de 7 puntos que nadie hizo: la que se anota y después se archiva. */
+  ordenarId: string;
+  /** OPCIONAL dirigida SOLO a Beto (destinatario nominal del #24). */
+  soloDeBetoId: string;
+  conductaId: string;
+  etiquetaId: string;
+  /** El `registroId` de la completada viva de Ana. */
+  registroDeAna: string;
+}
+
+async function montarGrupoOperativo(base: Api, etiqueta: string): Promise<GrupoOperativo> {
+  const org = await montarOrganizacion(`Op${etiqueta}`);
+
+  await org.api.putOk('/ai/configuracion', { habilitada: true, aceptaAviso: true });
+  await configurarGrupoManual(org);
+  // Las monedas —y por lo tanto `listar_billeteras`— son del modo TIENDA.
+  // `aplicarAhora` porque el cambio diferido espera a la próxima Sección y acá
+  // todavía no hay ninguna en curso que romper (decisión 9 del #22).
+  await org.api.putOk(`/rewards/grupos/${org.grupoId}/configuracion`, {
+    modo: 'TIENDA',
+    aplicarAhora: true,
+  });
+
+  const ana = await invitarYCanjearUsuario(base, org);
+  const beto = await invitarYCanjearUsuario(base, org);
+  const nombreLeer = `Leer un rato ${etiqueta}`;
+  const leer = await org.api.postOk<{ id: string }>(
+    `/activity/grupos/${org.grupoId}/actividades`,
+    {
+      nombre: nombreLeer,
+      tipoPuntaje: 'OPCIONAL',
+      valorPuntos: 10,
+      tipoLimiteTiempo: 'SIN_LIMITE',
+    }
+  );
+  const ordenar = await org.api.postOk<{ id: string }>(
+    `/activity/grupos/${org.grupoId}/actividades`,
+    {
+      nombre: `Ordenar la pieza ${etiqueta}`,
+      tipoPuntaje: 'OPCIONAL',
+      valorPuntos: 7,
+      tipoLimiteTiempo: 'SIN_LIMITE',
+    }
+  );
+  const soloDeBeto = await org.api.postOk<{ id: string }>(
+    `/activity/grupos/${org.grupoId}/actividades`,
+    {
+      nombre: `Practicar piano ${etiqueta}`,
+      tipoPuntaje: 'OPCIONAL',
+      valorPuntos: 5,
+      tipoLimiteTiempo: 'SIN_LIMITE',
+      usuariosPermitidos: [beto.usuarioId],
+    }
+  );
+  const conducta = await org.api.postOk<{ id: string }>(
+    `/activity/grupos/${org.grupoId}/conductas`,
+    { nombre: `Ayudar sin que se lo pidan ${etiqueta}`, tipo: 'BUENA', valorPuntos: 5 }
+  );
+  const etiquetaCatalogo = await org.api.postOk<{ id: string }>(
+    `/rewards/grupos/${org.grupoId}/etiquetas`,
+    { nombre: `rapido-${etiqueta.toLowerCase()}`, colorHex: '#22C55E' }
+  );
+  const seccion = await iniciarSeccion(org);
+  const registro = await org.api.postOk<{ id: string }>(
+    `/activity/actividades/${leer.id}/completar`,
+    { usuarioId: ana.usuarioId }
+  );
+
+  // Saldo para que un descuento sea posible y otro no (criterio 10). Sin
+  // monedas, `listar_billeteras` devuelve ceros y todo descuento se rechaza
+  // por el mismo motivo, que probaría la mitad del camino.
+  await org.api.postOk(`/rewards/grupos/${org.grupoId}/usuarios/${ana.usuarioId}/ajuste`, {
+    monto: 30,
+    motivo: `Ahorro de ${etiqueta}`,
+  });
+
+  return {
+    org,
+    seccion,
+    ana: ana.usuarioId,
+    beto: beto.usuarioId,
+    leerId: leer.id,
+    nombreLeer,
+    ordenarId: ordenar.id,
+    soloDeBetoId: soloDeBeto.id,
+    conductaId: conducta.id,
+    etiquetaId: etiquetaCatalogo.id,
+    registroDeAna: registro.id,
+  };
+}
+
+/**
  * Ejecuta una operación TAL COMO LA EJECUTA EL FRONTEND: el método y la ruta
  * salen del DTO sin traducir un solo campo (decisión 6 del #29). Que este
- * helper sea un `switch` de tres líneas y nada más es exactamente el punto.
+ * helper sea un `switch` de cuatro líneas y nada más es exactamente el punto.
+ *
+ * El `DELETE` entró con el fase-14-31 (decisión 1) y no cambió nada más del
+ * camino de aplicado: `aplicar-propuesta.ts` sigue siendo un `for`.
  */
 function aplicarOperacion(
   api: Api,
@@ -160,7 +272,27 @@ function aplicarOperacion(
     return api.put(operacion.ruta, operacion.body);
   }
 
+  if (operacion.metodo === 'DELETE') {
+    return api.delete(operacion.ruta);
+  }
+
   return api.post(operacion.ruta, operacion.body);
+}
+
+/**
+ * Lo que devolvieron las herramientas, ya des-escapado.
+ *
+ * Cada `function_call_output` lleva su salida como **string JSON**, así que un
+ * `JSON.stringify` del pedido entero la muestra con las comillas escapadas y
+ * afirmar `"saldo":30` sobre eso no matchea nunca. Juntar los `output` en crudo
+ * deja el mismo texto que le llega al modelo, que es sobre lo que hay que
+ * afirmar.
+ */
+function salidasDeHerramientas(entrada: unknown[]): string {
+  return (entrada as Array<Record<string, unknown>>)
+    .filter((item) => item['type'] === 'function_call_output')
+    .map((item) => String(item['output']))
+    .join('\n');
 }
 
 /**
@@ -218,6 +350,33 @@ async function conversarPorSse(
 
   return { status: respuesta.status, contentType, eventos };
 }
+
+/** Un uuid v4 válido que no es de nadie: el «lo inventó el modelo». */
+const UUID_DE_NADIE = '00000000-0000-4000-8000-000000000000';
+
+/**
+ * Las doce lecturas del #30, en el orden en que las declara el catálogo. Vive
+ * acá arriba y no dentro de su bloque porque el #31 le suma dos y afirma sobre
+ * las CATORCE (su criterio 13): con la lista duplicada, agregar una lectura
+ * nueva dejaría un test verde mirando trece.
+ */
+const LECTURAS = [
+  'listar_actividades',
+  'listar_conductas',
+  'listar_participantes',
+  'listar_umbrales_zona',
+  'resumen_puntajes',
+  'listar_recompensas',
+  'listar_rendimientos_monedas',
+  'resumen_cumplimiento',
+  'listar_tienda',
+  'listar_etiquetas',
+  'listar_turnos',
+  'configuracion_del_grupo',
+];
+
+/** Las catorce del fase-14-31: las doce de arriba más las dos operativas. */
+const LECTURAS_OPERATIVAS = [...LECTURAS, 'estado_de_hoy', 'listar_billeteras'];
 
 test.describe('Fase 14 · Ítem 29 — asistente de IA', () => {
   const stub = new StubProveedor();
@@ -817,13 +976,19 @@ test.describe('Fase 14 · Ítem 29 — asistente de IA', () => {
 
     expect(nombres).toContain('listar_actividades');
     expect(nombres).toContain('proponer_crear_actividades');
-    // El catálogo cerrado del fase-14-30: 12 de lectura + 14 de propuesta.
-    // Arrancó en 8 y 4 con el #29 — este número ES el ítem, así que se afirma
-    // acá y no en una nota.
+    // El catálogo del fase-14-31: 14 de lectura + 18 de propuesta. Arrancó en
+    // 8 y 4 con el #29 y pasó por 12 y 14 con el #30 — este número ES el ítem,
+    // así que se afirma acá y no en una nota.
+    //
+    // Y este `toHaveLength` ya se quedó viejo una vez: el #30 lo dejó en 12
+    // durante siete tandas sin que nadie se enterara, porque la suite no corre
+    // sola. Actualizarlo es lo primero que hace la tanda de E2E de cada ítem.
     expect(nombres).toContain('listar_tienda');
     expect(nombres).toContain('configuracion_del_grupo');
     expect(nombres).toContain('proponer_umbrales_zona');
-    expect(nombres).toHaveLength(26);
+    expect(nombres).toContain('estado_de_hoy');
+    expect(nombres).toContain('proponer_archivar');
+    expect(nombres).toHaveLength(32);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -839,25 +1004,6 @@ test.describe('Fase 14 · Ítem 29 — asistente de IA', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   test.describe('Ítem 30 — el alcance total del asistente', () => {
-    /** Un uuid v4 válido que no es de nadie: el «lo inventó el modelo». */
-    const UUID_DE_NADIE = '00000000-0000-4000-8000-000000000000';
-
-    /** Las doce lecturas, en el orden en que las declara el catálogo. */
-    const LECTURAS = [
-      'listar_actividades',
-      'listar_conductas',
-      'listar_participantes',
-      'listar_umbrales_zona',
-      'resumen_puntajes',
-      'listar_recompensas',
-      'listar_rendimientos_monedas',
-      'resumen_cumplimiento',
-      'listar_tienda',
-      'listar_etiquetas',
-      'listar_turnos',
-      'configuracion_del_grupo',
-    ];
-
     let alfa: GrupoRico;
     let beta: GrupoRico;
     let umbralDeBeta: string;
@@ -1415,6 +1561,653 @@ test.describe('Fase 14 · Ítem 29 — asistente de IA', () => {
       expect(cocina?.miembros.map((miembro) => miembro.usuarioId).sort()).toEqual(
         [ana.usuarioId, beto.usuarioId].sort()
       );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // fase-14-31 · tanda 9 — el alcance operativo, de punta a punta.
+  //
+  // El #29 y el #30 eran sobre CONFIGURAR un grupo; este ítem es sobre
+  // ACOMPAÑARLO, y eso cambia qué se puede romper: una propuesta mala aplicada
+  // sin mirar ya no deja basura en el catálogo sino una actividad archivada y
+  // unos puntos de más. Lo que se verifica acá es lo que la suite unitaria no
+  // puede ver:
+  //
+  //   · que el `registroId` que valida el armador sea el mismo que devuelve la
+  //     lectura, y que el endpoint destino lo acepte con el JWT del Tutor;
+  //   · que archivar NO mueva el puntaje y quitar una marca SÍ —las dos cosas
+  //     que la fila de la tarjeta le promete al Tutor—;
+  //   · y que el aviso nuevo apague de verdad al que no lo aceptó.
+  //
+  // Las tandas 4 a 7 dejaron todas anotado el mismo pendiente: nada se había
+  // probado contra el proveedor ni contra los servicios destino. Esto es eso.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  test.describe('Ítem 31 — el alcance operativo: borrar, ajustar y anotar', () => {
+    let alfa: GrupoOperativo;
+    let beta: GrupoOperativo;
+
+    test.beforeAll(async () => {
+      const base = await Api.crear();
+
+      // Dos grupos con el DÍA EN MARCHA, no solo con catálogo: sin Sesión
+      // abierta las cuatro familias operativas se rechazan enteras y la suite
+      // no probaría nada. El segundo existe para los dos cruces de tenant —un
+      // `registroId` real ajeno y las dos lecturas nuevas.
+      alfa = await montarGrupoOperativo(base, 'ALFA');
+      beta = await montarGrupoOperativo(base, 'BETA');
+    });
+
+    /** El puntaje derivado de alguien en la Sección abierta de su grupo. */
+    async function puntajeDe(grupo: GrupoOperativo, usuarioId: string): Promise<number> {
+      const puntaje = await grupo.org.api.getOk<{ puntajeTotal: number }>(
+        `/scoring/usuarios/${usuarioId}/secciones/${grupo.seccion.seccionId}/puntaje`
+      );
+
+      return puntaje.puntajeTotal;
+    }
+
+    /** Espera a que el ledger de scoring haya proyectado el cambio del bus. */
+    async function esperarPuntaje(
+      grupo: GrupoOperativo,
+      usuarioId: string,
+      esperado: number
+    ): Promise<void> {
+      await poll(
+        async () => {
+          expect(await puntajeDe(grupo, usuarioId)).toBe(esperado);
+        },
+        { descripcion: `puntaje ${esperado}` }
+      );
+    }
+
+    test('las catorce lecturas: traen el día en marcha, sin tenant, sin email y sin nada de la otra organización', async () => {
+      test.slow();
+
+      // Criterios 12 y 13 juntos, porque son la misma salida mirada de los dos
+      // lados: qué llegó y qué NO tenía que llegar. Se afirma sobre lo que
+      // devolvieron las herramientas —lo que efectivamente viaja hacia el
+      // proveedor— y no sobre sus tipos, que es la única forma en que el #30
+      // encontró cuatro lecturas devolviendo el DTO crudo.
+      stub.guionar(
+        { llamadas: LECTURAS_OPERATIVAS.map((nombre) => ({ nombre, argumentos: {} })) },
+        { texto: 'Ya miré todo.' }
+      );
+
+      await alfa.org.api.postOk('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'contame cómo viene el día',
+      });
+
+      const salida = salidasDeHerramientas(stub.pedidos[1].entrada);
+
+      // Las catorce corrieron y ninguna falló: un error también es una salida
+      // «limpia», así que sin esto el test pasaría con catorce herramientas
+      // rotas.
+      expect(salida.toLowerCase()).not.toContain('no existe una herramienta');
+      expect(salida.toLowerCase()).not.toContain('no se pudo leer');
+      expect(salida.toLowerCase()).not.toContain('no se pudieron leer');
+
+      // Lo propio de las dos nuevas: el estado del día con el id que permite
+      // deshacer cada marca, y el saldo que evita proponer un descuento
+      // imposible. Sin el `registroId`, `proponer_quitar_marcas` no podría
+      // existir sin que el modelo invente ids (decisión 1 del #30).
+      expect(salida).toContain('"sesionAbierta":true');
+      expect(salida).toContain(alfa.registroDeAna);
+      expect(salida).toContain(alfa.nombreLeer);
+      expect(salida, 'el saldo de la billetera tiene que viajar').toContain('"saldo":30');
+
+      // Criterio 13, revalidado con las dos nuevas encima.
+      for (const prohibido of ['organizacionId', 'grupoId', 'tenant', '@']) {
+        expect(salida, `una lectura mandó «${prohibido}»`).not.toContain(prohibido);
+      }
+
+      expect(salida).not.toContain(alfa.org.organizacionId);
+      expect(salida).not.toContain(alfa.org.grupoId);
+
+      // Criterio 12: aislamiento sobre las dos lecturas nuevas, con ids REALES
+      // de la otra organización y no uuids inventados.
+      for (const ajeno of [beta.registroDeAna, beta.ana, beta.leerId, beta.nombreLeer]) {
+        expect(salida, `se filtró «${ajeno}» de la otra organización`).not.toContain(ajeno);
+      }
+    });
+
+    test('anotar: lo que hoy no le toca a esa persona no crea propuesta; lo que sí, se aplica y suma', async () => {
+      test.slow();
+
+      // Criterio 9. La actividad existe y es del grupo —el modelo no inventó
+      // nada—, pero es de Beto: es el caso que la validación de shape deja
+      // pasar y que termina en una fila roja con el Tutor mirando.
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_anotar',
+              argumentos: {
+                anotaciones: [{ participanteId: alfa.ana, tipo: 'HIZO', id: alfa.soloDeBetoId }],
+              },
+            },
+          ],
+        },
+        { texto: 'Tenés razón, esa no le toca a ella.' }
+      );
+
+      const rechazo = await alfa.org.api.postOk<{ propuestas: unknown[] }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'marcale piano a Ana',
+      });
+
+      expect(rechazo.propuestas).toHaveLength(0);
+      expect(JSON.stringify(stub.pedidos.at(-1)?.entrada)).toContain(
+        'no está entre las actividades de hoy'
+      );
+
+      const antesAna = await puntajeDe(alfa, alfa.ana);
+      const antesBeto = await puntajeDe(alfa, alfa.beto);
+
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_anotar',
+              argumentos: {
+                anotaciones: [
+                  { participanteId: alfa.ana, tipo: 'HIZO', id: alfa.ordenarId },
+                  { participanteId: alfa.beto, tipo: 'CONDUCTA', id: alfa.conductaId },
+                ],
+              },
+            },
+          ],
+        },
+        { texto: 'Anotado lo del día.' }
+      );
+
+      const detalle = await alfa.org.api.postOk<{
+        propuestas: Array<{
+          id: string;
+          tipo: string;
+          operaciones: Array<{ opId: string; metodo: string; ruta: string; body: unknown; etiqueta: string }>;
+        }>;
+      }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'anotá lo de hoy',
+      });
+      const propuesta = detalle.propuestas[0];
+
+      expect(propuesta.tipo).toBe('ANOTAR_REGISTROS');
+      // Anotar NO es destructivo: ninguna de sus operaciones borra nada, y por
+      // eso la tarjeta de esta familia no lleva la ceremonia del rojo
+      // (decisión 7: lo que agrega y lo que quita nunca comparten tarjeta).
+      expect(propuesta.operaciones.map((operacion) => operacion.metodo)).toEqual(['POST', 'POST']);
+      // La etiqueta dice cuánto suma cada una: es lo que el Tutor aprueba.
+      expect(propuesta.operaciones[0].etiqueta).toContain('le suma 7 puntos');
+      expect(propuesta.operaciones[1].etiqueta).toContain('le suma 5 puntos');
+
+      // El armador traduce `participanteId` → `usuarioId` en el body, que es
+      // lo que espera el contrato de activity.
+      expect(propuesta.operaciones[0].body).toEqual({ usuarioId: alfa.ana });
+
+      for (const operacion of propuesta.operaciones) {
+        const respuesta = await aplicarOperacion(alfa.org.api, operacion);
+
+        expect(respuesta.ok(), `${operacion.metodo} ${operacion.ruta}`).toBeTruthy();
+      }
+
+      await esperarPuntaje(alfa, alfa.ana, antesAna + 7);
+      await esperarPuntaje(alfa, alfa.beto, antesBeto + 5);
+    });
+
+    test('ajustes manuales: el descuento que deja el saldo bajo 0 no se propone; el que entra escribe en los dos servicios', async () => {
+      test.slow();
+
+      // Criterio 10. Ana tiene 30: el endpoint destino rechazaría el −50 al
+      // aplicar, así que la propuesta ni se guarda.
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_ajustes_manuales',
+              argumentos: {
+                ajustes: [{ participanteId: alfa.ana, monedas: -50, motivo: 'Rompió un vaso' }],
+              },
+            },
+          ],
+        },
+        { texto: 'No le alcanza el saldo para eso.' }
+      );
+
+      const rechazo = await alfa.org.api.postOk<{ propuestas: unknown[] }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'sacale 50 monedas a Ana',
+      });
+
+      expect(rechazo.propuestas).toHaveLength(0);
+      // El error dice cuánto SE PUEDE sacar, no solo que no se puede: es lo que
+      // le permite al modelo corregirse en el turno siguiente.
+      expect(JSON.stringify(stub.pedidos.at(-1)?.entrada)).toContain('no puede quedar bajo 0');
+
+      const antes = await puntajeDe(alfa, alfa.ana);
+
+      // Un solo acto del Tutor —«ayudó con la mudanza»— que el armador parte en
+      // los dos requests que hacen falta, con el mismo motivo en los dos.
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_ajustes_manuales',
+              argumentos: {
+                ajustes: [
+                  {
+                    participanteId: alfa.ana,
+                    puntos: 10,
+                    monedas: -20,
+                    motivo: 'Ayudó con la mudanza y se compró un helado',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        { texto: 'Le puse 10 puntos y le descontué 20.' }
+      );
+
+      const detalle = await alfa.org.api.postOk<{
+        propuestas: Array<{
+          tipo: string;
+          operaciones: Array<{ opId: string; metodo: string; ruta: string; body: unknown; etiqueta: string }>;
+        }>;
+      }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'ayudó con la mudanza',
+      });
+      const propuesta = detalle.propuestas[0];
+
+      expect(propuesta.tipo).toBe('AJUSTES_MANUALES');
+      // Una fila del modelo, dos endpoints de dos servicios distintos: es la
+      // plomería que la tarjeta esconde y que acá sí se verifica.
+      expect(propuesta.operaciones.map((operacion) => operacion.ruta)).toEqual([
+        `/scoring/grupos/${alfa.org.grupoId}/usuarios/${alfa.ana}/ajuste`,
+        `/rewards/grupos/${alfa.org.grupoId}/usuarios/${alfa.ana}/ajuste`,
+      ]);
+      // Los dos números viajan independientes: ninguno se deriva del otro
+      // (decisión 1 del #28), y el nombre del campo cambia porque son cosas
+      // distintas.
+      expect(propuesta.operaciones[0].body).toMatchObject({ puntos: 10 });
+      expect(propuesta.operaciones[1].body).toMatchObject({ monto: -20 });
+      // El saldo resultante en la etiqueta: «-20» no dice nada sin él.
+      expect(propuesta.operaciones[1].etiqueta).toContain('queda con 10');
+
+      for (const operacion of propuesta.operaciones) {
+        const respuesta = await aplicarOperacion(alfa.org.api, operacion);
+
+        expect(respuesta.ok(), `${operacion.metodo} ${operacion.ruta}`).toBeTruthy();
+      }
+
+      await esperarPuntaje(alfa, alfa.ana, antes + 10);
+
+      const billeteras = await alfa.org.api.getOk<Array<{ usuarioId: string; saldo: number }>>(
+        `/rewards/grupos/${alfa.org.grupoId}/billeteras`
+      );
+
+      expect(billeteras.find((fila) => fila.usuarioId === alfa.ana)?.saldo).toBe(10);
+    });
+
+    test('quitar una marca: un registroId ajeno o inventado se rechaza, y el que vale BAJA el puntaje', async () => {
+      test.slow();
+
+      // Criterio 11 sobre las entidades nuevas. El segundo caso es el que
+      // importa: un `registroId` REAL, vivo, de la sesión abierta de la otra
+      // organización. La validación de shape lo deja pasar y solo el cruce
+      // contra `estado_de_hoy` de ESTE grupo lo frena.
+      for (const [caso, registroId] of [
+        ['inventado', UUID_DE_NADIE],
+        ['de la otra organización', beta.registroDeAna],
+      ] as const) {
+        stub.olvidarPedidos();
+        stub.guionar(
+          {
+            llamadas: [
+              {
+                nombre: 'proponer_quitar_marcas',
+                argumentos: { marcas: [{ registroId, tipo: 'COMPLETADA' }] },
+              },
+            ],
+          },
+          { texto: 'Me equivoqué de id.' }
+        );
+
+        const rechazo = await alfa.org.api.postOk<{ propuestas: unknown[] }>('/ai/conversaciones', {
+          grupoId: alfa.org.grupoId,
+          primerMensaje: `quitá la marca ${caso}`,
+        });
+
+        expect(rechazo.propuestas, `el registroId ${caso} no debería armar propuesta`).toHaveLength(
+          0
+        );
+        expect(JSON.stringify(stub.pedidos.at(-1)?.entrada)).toContain('marca viva');
+      }
+
+      // Y no quedó ni una fila de los dos rechazos.
+      const filas = await consultar(
+        'ai_db',
+        `select id from "Propuesta" where "grupoId" = $1 and tipo = 'QUITAR_MARCAS'`,
+        [alfa.org.grupoId]
+      );
+
+      expect(filas).toHaveLength(0);
+
+      // Criterio 8: quitar una completada SÍ baja el puntaje, y la fila lo
+      // había dicho. Es la contracara del criterio 7 y por eso los dos tests
+      // afirman sobre la etiqueta además del número.
+      const antes = await puntajeDe(alfa, alfa.ana);
+
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_quitar_marcas',
+              argumentos: {
+                marcas: [
+                  {
+                    registroId: alfa.registroDeAna,
+                    tipo: 'COMPLETADA',
+                    motivo: 'La marqué a la persona equivocada',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        { texto: 'Listo, se la saco.' }
+      );
+
+      const detalle = await alfa.org.api.postOk<{
+        propuestas: Array<{
+          tipo: string;
+          operaciones: Array<{ opId: string; metodo: string; ruta: string; body: unknown; etiqueta: string }>;
+        }>;
+      }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'quitale la lectura a Ana',
+      });
+      const operacion = detalle.propuestas[0].operaciones[0];
+
+      expect(detalle.propuestas[0].tipo).toBe('QUITAR_MARCAS');
+      expect(operacion.metodo).toBe('DELETE');
+      // El motivo va como query param y no en el body: un DELETE con cuerpo
+      // pasa por demasiados intermediarios con derecho a descartarlo, y el
+      // Gateway es uno (fase-14-12).
+      expect(operacion.ruta).toContain('?motivo=');
+      expect(operacion.body).toBeNull();
+      // La fila dice lo que se pierde, con el número.
+      expect(operacion.etiqueta).toContain('pierde 10 puntos');
+
+      const respuesta = await aplicarOperacion(alfa.org.api, operacion);
+
+      expect(respuesta.ok(), `${operacion.metodo} ${operacion.ruta}`).toBeTruthy();
+
+      await esperarPuntaje(alfa, alfa.ana, antes - 10);
+    });
+
+    test('archivar tres, falla la segunda: quedan 2, APLICADA_PARCIAL, y el puntaje de nadie se movió', async () => {
+      test.slow();
+
+      // Criterios 7 y 15 en la misma propuesta, porque son la misma tarjeta
+      // mirada de los dos lados: lo que promete la fila («su historial y los
+      // puntos que dio quedan») y lo que pasa cuando una operación falla.
+      const antesAna = await puntajeDe(alfa, alfa.ana);
+      const antesBeto = await puntajeDe(alfa, alfa.beto);
+
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_archivar',
+              argumentos: {
+                items: [
+                  { tipo: 'ACTIVIDAD', id: alfa.ordenarId },
+                  { tipo: 'CONDUCTA', id: alfa.conductaId },
+                  { tipo: 'ETIQUETA', id: alfa.etiquetaId },
+                ],
+                resumen: 'Nadie las usa desde que cambió la rutina.',
+              },
+            },
+          ],
+        },
+        { texto: 'Te propuse archivar tres cosas.' }
+      );
+
+      const detalle = await alfa.org.api.postOk<{
+        propuestas: Array<{
+          id: string;
+          tipo: string;
+          operaciones: Array<{ opId: string; metodo: string; ruta: string; body: unknown; etiqueta: string }>;
+        }>;
+      }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'sacá lo que no usa nadie',
+      });
+      const propuesta = detalle.propuestas[0];
+
+      expect(propuesta.tipo).toBe('ARCHIVAR_CATALOGO');
+      expect(propuesta.operaciones.map((operacion) => operacion.metodo)).toEqual([
+        'DELETE',
+        'DELETE',
+        'DELETE',
+      ]);
+      // Criterio 7, la mitad que se lee: la fila promete que los puntos que la
+      // actividad ya dio quedan. Abajo se verifica que sea verdad.
+      expect(propuesta.operaciones[0].etiqueta).toContain('los puntos que dio quedan');
+
+      const resultado = [];
+
+      for (const [indice, operacion] of propuesta.operaciones.entries()) {
+        // La segunda se rompe del modo en que se rompe de verdad una propuesta
+        // que vale 24 h: la conducta ya no está cuando el Tutor aprieta
+        // «Aplicar» —otro tutor la archivó desde la pantalla—, así que la ruta
+        // apunta a algo que no existe. En un DELETE no hay body que ensuciar:
+        // lo que se rompe es el recurso.
+        const ruta =
+          indice === 1 ? `/activity/conductas/${UUID_DE_NADIE}` : operacion.ruta;
+        const respuesta = await aplicarOperacion(alfa.org.api, { ...operacion, ruta });
+
+        resultado.push(
+          respuesta.ok()
+            ? { opId: operacion.opId, ok: true }
+            : { opId: operacion.opId, ok: false, error: (await respuesta.json()).message }
+        );
+      }
+
+      const registrada = await alfa.org.api.postOk<{
+        estado: string;
+        resultado: Array<{ ok: boolean; error?: string }>;
+      }>(`/ai/propuestas/${propuesta.id}/aplicada`, { resultado });
+
+      // Criterio 15: dos archivados y una fila roja es mejor que perder las tres.
+      expect(registrada.estado).toBe('APLICADA_PARCIAL');
+      expect(registrada.resultado).toHaveLength(3);
+      expect(registrada.resultado.filter((fila) => fila.ok)).toHaveLength(2);
+      expect(registrada.resultado[1].error).toBeTruthy();
+
+      const actividades = await alfa.org.api.getOk<Array<{ id: string }>>(
+        `/activity/grupos/${alfa.org.grupoId}/actividades?estado=ACTIVA`
+      );
+      const conductas = await alfa.org.api.getOk<Array<{ id: string }>>(
+        `/activity/grupos/${alfa.org.grupoId}/conductas?estado=ACTIVA`
+      );
+
+      expect(actividades.map((fila) => fila.id)).not.toContain(alfa.ordenarId);
+      // La que falló NO se archivó: el `for` sigue, no revierte.
+      expect(conductas.map((fila) => fila.id)).toContain(alfa.conductaId);
+
+      // Criterio 7, la mitad que importa: archivar es SOFT y el ledger no se
+      // toca. Ana había ganado 7 puntos con esa actividad y los conserva.
+      expect(await puntajeDe(alfa, alfa.ana)).toBe(antesAna);
+      expect(await puntajeDe(alfa, alfa.beto)).toBe(antesBeto);
+    });
+
+    test('borrar una zona: la propuesta lleva un DELETE, se aplica en el orden que trae y la escala queda cerrada', async () => {
+      test.slow();
+
+      // Criterio 6. La misma herramienta que edita rangos produce acá una
+      // propuesta con un borrado adentro: es destructiva **por su operación y
+      // no por su tipo**, que es lo que `esPropuestaDestructiva` decide en el
+      // frontend y lo que esta propuesta le da para decidir.
+      const umbrales = await alfa.org.api.getOk<
+        Array<{ id: string; nombreZona: string; orden: number; puntosMin: number; colorHex: string }>
+      >(`/scoring/grupos/${alfa.org.grupoId}/umbrales`);
+      const dorado = umbrales.find((umbral) => umbral.nombreZona === 'Dorado');
+      const verde = umbrales.find((umbral) => umbral.nombreZona === 'Verde');
+
+      expect(dorado && verde, 'el escenario tiene que traer Verde y Dorado').toBeTruthy();
+
+      stub.olvidarPedidos();
+      stub.guionar(
+        {
+          llamadas: [
+            {
+              nombre: 'proponer_umbrales_zona',
+              argumentos: {
+                // Lo ÚNICO que se puede acompañar a un borrado: abrirle el
+                // techo a la que queda arriba. Correr un límite compartido no
+                // tiene orden posible, y la tanda 7 lo descubrió con un test
+                // que falló teniendo razón.
+                borrar: [dorado?.id],
+                editar: [
+                  {
+                    umbralZonaId: verde?.id,
+                    nombreZona: 'Verde',
+                    orden: verde?.orden,
+                    puntosMin: verde?.puntosMin,
+                    puntosMax: null,
+                    colorHex: verde?.colorHex,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        { texto: 'Te propuse sacar Dorado y estirar Verde.' }
+      );
+
+      const detalle = await alfa.org.api.postOk<{
+        propuestas: Array<{
+          tipo: string;
+          operaciones: Array<{ opId: string; metodo: string; ruta: string; body: unknown; etiqueta: string }>;
+        }>;
+      }>('/ai/conversaciones', {
+        grupoId: alfa.org.grupoId,
+        primerMensaje: 'sacá la zona de arriba',
+      });
+      const propuesta = detalle.propuestas[0];
+
+      expect(propuesta.tipo).toBe('UMBRALES_ZONA');
+      // El DELETE primero: con Verde ya sin techo y Dorado todavía vivo habría
+      // dos cimas, y scoring rechaza ese paso intermedio. El orden lo resolvió
+      // el armador, no el que aplica.
+      expect(propuesta.operaciones.map((operacion) => operacion.metodo)).toEqual([
+        'DELETE',
+        'PATCH',
+      ]);
+      expect(propuesta.operaciones[0].ruta).toBe(`/scoring/umbrales/${dorado?.id}`);
+      // Este es uno de los dos únicos borrados DUROS del monorepo y la fila lo
+      // dice con esas palabras: el rojo de la tarjeta no distingue archivar de
+      // borrar.
+      expect(propuesta.operaciones[0].etiqueta).toContain('no se puede deshacer');
+
+      const alReves = await aplicarOperacion(alfa.org.api, propuesta.operaciones[1]);
+
+      expect(
+        alReves.status(),
+        'estirar Verde con Dorado vivo deja dos zonas sin techo y scoring lo rechaza'
+      ).toBe(400);
+
+      for (const operacion of propuesta.operaciones) {
+        const respuesta = await aplicarOperacion(alfa.org.api, operacion);
+
+        expect(respuesta.ok(), `${operacion.metodo} ${operacion.ruta}`).toBeTruthy();
+      }
+
+      const despues = await alfa.org.api.getOk<Array<{ nombreZona: string; puntosMax: number | null }>>(
+        `/scoring/grupos/${alfa.org.grupoId}/umbrales`
+      );
+
+      expect(despues.map((umbral) => umbral.nombreZona)).not.toContain('Dorado');
+      expect(despues.find((umbral) => umbral.nombreZona === 'Verde')?.puntosMax).toBeNull();
+    });
+
+    test('el aviso que cambió apaga el asistente hasta que un ORG_ADMIN acepte la versión nueva', async () => {
+      test.slow();
+
+      // Criterio 14, la única parte del ítem que interrumpe a alguien que ya lo
+      // tenía andando. Se simula una organización del #29: switch PRENDIDO,
+      // consentimiento dado, y `avisoVersion` en NULL porque la columna no
+      // existía cuando aceptó.
+      const org = await montarOrganizacion('IaAvisoV2');
+
+      await org.api.putOk('/ai/configuracion', { habilitada: true, aceptaAviso: true });
+      await consultar(
+        'ai_db',
+        'update "ConfiguracionIaOrganizacion" set "avisoVersion" = null where "organizacionId" = $1',
+        [org.organizacionId]
+      );
+
+      const antes = await org.api.getOk<{
+        habilitada: boolean;
+        avisoAceptado: boolean;
+        avisoVersionAceptada: number | null;
+        avisoVersionVigente: number;
+        puedeUsarse: boolean;
+      }>('/ai/configuracion');
+
+      // La fila vieja NO es una aceptación vacía: vale como versión 1, con su
+      // fecha intacta. Decirle al dueño que nunca aceptó nada sería falso.
+      expect(antes.habilitada).toBe(true);
+      expect(antes.avisoVersionAceptada).toBe(1);
+      expect(antes.avisoVersionVigente).toBe(2);
+      expect(antes.avisoAceptado).toBe(false);
+      expect(antes.puedeUsarse).toBe(false);
+
+      stub.olvidarPedidos();
+      stub.guionar({ texto: 'no debería llegar acá' });
+
+      const conversar = await org.api.post('/ai/conversaciones', {
+        grupoId: org.grupoId,
+        primerMensaje: 'hola',
+      });
+
+      expect(conversar.status()).toBe(403);
+      // Código propio y no IA_NO_HABILITADA: el switch está prendido, y mandar
+      // al Tutor a apretar un interruptor que ya está en sí sería la peor
+      // versión de este error.
+      expect((await conversar.json()).code).toBe('AVISO_DESACTUALIZADO');
+      // El gate corta ANTES del proveedor: no se gasta un token de alguien que
+      // no autorizó que sus datos salgan.
+      expect(stub.llamadas).toBe(0);
+
+      const reaceptado = await org.api.putOk<{ avisoAceptado: boolean; puedeUsarse: boolean }>(
+        '/ai/configuracion',
+        { habilitada: true, aceptaAviso: true }
+      );
+
+      expect(reaceptado.avisoAceptado).toBe(true);
+      expect(reaceptado.puedeUsarse).toBe(true);
+
+      stub.guionar({ texto: 'Ahora sí, hola.' });
+
+      const despues = await org.api.post('/ai/conversaciones', {
+        grupoId: org.grupoId,
+        primerMensaje: 'hola',
+      });
+
+      expect(despues.status()).toBe(201);
+      expect(stub.llamadas).toBeGreaterThan(0);
     });
   });
 });
