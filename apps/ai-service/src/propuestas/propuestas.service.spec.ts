@@ -2,10 +2,12 @@ import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
+  esPropuestaDestructiva,
   PrincipalType,
   Rol,
   TenantContext,
   TIPOS_PROPUESTA_CON_BORRADO,
+  type OperacionPropuestaIaDto,
   type TipoPropuestaIa,
 } from '@dorado/shared-types';
 
@@ -2147,6 +2149,131 @@ describe('PropuestasService', () => {
 
       expect(resultado.ok).toBe(false);
       expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    /**
+     * BORRAR UNA ZONA (fase-14-31 tanda 7, decisión 8).
+     *
+     * Vive acá dentro y no en `proponer_archivar` porque sacar una zona casi
+     * siempre exige tocar a la vecina en el mismo movimiento, y separarlas
+     * daría propuestas correctas e inaplicables. La consecuencia —una propuesta
+     * de umbrales con un borrado adentro es DESTRUCTIVA— la resuelve la tarjeta
+     * mirando las operaciones, no el tipo.
+     */
+    describe('borrar zonas', () => {
+      /** Sacar «Dorado» y abrirle el techo a «Verde»: el caso que sí se puede. */
+      const SACAR_LA_CIMA = {
+        borrar: [UMBRAL_ID],
+        editar: [zona(UMBRAL_VERDE_ID, { nombreZona: 'Dorado', puntosMax: null })],
+      };
+
+      it('arma el DELETE primero y la etiqueta dice que se borra de verdad', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_umbrales_zona',
+          SACAR_LA_CIMA,
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(true);
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        // El orden lo decide `ordenAplicable`: con «Dorado» todavía vivo,
+        // abrirle el techo a «Verde» dejaría dos cimas y scoring lo rechaza.
+        expect(operaciones.map((operacion) => operacion.metodo)).toEqual(['DELETE', 'PATCH']);
+        expect(operaciones[0]).toMatchObject({
+          ruta: `/scoring/umbrales/${UMBRAL_ID}`,
+          body: null,
+        });
+        // La distinción que ningún rojo de tarjeta puede hacer solo: este es
+        // uno de los dos únicos DELETE del monorepo que no archiva.
+        expect(operaciones[0].etiqueta).toContain('se borra de verdad');
+        expect(operaciones[0].etiqueta).toContain('Dorado');
+      });
+
+      it('la propuesta queda marcada como destructiva por su operación', async () => {
+        const { servicio, creadas } = crearMocks();
+
+        await servicio.armar('proponer_umbrales_zona', SACAR_LA_CIMA, CONTEXTO, 'conv-1');
+
+        const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+        // Criterio de aceptación 6: se pinta destructiva aunque las otras filas
+        // sean ediciones, y `UMBRALES_ZONA` está en la lista blanca del DELETE.
+        expect(esPropuestaDestructiva(operaciones as OperacionPropuestaIaDto[])).toBe(true);
+        expect(TIPOS_PROPUESTA_CON_BORRADO).toContain(creadas[0]['tipo'] as TipoPropuestaIa);
+      });
+
+      it('borrar sin abrirle el techo a la que queda no cierra la escala', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_umbrales_zona',
+          { borrar: [UMBRAL_ID] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('sin zona');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      /**
+       * El límite que esta tanda descubrió: solo se puede borrar la de orden
+       * más alto, y el error tiene que decirlo — es la clase de cosa que un
+       * modelo reintenta diez veces sin entender.
+       */
+      it('borrar una del medio se rechaza explicando que solo se va la más alta', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_umbrales_zona',
+          {
+            borrar: [UMBRAL_VERDE_ID],
+            editar: [zona('22222222-aaaa-4aaa-8aaa-222222222222', { puntosMax: 60 })],
+          },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('orden más alto');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('editar y borrar la misma zona es una contradicción y no se guarda', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_umbrales_zona',
+          { borrar: [UMBRAL_ID], editar: [zona(UMBRAL_ID, { puntosMax: 80 })] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('"editar"');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
+
+      it('un id que no es de este grupo NO crea propuesta', async () => {
+        const { servicio, prisma } = crearMocks();
+
+        const resultado = await servicio.armar(
+          'proponer_umbrales_zona',
+          { borrar: [ACTIVIDAD_ID] },
+          CONTEXTO,
+          'conv-1'
+        );
+
+        expect(resultado.ok).toBe(false);
+        expect((resultado as { error: string }).error).toContain('listar_umbrales_zona');
+        expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+      });
     });
 
     /**

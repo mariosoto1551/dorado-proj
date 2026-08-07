@@ -2656,15 +2656,33 @@ Es el tercer defecto que este ítem encuentra del mismo modo —*leer el código
 
 **Lo que queda sabido y no cubierto:** `completar` también valida deadline vencido y cronómetro iniciado, y ninguna de las dos cosas está en `estado_de_hoy`. La del cronómetro es estructural —**el Tutor no puede iniciarlo**, `iniciar-cronometro` es solo del integrante—, así que proponer marcar una actividad con cronómetro para otra persona va a fallar salvo que la tenga corriendo justo en ese momento. Las dos son estado del instante y no propiedades de la actividad: la fila falla al aplicar, la propuesta queda `APLICADA_PARCIAL` y el resultado por fila lo dice, que es para lo que existe ese camino.
 
+### Tanda 7 — borrar zonas dentro de la escala (2026-08-06)
+
+`proponer_umbrales_zona` suma `borrar: [umbralZonaId]`. Va adentro de esa herramienta y no en `proponer_archivar` (decisión 8) porque sacar una zona casi siempre exige tocar a la vecina en el mismo movimiento, y separarlas daría propuestas correctas e inaplicables. La mecánica es la que ya estaba: `aplicarPaso` suma el caso `'borrar'` y `estadoResultante`, `violacionDeLaEscala` y `ordenAplicable` lo tratan como un paso más — el archivo `escala.ts` **no necesitó ninguna regla nueva**, que es la señal de que la abstracción de la tanda 6 del #30 estaba bien puesta.
+
+**Lo que la tanda descubrió, y es la mitad de su valor:**
+
+> **La única zona que se puede borrar es la de orden más alto.**
+
+No está escrita en ningún lado: sale de dos reglas que ya existían. scoring valida el conjunto en **cada** escritura y exige órdenes `1, 2, 3…` sin huecos; borrar deja el conjunto en n−1 zonas, así que la que se va tiene que ser la de orden n o el resto queda con un hueco. Y renumerar antes tampoco sirve — cualquier `PATCH` suelto que corra un orden produce un duplicado o un hueco **en ese mismo paso**, o sea que los órdenes no se pueden permutar.
+
+**Y la corrección que el test le hizo a la tanda a mitad de camino:** se escribió primero un test que afirmaba que «sacar una del medio» se resuelve corriendo los rangos y borrando la última. **Falló, y tenía razón**: correr un rango es mover un límite compartido, y eso ya no tenía orden posible desde la tanda 6 del #30; que además haya un borrado no lo arregla. Lo que sí se puede acompañar a un borrado es únicamente lo que **no mueve un límite**: abrirle el techo a la que queda arriba, renombrarla, cambiarle el color. Fundir dos zonas en una no se puede desde el asistente, y punto.
+
+Esa conclusión vive en `SOLO_LA_MAS_ALTA` (una constante exportada, no un string suelto en el error) y viaja en **los dos** rechazos posibles: el del estado final que no cierra y el del orden que no existe. Sin eso, el modelo que intenta borrar una zona del medio recibe *«los órdenes quedaron 1, 2, 4»* — cierto, y sin ninguna indicación de qué hacer. Es la clase de límite que un modelo reintenta diez veces.
+
+- **Editar y borrar la misma zona** en una propuesta se rechaza: es una contradicción que el `for` del frontend resolvería distinto según el orden.
+- La etiqueta del `DELETE` dice **«se borra de verdad, no se archiva: no se puede deshacer»**. Es uno de los dos únicos borrados duros del monorepo, y el rojo de la tarjeta no distingue archivar de borrar — el cartel de la tanda 2 tampoco lo hace, y está bien que no lo haga: es genérico a propósito y la distinción vive en la fila.
+- **La fila del frontend** es la única de la familia que no es un diff: no hay «después», hay una zona que deja de existir. Se muestra con el rango que se pierde de un lado y esa advertencia del otro.
+- La propuesta se pinta destructiva **por su operación y no por su tipo** (criterio de aceptación 6): la misma herramienta produce ediciones normales y propuestas rojas, y `esPropuestaDestructiva` ya lo resolvía desde la tanda 2 sin tocarse.
+
 ### Estado al cortar la sesión (2026-08-06)
 
-**6 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 284, `app-web` 229, `activity-service` 362, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
+**7 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 294, `app-web` 231, `activity-service` 362, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
 
-**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy, ajustar puntos y monedas a mano, y anotar lo del día — con la tarjeta roja y la confirmación fila por fila en las dos destructivas.
+**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy, ajustar puntos y monedas a mano, anotar lo del día y borrar una zona de la escala — con la tarjeta roja y la confirmación fila por fila en las tres destructivas.
 
 **Lo que falta, en orden (Parte G de la spec):**
 
-7. **La escala** — `borrar: [umbralZonaId]` dentro de `proponer_umbrales_zona`, con los pasos de borrado en `escala.ts` (`estadoResultante`, `violacionDeLaEscala`, `ordenAplicable`). Es la decisión 8: sacar una zona del medio casi siempre exige ensanchar a una vecina en el mismo movimiento.
 8. **El aviso v2** (decisión 11) — `ConfiguracionIaOrganizacion` suma `avisoVersion`; los consentimientos del #29 valen como versión 1 y **el asistente queda apagado hasta que un `ORG_ADMIN` acepte la versión 2**, porque las lecturas nuevas mandan saldo y cumplimiento por persona hacia el proveedor. Más las dos entradas de contexto (integrantes y billeteras).
 9. **E2E** — ampliar `asistente-ia.e2e.ts`: ruteo, validación de referencias, aplicado parcial, aislamiento, y que la tarjeta destructiva **no tenga «Aplicar todo»**.
 

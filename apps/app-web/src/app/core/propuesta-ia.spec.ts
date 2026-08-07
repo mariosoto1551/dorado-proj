@@ -13,6 +13,7 @@ import type {
   UmbralZonaDto,
   UsuarioDto,
 } from '@dorado/shared-types';
+import { esPropuestaDestructiva } from '@dorado/shared-types';
 
 import { armarFilas, estaCerrada, horasHastaVencer } from './propuesta-ia';
 
@@ -447,6 +448,48 @@ describe('armarFilas', () => {
       expect(filas[0].cambios).toEqual([
         { campo: 'Hasta', antes: 'sin techo', despues: '80' },
       ]);
+    });
+
+    /**
+     * fase-14-31 tanda 7. La única fila de esta familia que no es un diff: no
+     * hay «después», hay una zona que deja de existir. Y es uno de los dos
+     * únicos `DELETE` del monorepo que borra de verdad, así que la fila tiene
+     * que decirlo — el rojo de la tarjeta no distingue archivar de borrar.
+     */
+    it('el borrado de una zona dice que no se archiva ni se deshace', () => {
+      const filas = armarFilas(
+        propuesta('UMBRALES_ZONA', [
+          { metodo: 'DELETE', ruta: '/scoring/umbrales/zona-dorado', body: null },
+        ]),
+        { umbrales: ZONAS }
+      );
+
+      expect(filas[0].titulo).toBe('Borrar la zona «Dorado»');
+      expect(filas[0].cambios[0].antes).toBe('de 61 puntos para arriba');
+      expect(filas[0].cambios[0].despues).toContain('no se archiva ni se deshace');
+    });
+
+    it('una propuesta de umbrales con un borrado adentro es destructiva', () => {
+      const conBorrado = propuesta('UMBRALES_ZONA', [
+        {
+          metodo: 'PATCH',
+          ruta: '/scoring/umbrales/zona-verde',
+          body: { nombreZona: 'Verde', orden: 3, puntosMin: 41, puntosMax: null, colorHex: '#22C55E' },
+        },
+        { metodo: 'DELETE', ruta: '/scoring/umbrales/zona-dorado', body: null },
+      ]);
+      const soloEdiciones = propuesta('UMBRALES_ZONA', [
+        {
+          metodo: 'PATCH',
+          ruta: '/scoring/umbrales/zona-dorado',
+          body: { nombreZona: 'Dorado', orden: 4, puntosMin: 61, puntosMax: 80, colorHex: '#EAB308' },
+        },
+      ]);
+
+      // Criterio de aceptación 6: se pinta por su fila más peligrosa, no por su
+      // tipo — la misma familia produce las dos cosas.
+      expect(esPropuestaDestructiva(conBorrado.operaciones)).toBe(true);
+      expect(esPropuestaDestructiva(soloEdiciones.operaciones)).toBe(false);
     });
 
     it('la base de puntos va en su propia fila y dice con cuántos se arrancaba', () => {

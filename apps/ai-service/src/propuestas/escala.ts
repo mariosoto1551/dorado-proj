@@ -33,10 +33,54 @@ export interface ZonaDeLaEscala {
   puntosMax: number | null;
 }
 
+/**
+ * `borrar` desde el fase-14-31 (decisión 8): sacar una zona vive acá dentro y
+ * no en la herramienta de archivar, porque **sacar una zona casi siempre exige
+ * ensanchar a una vecina en el mismo movimiento** y separarlas produciría
+ * propuestas correctas e inaplicables.
+ *
+ * Al escribirlo apareció una consecuencia que nadie había anotado y que este
+ * archivo es el único lugar donde se puede ver — ver `SOLO_LA_MAS_ALTA`.
+ */
 export interface PasoDeEscala {
-  tipo: 'crear' | 'editar';
+  tipo: 'crear' | 'editar' | 'borrar';
   zona: ZonaDeLaEscala;
 }
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * LO QUE LA TANDA 7 DESCUBRIÓ Y CONVIENE LEER ANTES DE TOCAR NADA DE ACÁ:
+ *
+ *   **La única zona que se puede borrar es la de orden más alto.**
+ *
+ * No es una regla que alguien haya escrito: sale de dos que ya estaban. scoring
+ * valida el conjunto en CADA escritura y exige órdenes `1, 2, 3…` sin huecos ni
+ * repetidos; borrar una zona baja el conjunto a n−1 zonas, así que la que se va
+ * tiene que ser la de orden n o el resto queda con un hueco. Y renumerar antes
+ * tampoco sirve: cualquier PATCH suelto que corra un orden produce un duplicado
+ * o un hueco en ese mismo paso, así que **los órdenes no se pueden permutar**.
+ *
+ * Y hay una segunda mitad, que apareció al escribir el test que la iba a
+ * demostrar y que corrige lo que esta tanda creía al empezar: **fundir dos
+ * zonas en una tampoco tiene orden, ni siquiera borrando la más alta**. Fundir
+ * es mover un límite compartido, y eso ya no tenía orden desde la tanda 6 del
+ * #30 (mover un solo límite descoloca al vecino se empiece por donde se
+ * empiece); que además haya un borrado no lo arregla.
+ *
+ * Lo que sí se puede acompañar a un borrado es todo lo que **no mueve un
+ * límite**: abrirle el techo a la que queda arriba, renombrar, cambiar un
+ * color. `ordenAplicable` encuentra ese orden solo —no hace falta que nadie lo
+ * codifique— pero el error de cuando NO existe sí tiene que decir esto, porque
+ * es la clase de límite que un modelo reintenta diez veces sin entender.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const SOLO_LA_MAS_ALTA =
+  'de la escala solo se puede borrar la zona de orden más alto —el grupo exige que los órdenes ' +
+  'queden 1, 2, 3… sin huecos, y sacar una del medio dejaría uno— y en el mismo movimiento solo ' +
+  'se puede cambiar lo que NO mueve un límite: abrirle el techo a la que queda arriba, ' +
+  'renombrarla, cambiarle el color. Fundir dos zonas (que una se coma el rango de la otra) no ' +
+  'tiene orden posible, por lo mismo que correr dos límites a la vez. Si el Tutor quiere una ' +
+  'escala distinta de verdad, la rehace desde la pantalla de Zonas.';
 
 /**
  * Tope de estados explorados al buscar un orden de aplicado.
@@ -137,13 +181,17 @@ export function violacionDeLaEscala(
   return null;
 }
 
-/** El estado que queda después de aplicar un paso: alta al final, edición por id. */
+/** El estado que queda después de aplicar un paso: alta al final, edición y borrado por id. */
 export function aplicarPaso(
   zonas: readonly ZonaDeLaEscala[],
   paso: PasoDeEscala
 ): ZonaDeLaEscala[] {
   if (paso.tipo === 'crear') {
     return [...zonas, paso.zona];
+  }
+
+  if (paso.tipo === 'borrar') {
+    return zonas.filter((zona) => zona.id !== paso.zona.id);
   }
 
   return zonas.map((zona) => (zona.id === paso.zona.id ? paso.zona : zona));

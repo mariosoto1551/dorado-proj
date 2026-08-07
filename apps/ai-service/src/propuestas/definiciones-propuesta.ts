@@ -878,7 +878,10 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
       'Mirá antes listar_umbrales_zona y resumen_puntajes: sin eso movés gente de zona a ciegas. ' +
       'La escala es un conjunto: las zonas que quedan tienen que cubrir la recta sin huecos ni ' +
       'solapes, con los órdenes corridos desde 1 y exactamente una sin techo, la más alta. Si ' +
-      'corrés un límite, mandá también la zona vecina que queda descolgada.',
+      'corrés un límite, mandá también la zona vecina que queda descolgada. ' +
+      'Acá también se BORRAN zonas (ver "borrar"): va en esta herramienta y no en la de ' +
+      'archivar porque sacar una zona casi siempre exige ensanchar a otra en el mismo ' +
+      'movimiento, y separarlas daría propuestas correctas que no se pueden aplicar.',
     parametros: {
       type: 'object',
       properties: {
@@ -916,6 +919,19 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
             ],
             additionalProperties: false,
           },
+          maxItems: 25,
+        },
+        borrar: {
+          type: 'array',
+          description:
+            'Zonas a BORRAR. Ojo con esta: la zona se borra de verdad, no se archiva, y no se ' +
+            'puede deshacer. **Solo se puede borrar la de orden más alto**, porque los órdenes ' +
+            'que quedan tienen que seguir siendo 1, 2, 3… sin huecos. Y en la misma propuesta ' +
+            'solo se puede cambiar lo que no mueve un límite: abrirle el techo a la que queda ' +
+            'arriba (que hay que mandarla casi siempre, porque la más alta va sin techo), ' +
+            'renombrarla o cambiarle el color. Achicar la escala fundiendo dos zonas en una NO ' +
+            'se puede: eso se rehace desde la pantalla de Zonas.',
+          items: uuidDe('la zona a borrar', 'listar_umbrales_zona'),
           maxItems: 25,
         },
         puntosIniciales: {

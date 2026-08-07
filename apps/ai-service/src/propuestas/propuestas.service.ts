@@ -14,6 +14,7 @@ import {
   cuantosCambianDeZona,
   estadoResultante,
   ordenAplicable,
+  SOLO_LA_MAS_ALTA,
   violacionDeLaEscala,
   type PasoDeEscala,
   type ZonaDeLaEscala,
@@ -1259,16 +1260,17 @@ export class PropuestasService {
   ): Promise<ResultadoArmado> {
     const crear = this.arrayDe(argumentos, 'crear');
     const editar = this.arrayDe(argumentos, 'editar');
+    const borrar = this.arrayDe(argumentos, 'borrar');
     const baseParseada = esquemaConfiguracionScoring.safeParse({
       puntosIniciales: argumentos['puntosIniciales'],
     });
     const tocaLaBase = baseParseada.success;
 
-    if (crear.length === 0 && editar.length === 0 && !tocaLaBase) {
+    if (crear.length === 0 && editar.length === 0 && borrar.length === 0 && !tocaLaBase) {
       return {
         ok: false,
         error:
-          'Mandá al menos una zona en "crear" o en "editar", o un valor nuevo en ' +
+          'Mandá al menos una zona en "crear", "editar" o "borrar", o un valor nuevo en ' +
           '"puntosIniciales".',
       };
     }
@@ -1357,13 +1359,69 @@ export class PropuestasService {
       });
     }
 
+    // Los borrados van DESPUÉS de las ediciones en la lista de pasos, pero eso
+    // no decide nada: `ordenAplicable` los reordena. Lo único que importa acá es
+    // que estén todos antes de calcular el estado resultante.
+    const idsABorrar = new Set<string>();
+
+    for (const [indice, valor] of borrar.entries()) {
+      if (typeof valor !== 'string' || !porId.has(valor)) {
+        return {
+          ok: false,
+          error:
+            `borrar.${indice}: no hay ninguna zona con ese id en este grupo. Llamá a ` +
+            'listar_umbrales_zona y usá un id de ahí.',
+        };
+      }
+
+      if (idsABorrar.has(valor)) {
+        return { ok: false, error: `borrar.${indice}: esa zona ya está en la lista.` };
+      }
+
+      // Editar y borrar la misma zona es una contradicción, y una que el `for`
+      // del frontend no resolvería igual según el orden: se corta acá.
+      if (pasos.some((paso) => paso.tipo === 'editar' && paso.zona.id === valor)) {
+        const zona = porId.get(valor);
+
+        return {
+          ok: false,
+          error:
+            `borrar.${indice}: «${zona?.nombreZona}» está también en "editar". Decidí una de ` +
+            'las dos: si se va, no hace falta cambiarle nada.',
+        };
+      }
+
+      idsABorrar.add(valor);
+
+      const zona = porId.get(valor) as ZonaDeLaEscala;
+
+      pasos.push({
+        tipo: 'borrar',
+        zona,
+        metodo: 'DELETE',
+        ruta: `/scoring/umbrales/${zona.id}`,
+        body: null,
+        // La etiqueta más importante del ítem: este es uno de los dos únicos
+        // `DELETE` del monorepo que borra de verdad (decisión 2). Un Tutor que
+        // lo lea como «archivar» aprieta creyendo que se puede volver atrás.
+        etiqueta:
+          `Borrar la zona «${zona.nombreZona}» (${rangoLegible(zona)}) — se borra de verdad, ` +
+          'no se archiva: no se puede deshacer',
+      });
+    }
+
     const resultante = estadoResultante(actuales, pasos);
+    // Con un borrado adentro, los dos rechazos de abajo suenan a otra cosa: el
+    // primero le dice al modelo «te quedaron los órdenes 1, 2, 4», que es cierto
+    // y no le dice lo único que necesita saber. Este es el límite que un modelo
+    // reintenta diez veces sin entender, así que la pista viaja en los dos.
+    const pistaDeBorrado = idsABorrar.size > 0 ? ` Ojo: ${SOLO_LA_MAS_ALTA}` : '';
 
     if (pasos.length > 0) {
       const violacion = violacionDeLaEscala(resultante, { exigirCima: true });
 
       if (violacion) {
-        return { ok: false, error: `la escala que queda no cierra: ${violacion}` };
+        return { ok: false, error: `la escala que queda no cierra: ${violacion}${pistaDeBorrado}` };
       }
     }
 
@@ -1375,7 +1433,8 @@ export class PropuestasService {
         error:
           'estos cambios no se pueden aplicar de a uno: el grupo valida la escala completa en ' +
           'CADA guardado, así que un paso intermedio con un hueco falla aunque el resultado ' +
-          'final cierre. Mover varios límites a la vez casi nunca tiene un orden posible. ' +
+          'final cierre. Mover varios límites a la vez casi nunca tiene un orden posible.' +
+          `${pistaDeBorrado} ` +
           'Proponé un cambio que sí lo tenga —agregar una zona arriba poniéndole techo a la ' +
           'más alta, por ejemplo— y decile al Tutor que una escala nueva entera se rehace desde ' +
           'la pantalla de Zonas.',

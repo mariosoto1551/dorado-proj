@@ -32,6 +32,16 @@ function crear(zona: Omit<ZonaDeLaEscala, 'id'>): PasoDeEscala {
   return { tipo: 'crear', zona: { id: '', ...zona } };
 }
 
+function borrar(id: string): PasoDeEscala {
+  const zona = ESCALA.find((fila) => fila.id === id);
+
+  if (!zona) {
+    throw new Error(`No existe la zona "${id}" en la escala de prueba.`);
+  }
+
+  return { tipo: 'borrar', zona };
+}
+
 describe('la escala de zonas (fase-14-30 tanda 6)', () => {
   describe('el conjunto tiene que cerrar', () => {
     it('la escala del seed cierra', () => {
@@ -122,6 +132,88 @@ describe('la escala de zonas (fase-14-30 tanda 6)', () => {
 
         expect(violacionDeLaEscala(estado, { exigirCima: false }), paso.zona.nombreZona).toBeNull();
       }
+    });
+
+    /**
+     * fase-14-31 tanda 7. Estos cuatro son la demostración de `SOLO_LA_MAS_ALTA`
+     * y están juntos a propósito: la regla no está escrita en ningún lado del
+     * código —sale de que scoring exige órdenes 1..n en cada escritura— así que
+     * lo único que puede sostenerla es esto.
+     */
+    describe('borrar zonas', () => {
+      it('borrar la más alta y abrirle el techo a la que queda tiene orden', () => {
+        // Y de paso renombrarla: los nombres y los colores no participan de
+        // ninguna validación, así que son gratis en cualquier paso.
+        const pasos = [
+          borrar('dorado'),
+          editar('verde', { nombreZona: 'Dorado', puntosMax: null }),
+        ];
+
+        const orden = ordenAplicable(ESCALA, pasos);
+
+        // Primero el DELETE: con «Verde» ya sin techo y «Dorado» todavía vivo
+        // habría dos cimas, y scoring rechaza ese paso intermedio.
+        expect(orden?.map((paso) => paso.tipo)).toEqual(['borrar', 'editar']);
+        expect(
+          violacionDeLaEscala(estadoResultante(ESCALA, pasos), { exigirCima: true })
+        ).toBeNull();
+      });
+
+      it('borrar una del medio no tiene NINGÚN orden, aunque el final cierre', () => {
+        // Sacar «Verde» y que «Amarillo» se coma su rango: el estado final es
+        // impecable y no hay forma de llegar de a un paso.
+        const pasos = [
+          borrar('verde'),
+          editar('amarillo', { puntosMax: 60 }),
+          editar('dorado', { orden: 3 }),
+        ];
+
+        expect(
+          violacionDeLaEscala(estadoResultante(ESCALA, pasos), { exigirCima: true })
+        ).toBeNull();
+        expect(ordenAplicable(ESCALA, pasos)).toBeNull();
+      });
+
+      /**
+       * El límite más fino de los cuatro, y el que corrige lo que esta tanda
+       * creía al empezar: **fundir dos zonas tampoco tiene orden**, ni siquiera
+       * borrando la más alta. Fundir es mover un límite compartido, y eso ya no
+       * tenía orden desde la tanda 6 —el test de acá abajo—; que además haya un
+       * borrado no lo arregla.
+       *
+       * O sea que lo único que se puede acompañar a un borrado es lo que NO
+       * mueve un límite: abrirle el techo a la que queda arriba, renombrar,
+       * cambiar un color.
+       */
+      it('fundir dos zonas en una no tiene orden, ni siquiera borrando la más alta', () => {
+        // «Amarillo» se come el rango de «Verde» y se borra «Dorado».
+        const pasos = [
+          borrar('dorado'),
+          editar('amarillo', { puntosMax: 60 }),
+          editar('verde', { nombreZona: 'Dorado', puntosMin: 61, puntosMax: null }),
+        ];
+
+        expect(
+          violacionDeLaEscala(estadoResultante(ESCALA, pasos), { exigirCima: true })
+        ).toBeNull();
+        expect(ordenAplicable(ESCALA, pasos)).toBeNull();
+      });
+
+      it('borrar las dos de arriba también tiene orden, de arriba hacia abajo', () => {
+        const pasos = [
+          borrar('dorado'),
+          borrar('verde'),
+          editar('amarillo', { puntosMax: null }),
+        ];
+
+        const orden = ordenAplicable(ESCALA, pasos);
+
+        expect(orden?.map((paso) => paso.zona.nombreZona)).toEqual([
+          'Dorado',
+          'Verde',
+          'Amarillo',
+        ]);
+      });
     });
 
     it('correr dos límites a la vez no tiene ningún orden posible', () => {

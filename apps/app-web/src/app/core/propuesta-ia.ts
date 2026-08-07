@@ -345,6 +345,30 @@ function filaDeLaEscala(
 ): FilaPropuesta {
   const body = comoObjeto(operacion.body);
 
+  // fase-14-31 tanda 7. Va PRIMERO porque es la única fila de esta familia que
+  // no tiene «después»: no hay diff que mostrar, hay una zona que desaparece.
+  // Y es uno de los dos únicos DELETE del monorepo que borra de verdad, así que
+  // la fila lo dice con esas palabras — la tarjeta ya está pintada de rojo por
+  // esta misma operación (`esPropuestaDestructiva`), pero el rojo no distingue
+  // entre archivar y borrar, y acá esa diferencia es la que importa.
+  if (operacion.metodo === 'DELETE') {
+    const zona = (contexto.umbrales ?? []).find(
+      (umbral) => umbral.id === idDeLaRuta(operacion.ruta)
+    );
+
+    return {
+      opId: operacion.opId,
+      titulo: `Borrar la zona «${zona?.nombreZona ?? 'una zona'}»`,
+      cambios: [
+        {
+          campo: 'Se borra de verdad',
+          antes: zona ? rangoDeLaZona(zona) : null,
+          despues: 'la zona deja de existir — esto no se archiva ni se deshace',
+        },
+      ],
+    };
+  }
+
   if (operacion.ruta.endsWith('/configuracion')) {
     return {
       opId: operacion.opId,
@@ -746,6 +770,13 @@ function nombresDe(
  */
 function mapaDeRecompensas(contexto: ContextoPropuesta): ReadonlyMap<string, string> {
   return new Map((contexto.recompensas ?? []).map((fila) => [fila.id, fila.nombre]));
+}
+
+/** «de 0 a 20 puntos» / «de 61 puntos para arriba», para la fila de borrado. */
+function rangoDeLaZona(zona: UmbralZonaDto): string {
+  return zona.puntosMax === null
+    ? `de ${zona.puntosMin} puntos para arriba`
+    : `de ${zona.puntosMin} a ${zona.puntosMax} puntos`;
 }
 
 /** Ídem con las zonas: el contexto las trae enteras, acá solo hacen falta los nombres. */
