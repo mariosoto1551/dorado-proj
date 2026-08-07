@@ -2639,15 +2639,31 @@ Lo que **no** se junta son los números: `puntos` y `monedas` viajan independien
 
 **Lo que NO hizo falta y la spec preveía:** la Parte E pedía sumarle billeteras y estado de hoy a `ContextoPropuesta` «para que las filas digan *Juan · Tender la cama* y no dos uuid». No hace falta: las cuatro familias operativas se pintan con `filaDeActo`, y **la etiqueta ya viene armada del servidor con los nombres adentro** — que es donde se conoce el estado del grupo. Sumar el contexto sería pedirle a la pantalla que mande lo mismo dos veces.
 
+### Tanda 6 — la familia de anotaciones (2026-08-06)
+
+`proponer_anotar`: marcar hecha, marcar no hecha con motivo, registrar una conducta. **Es la familia con menos reglas escritas en el armador de todo el asistente, y eso es la decisión.** Qué se le puede marcar hoy a quién depende de cinco ítems de reglas de visibilidad (#10, #11, #17, #19, #21) más las del propio `completar`, y ya están resueltas dos veces: en el endpoint que las hace cumplir y en la pantalla del Tutor. Escribirlas en `ai-service` sería la tercera copia — y la primera en desactualizarse, porque es la única que nadie mira cuando cambia una regla. Por eso `estado_de_hoy` las manda resueltas y el armador **solo las lee**, y cuando rechaza algo le devuelve al modelo el `motivoNoDisponible` **con esas palabras**.
+
+Lo que sí es trabajo del armador es lo único que la lectura no podía saber: **que la propuesta no se contradiga a sí misma**. Dos filas que marcan la misma actividad para la misma persona son válidas cada una contra el estado leído; lo que las invalida es la otra. Se lleva la cuenta contra `vecesQueAdmite`, igual que la familia equipos del #30 lleva la de a quién ya ubicó ella misma.
+
+**El defecto que encontró esta tanda, y estaba en la lectura de la tanda 3:** `puedeMarcarHizo` devolvía `true` para una actividad **OBLIGATORIA con `ASUME_HECHA`**, que es la primera cosa que `completar` rechaza (`ObligatoriaNoSeCompletaException`) — no hacer nada *es* el estado de cumplida de una obligatoria. O sea que el armador habría guardado una propuesta que falla siempre, y encima obedeciendo a la lectura como corresponde. Se arregló donde vive la regla (`estado-de-hoy.service.ts`), no en el armador, más el caso hermano: una confirmable **ya confirmada** tampoco se confirma dos veces.
+
+Es el tercer defecto que este ítem encuentra del mismo modo —*leer el código con una pregunta nueva encima*— y el primero que encuentra en algo que él mismo escribió tres tandas antes.
+
+- **La lectura de la tanda 3 se quedó sin tests propios** y esta tanda le escribió los primeros (`estado-de-hoy.service.spec.ts`, 5 casos). No es opcional en esa lectura: `puedeMarcarHizo` no es un dato sino una **regla resuelta** que otro servicio usa tal cual sin volver a pensarla.
+- **Los tres contratos de registro tampoco tenían interfaz en `shared-types`** —`CompletarActividadRequest`, `RegistrarNoHizoRequest`, `RegistrarConductaRequest`—, exactamente el mismo hueco que la tanda 5 encontró con las monedas y por el mismo motivo: hasta ahora el único que armaba esos requests era el frontend, que los escribe inline. Se escribieron con sus `implements` y sus chequeos de cobertura.
+- `usuarioId` es **obligatorio en `no-hizo` y opcional en los otros dos**, y los esquemas no se factorizaron en uno solo justamente por eso: `completar` y `registrar` los puede llamar el propio integrante (el campo se ignora y se fuerza a sí mismo), y **un «no hizo» siempre lo registra un Tutor sobre otro** — nadie se autodenuncia. Un esquema compartido con el campo opcional dejaría pasar un `no-hizo` sin destinatario.
+- `QuitarCompletadaQuery` **no** se subió a `shared-types`: la spec lo listaba entre los contratos reusados, pero la tanda 4 decidió explícitamente no tipar contra él (el motivo va como query param, no hay body). Subirlo ahora sería agregar una interfaz sin usuario.
+
+**Lo que queda sabido y no cubierto:** `completar` también valida deadline vencido y cronómetro iniciado, y ninguna de las dos cosas está en `estado_de_hoy`. La del cronómetro es estructural —**el Tutor no puede iniciarlo**, `iniciar-cronometro` es solo del integrante—, así que proponer marcar una actividad con cronómetro para otra persona va a fallar salvo que la tenga corriendo justo en ese momento. Las dos son estado del instante y no propiedades de la actividad: la fila falla al aplicar, la propuesta queda `APLICADA_PARCIAL` y el resultado por fila lo dice, que es para lo que existe ese camino.
+
 ### Estado al cortar la sesión (2026-08-06)
 
-**5 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 274, `app-web` 229, `activity-service` 357, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
+**6 de 9 tandas.** Verde en los proyectos tocados: `ai-service` 284, `app-web` 229, `activity-service` 362, `rewards-service` 206, `scoring-service` 71, más `shared-types` — test, lint y build.
 
-**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy y ajustar puntos y monedas a mano, con la tarjeta roja y la confirmación fila por fila en las dos destructivas.
+**Lo que YA funciona de punta a punta:** el Tutor puede ajustar puntos a mano desde el panel operativo, y el asistente puede proponer archivar del catálogo, corregir las marcas de hoy, ajustar puntos y monedas a mano, y anotar lo del día — con la tarjeta roja y la confirmación fila por fila en las dos destructivas.
 
 **Lo que falta, en orden (Parte G de la spec):**
 
-6. **Familia de anotaciones** — `proponer_anotar` (`ANOTAR_REGISTROS`): filas `{ participanteId, tipo: HIZO|NO_HIZO|CONDUCTA, id, motivo? }`. El armador traduce `participanteId` → `usuarioId` en el body. Las reglas ya vienen resueltas de `estado_de_hoy`: alcanza con rechazar lo que traiga `puedeMarcarHizo: false` citando el `motivoNoDisponible`.
 7. **La escala** — `borrar: [umbralZonaId]` dentro de `proponer_umbrales_zona`, con los pasos de borrado en `escala.ts` (`estadoResultante`, `violacionDeLaEscala`, `ordenAplicable`). Es la decisión 8: sacar una zona del medio casi siempre exige ensanchar a una vecina en el mismo movimiento.
 8. **El aviso v2** (decisión 11) — `ConfiguracionIaOrganizacion` suma `avisoVersion`; los consentimientos del #29 valen como versión 1 y **el asistente queda apagado hasta que un `ORG_ADMIN` acepte la versión 2**, porque las lecturas nuevas mandan saldo y cumplimiento por persona hacia el proveedor. Más las dos entradas de contexto (integrantes y billeteras).
 9. **E2E** — ampliar `asistente-ia.e2e.ts`: ruteo, validación de referencias, aplicado parcial, aislamiento, y que la tarjeta destructiva **no tenga «Aplicar todo»**.
@@ -2659,3 +2675,5 @@ Lo que **no** se junta son los números: `puntos` y `monedas` viajan independien
 - **El endpoint de ajuste de puntos no se probó contra la base real**, solo con la BD en memoria de los tests. Es lo primero a verificar en la próxima sesión, con el stack levantado.
 - La tarjeta destructiva se verificó con tests de componente (5 nuevos), **no todavía en el navegador**.
 - **Nada de la tanda 5 se probó contra un proveedor real**: los once tests nuevos llaman al armador directo. Lo que la E2E de la tanda 9 tiene que cubrir de esta familia es el camino completo con el proveedor stubbeado, incluido que aplicar las dos operaciones de una misma fila escriba en los dos servicios.
+- **La corrección de `puedeMarcarHizo` (tanda 6) toca una lectura interna que ya estaba en uso** y se verificó solo con los tests nuevos del propio servicio. Vale mirar en la E2E que `estado_de_hoy` de un grupo con obligatorias devuelva `puedeMarcarHizo: false` para ellas.
+- La tanda 6 tampoco cubre **deadline vencido ni cronómetro no iniciado**: son estado del instante, la fila falla al aplicar y queda en el resultado por fila. Si aparece seguido en el piloto, la salida es agregarlos a `estado_de_hoy`, no replicar la regla en el armador.

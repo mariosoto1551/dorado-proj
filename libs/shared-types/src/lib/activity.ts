@@ -333,6 +333,38 @@ export interface AgregarAlPlanDelDiaRequest {
   actividadId: string;
 }
 
+/**
+ * Los tres requests con que se anota lo del día (fase-07 Parte A).
+ *
+ * Existían como clases con decoradores en activity-service y **no tenían
+ * interfaz acá** hasta el fase-14-31 tanda 6, por el mismo motivo que
+ * `AjustarMonedasRequest` (tanda 5): hasta entonces el único que los armaba era
+ * el frontend del Tutor, que los escribe inline. Ahora también los arma una
+ * propuesta del asistente (`proponer_anotar`), y la decisión 11 del #29 pide
+ * que todo esquema Zod de propuesta se tipe contra el contrato real — si no,
+ * renombrar `usuarioId` acá se descubriría recién al aplicar.
+ *
+ * `usuarioId` es opcional en dos de los tres y obligatorio en el del medio, y
+ * no es una inconsistencia: `completar` y `registrar` los puede llamar el
+ * propio integrante (ahí se fuerza a sí mismo y el campo se ignora), y un «no
+ * hizo» **siempre lo registra un Tutor sobre otro** — nadie se autodenuncia.
+ */
+export interface CompletarActividadRequest {
+  /** Solo aplica cuando registra un TUTOR/ORG_ADMIN; un USUARIO se marca a sí mismo. */
+  usuarioId?: string;
+}
+
+export interface RegistrarNoHizoRequest {
+  usuarioId: string;
+  /** Nota que el integrante lee en su pantalla (fase-14-12). Máximo 200. */
+  motivo?: string;
+}
+
+export interface RegistrarConductaRequest {
+  /** Obligatorio si lo registra un TUTOR/ORG_ADMIN; ignorado si es autoreporte. */
+  usuarioId?: string;
+}
+
 /** Una completada individual de un usuario, para que el tutor la pueda quitar. */
 export interface RegistroCompletadaDto {
   registroId: string;

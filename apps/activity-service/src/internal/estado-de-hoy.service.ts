@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import {
   AlcanceActividad,
+  ComportamientoAlCierre,
   EstadoSeccion,
   EstadoSesion,
   type ActividadDeHoyInternaDto,
@@ -186,6 +187,27 @@ export class EstadoDeHoyInternoService {
   ): string | null {
     if (esDeEquipo) {
       return 'la marca el jefe del equipo, no se registra de a uno';
+    }
+
+    // La PRIMERA regla que valida `completar` (ObligatoriaNoSeCompletaException)
+    // y la única que faltaba acá — se encontró al escribir `proponer_anotar`
+    // (fase-14-31 tanda 6), que es lo que pasa cuando se lee un campo con una
+    // pregunta nueva encima: `puedeMarcarHizo` decía `true` para una obligatoria
+    // que el endpoint rechaza siempre.
+    //
+    // Una OBLIGATORIA no se marca como hecha: no hacer nada ES su estado de
+    // cumplida, y el puntaje se resuelve al cerrar. La excepción es la que pide
+    // confirmación explícita, que sí entra por este mismo endpoint.
+    if (
+      fila.tipoPuntaje === TipoPuntaje.OBLIGATORIA &&
+      fila.comportamientoAlCierre !== ComportamientoAlCierre.REQUIERE_CONFIRMACION
+    ) {
+      return 'las obligatorias no se marcan como hechas: se dan por cumplidas al cerrar el día';
+    }
+
+    // La que sí pide confirmación no se confirma dos veces.
+    if (fila.tipoPuntaje === TipoPuntaje.OBLIGATORIA && fila.confirmada) {
+      return 'ya está confirmada hoy';
     }
 
     if (fila.denegada) {

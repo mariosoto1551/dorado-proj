@@ -177,6 +177,11 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
         // que escribe en un ledger, y sigue proponiendo: lo que la hace segura
         // no es el verbo del nombre sino que no tiene con qué aplicarla.
         'proponer_ajustes_manuales',
+        // fase-14-31 tanda 6 — familia de anotaciones. Va separada de la de
+        // quitar marcas (decisión 7): lo que agrega y lo que quita nunca
+        // comparten tarjeta, para que la ceremonia del borrado siga
+        // significando algo.
+        'proponer_anotar',
       ]);
 
       for (const nombre of NOMBRES_HERRAMIENTAS_PROPUESTA) {

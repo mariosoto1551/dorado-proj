@@ -25,6 +25,7 @@ import {
   esquemaArchivar,
   esquemaAsignarEtiquetas,
   esquemaAsignarRol,
+  esquemaCompletar,
   esquemaConfiguracionScoring,
   esquemaConfigurarTurno,
   esquemaCrearActividad,
@@ -43,7 +44,9 @@ import {
   esquemaEditarRol,
   esquemaEditarUmbral,
   esquemaGuardarBolsa,
+  esquemaNoHizo,
   esquemaQuitarMarca,
+  esquemaRegistrarConducta,
   esquemaRendimientos,
   esquemaSustituirJefe,
   explicarError,
@@ -257,6 +260,9 @@ export class PropuestasService {
 
       case 'proponer_ajustes_manuales':
         return await this.armarAjustesManuales(argumentos, contexto, conversacionId);
+
+      case 'proponer_anotar':
+        return await this.armarAnotar(argumentos, contexto, conversacionId);
 
       default:
         return { ok: false, error: `No existe una herramienta llamada "${nombreHerramienta}".` };
@@ -2377,6 +2383,228 @@ export class PropuestasService {
       'AJUSTES_MANUALES',
       operaciones,
       { ajustados: snapshot },
+      contexto,
+      conversacionId
+    );
+  }
+
+  /**
+   * Anotar lo del día (fase-14-31 tanda 6).
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * ESTA FAMILIA NO REPLICA NINGUNA REGLA, Y ESO ES LA DECISIÓN, NO UN ATAJO.
+   *
+   * Qué se le puede marcar hoy a quién depende de cinco ítems de reglas de
+   * visibilidad —días programados (#11), plan del día (#17), rol (#19), turno
+   * (#21) y contenido de integrante (#10)—, más las del propio `completar`. Ya
+   * están resueltas dos veces: en el endpoint que las hace cumplir y en la
+   * pantalla del Tutor. **Escribirlas acá sería la tercera copia**, y la que se
+   * desactualizaría primero, porque es la única que nadie mira cuando cambia
+   * una regla.
+   *
+   * Por eso `estado_de_hoy` las manda resueltas (`puedeMarcarHizo`,
+   * `puedeMarcarNoHizo`, `motivoNoDisponible`) y este armador **solo las lee**.
+   * Lo que sí es trabajo suyo es lo que la lectura no puede saber: que la
+   * propuesta no se contradiga a sí misma —dos filas que juntas se pasan del
+   * cupo del día—, porque eso depende del estado que la propuesta va dejando y
+   * no del que encontró.
+   *
+   * La otra mitad del trabajo es la traducción: el catálogo le habla al modelo
+   * de `participanteId` y el contrato de activity espera `usuarioId` en el body
+   * (ver la nota de `definiciones-propuesta.ts`).
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  private async armarAnotar(
+    argumentos: Record<string, unknown>,
+    contexto: ContextoHerramienta,
+    conversacionId: string
+  ): Promise<ResultadoArmado> {
+    const filas = this.arrayDe(argumentos, 'anotaciones');
+
+    if (filas.length === 0) {
+      return { ok: false, error: 'Mandá al menos una fila en "anotaciones".' };
+    }
+
+    const [estado, conductas] = await Promise.all([
+      this.activity.estadoDeHoy(contexto.grupoId),
+      this.activity.conductas(contexto.grupoId, 'ACTIVA'),
+    ]);
+
+    if (!estado.sesionAbierta) {
+      return {
+        ok: false,
+        error:
+          'no hay ninguna sesión abierta en este grupo, así que hoy no se puede anotar nada. ' +
+          'Decíselo al Tutor: primero abre la sesión del día desde la app.',
+      };
+    }
+
+    const porParticipante = new Map(
+      estado.participantes.map((participante) => [participante.usuarioId, participante])
+    );
+    const porConducta = new Map(conductas.map((conducta) => [conducta.id, conducta]));
+    const operaciones: OperacionPropuesta[] = [];
+    const snapshot: Array<{ participanteId: string; tipo: string; id: string }> = [];
+    // Lo que la propuesta ya se comprometió a marcar, para que el cupo del día
+    // se cuente contra el estado RESULTANTE y no contra el que se leyó.
+    const marcadasEnEstaPropuesta = new Map<string, number>();
+
+    for (const [indice, fila] of filas.entries()) {
+      const { participanteId, tipo, id, motivo } = limpiarVacios(
+        fila as Record<string, unknown>,
+        true
+      );
+      const persona =
+        typeof participanteId === 'string' ? porParticipante.get(participanteId) : undefined;
+
+      if (!persona) {
+        return {
+          ok: false,
+          error:
+            `anotaciones.${indice}.participanteId: no hay ningún participante con ese id en ` +
+            'este grupo. Llamá a estado_de_hoy y usá un usuarioId de ahí.',
+        };
+      }
+
+      if (tipo !== 'HIZO' && tipo !== 'NO_HIZO' && tipo !== 'CONDUCTA') {
+        return {
+          ok: false,
+          error: `anotaciones.${indice}.tipo: tiene que ser HIZO, NO_HIZO o CONDUCTA.`,
+        };
+      }
+
+      if (typeof id !== 'string' || !this.esUuid(id)) {
+        return { ok: false, error: `anotaciones.${indice}.id: falta el id o no es un uuid.` };
+      }
+
+      if (tipo === 'CONDUCTA') {
+        const conducta = porConducta.get(id);
+
+        if (!conducta) {
+          return {
+            ok: false,
+            error:
+              `anotaciones.${indice}.id: no hay ninguna conducta activa con ese id en este ` +
+              'grupo. Sacá el id de listar_conductas.',
+          };
+        }
+
+        const parseado = esquemaRegistrarConducta.safeParse({ usuarioId: persona.usuarioId });
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('anotaciones', indice, parseado.error) };
+        }
+
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'POST',
+          ruta: `/activity/conductas/${id}/registrar`,
+          body: parseado.data,
+          // El signo lo decide el tipo de conducta y no el número: `valorPuntos`
+          // es positivo en las dos, y es scoring el que resta cuando es MALA.
+          etiqueta:
+            `${persona.nombre}: registrarle «${conducta.nombre}» — ` +
+            (conducta.tipo === 'MALA'
+              ? `le resta ${conducta.valorPuntos} puntos`
+              : `le suma ${conducta.valorPuntos} puntos`),
+        });
+        snapshot.push({ participanteId: persona.usuarioId, tipo, id });
+        continue;
+      }
+
+      const actividad = persona.actividades.find((candidata) => candidata.actividadId === id);
+
+      if (!actividad) {
+        return {
+          ok: false,
+          error:
+            `anotaciones.${indice}.id: «${id}» no está entre las actividades de hoy de ` +
+            `${persona.nombre}. Fijate en estado_de_hoy qué tiene cada uno: la lista es por ` +
+            'persona, no del grupo.',
+        };
+      }
+
+      if (tipo === 'NO_HIZO') {
+        if (!actividad.puedeMarcarNoHizo) {
+          return {
+            ok: false,
+            error:
+              `anotaciones.${indice}: «${actividad.nombre}» no se le puede marcar como no hecha ` +
+              `a ${persona.nombre}. Solo las obligatorias se marcan así, y no se apila una marca ` +
+              'sobre otra viva — para eso está deshacer la que ya está.',
+          };
+        }
+
+        const parseado = esquemaNoHizo.safeParse({ usuarioId: persona.usuarioId, motivo });
+
+        if (!parseado.success) {
+          return { ok: false, error: this.errorDeFila('anotaciones', indice, parseado.error) };
+        }
+
+        operaciones.push({
+          opId: `op-${operaciones.length + 1}`,
+          metodo: 'POST',
+          ruta: `/activity/actividades/${id}/no-hizo`,
+          body: parseado.data,
+          etiqueta:
+            `${persona.nombre}: marcar «${actividad.nombre}» como NO hecha — ` +
+            `le resta ${actividad.valorPuntos} puntos`,
+        });
+        snapshot.push({ participanteId: persona.usuarioId, tipo, id });
+        continue;
+      }
+
+      // HIZO. El motivo de la lectura viaja tal cual al modelo: es más útil que
+      // cualquier cosa que se pueda escribir acá sin conocer la regla que falló.
+      if (!actividad.puedeMarcarHizo) {
+        return {
+          ok: false,
+          error:
+            `anotaciones.${indice}: hoy no se le puede marcar «${actividad.nombre}» como hecha ` +
+            `a ${persona.nombre} — ${actividad.motivoNoDisponible ?? 'no está disponible'}. ` +
+            'Contáselo al Tutor con esas palabras en vez de insistir.',
+        };
+      }
+
+      const clave = `${persona.usuarioId}:${id}`;
+      const yaPropuestas = marcadasEnEstaPropuesta.get(clave) ?? 0;
+
+      // Lo único que `estado_de_hoy` no podía saber: cuántas veces la está
+      // marcando esta misma propuesta. Sin esto, tres filas de una actividad
+      // que admite una sola se guardan y fallan dos al aplicar.
+      if (yaPropuestas >= actividad.vecesQueAdmite) {
+        return {
+          ok: false,
+          error:
+            `anotaciones.${indice}: ya estás marcando «${actividad.nombre}» ${yaPropuestas} ` +
+            `vez/veces para ${persona.nombre} en esta misma propuesta, y hoy admite ` +
+            `${actividad.vecesQueAdmite}.`,
+        };
+      }
+
+      const parseado = esquemaCompletar.safeParse({ usuarioId: persona.usuarioId });
+
+      if (!parseado.success) {
+        return { ok: false, error: this.errorDeFila('anotaciones', indice, parseado.error) };
+      }
+
+      marcadasEnEstaPropuesta.set(clave, yaPropuestas + 1);
+      operaciones.push({
+        opId: `op-${operaciones.length + 1}`,
+        metodo: 'POST',
+        ruta: `/activity/actividades/${id}/completar`,
+        body: parseado.data,
+        etiqueta:
+          `${persona.nombre}: marcar «${actividad.nombre}» como hecha — ` +
+          `le suma ${actividad.valorPuntos} puntos`,
+      });
+      snapshot.push({ participanteId: persona.usuarioId, tipo, id });
+    }
+
+    return await this.guardar(
+      'ANOTAR_REGISTROS',
+      operaciones,
+      { anotaciones: snapshot },
       contexto,
       conversacionId
     );

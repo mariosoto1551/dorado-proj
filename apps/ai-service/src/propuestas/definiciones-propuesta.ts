@@ -1255,6 +1255,69 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
       additionalProperties: false,
     },
   },
+  {
+    nombre: 'proponer_anotar',
+    descripcion:
+      `Propone anotar lo que pasó HOY: marcar una actividad como hecha, marcar una obligatoria ` +
+      `como no hecha, o registrarle una conducta a alguien. ${NO_APLICA} ` +
+      'Llamá SIEMPRE a estado_de_hoy antes: de ahí salen los actividadId, y ahí está resuelto ' +
+      'qué se le puede marcar hoy a cada uno y por qué no cuando no se puede (`puedeMarcarHizo`, ' +
+      '`puedeMarcarNoHizo`, `motivoNoDisponible`). No propongas lo que esa lectura dice que no ' +
+      'se puede: contale al Tutor el motivo que ella te dio. ' +
+      'Las conductas son otra cosa: su id sale de listar_conductas y se pueden registrar ' +
+      'siempre, no dependen de la lista del día. ' +
+      'Sin sesión abierta no se anota nada. Y esto NO sirve para corregir un día ya cerrado.',
+    parametros: {
+      type: 'object',
+      properties: {
+        anotaciones: {
+          type: 'array',
+          description: 'Una fila por cosa a anotar. Entre 1 y 50 por propuesta.',
+          items: {
+            type: 'object',
+            description: 'Algo que hizo o no hizo una persona hoy.',
+            properties: {
+              participanteId: uuidDe(
+                'la persona (el usuarioId que devuelve la lectura)',
+                'estado_de_hoy',
+                'listar_participantes'
+              ),
+              tipo: {
+                type: 'string',
+                description:
+                  'HIZO marca la actividad como hecha y suma. NO_HIZO la marca como no hecha y ' +
+                  'RESTA — solo vale sobre obligatorias. CONDUCTA registra una conducta, que ' +
+                  'suma o resta según sea buena o mala.',
+                enum: ['HIZO', 'NO_HIZO', 'CONDUCTA'],
+              },
+              id: uuidDe(
+                'la actividad (con HIZO o NO_HIZO) o la conducta (con CONDUCTA)',
+                'estado_de_hoy',
+                'listar_conductas'
+              ),
+              motivo: {
+                type: 'string',
+                description:
+                  'Por qué no la hizo. Solo se usa con NO_HIZO. **Lo lee el integrante en su ' +
+                  'pantalla**, así que escribilo para él, en una línea y sin reproches. ' +
+                  'Máximo 200.',
+              },
+            },
+            required: ['participanteId', 'tipo', 'id'],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: 50,
+        },
+        resumen: {
+          type: 'string',
+          description: 'Una línea con qué se está anotando y de dónde salió.',
+        },
+      },
+      required: ['anotaciones'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export const NOMBRES_HERRAMIENTAS_PROPUESTA: readonly string[] = HERRAMIENTAS_PROPUESTA.map(

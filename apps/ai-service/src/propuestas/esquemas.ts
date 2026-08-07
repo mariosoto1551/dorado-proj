@@ -9,6 +9,7 @@ import {
   AsignarRolGrupoRequest,
   ActualizarRolGrupoRequest,
   ComportamientoAlCierre,
+  CompletarActividadRequest,
   CrearEquipoRequest,
   CrearRolGrupoRequest,
   EditarEquipoRequest,
@@ -31,6 +32,8 @@ import {
   GuardarConfiguracionScoringRequest,
   MecanicaProducto,
   ModoTurno,
+  RegistrarConductaRequest,
+  RegistrarNoHizoRequest,
   SustituirJefeEquipoRequest,
   TipoAccionRendimiento,
   TipoConducta,
@@ -380,6 +383,29 @@ const ajusteMonedas = z
   })
   .strict();
 
+/**
+ * Anotar lo del día (fase-14-31 tanda 6).
+ *
+ * Los tres son casi el mismo objeto y no se factorizan en uno solo a propósito:
+ * **`usuarioId` es obligatorio en el del medio y opcional en los otros dos**, y
+ * eso no es una inconsistencia del contrato sino su regla más importante —
+ * `completar` y `registrar` los puede llamar el propio integrante (ahí el campo
+ * se ignora y se fuerza a sí mismo), y un «no hizo» siempre lo registra un
+ * Tutor sobre otra persona. Un esquema compartido con el campo opcional
+ * dejaría pasar un `no-hizo` sin destinatario, que es un 400 del destino.
+ *
+ * En las tres propuestas del asistente el campo viene SIEMPRE, obligatorio o
+ * no: nunca hay autoreporte de por medio, porque quien habla con el asistente
+ * es un Tutor (decisión 3 del #29).
+ */
+const completarActividad = z.object({ usuarioId: uuid.optional() }).strict();
+
+const registrarNoHizo = z
+  .object({ usuarioId: uuid, motivo: z.string().trim().min(1).max(200).optional() })
+  .strict();
+
+const registrarConducta = z.object({ usuarioId: uuid.optional() }).strict();
+
 const rendimientos = z
   .object({
     rendimientos: z
@@ -516,6 +542,18 @@ type _AjusteMonedasCompleto = Exhaustivo<
   ClavesNoCubiertas<AjustarMonedasRequest, z.infer<typeof ajusteMonedas>>
 >;
 
+type _CompletarCompleto = Exhaustivo<
+  ClavesNoCubiertas<CompletarActividadRequest, z.infer<typeof completarActividad>>
+>;
+
+type _NoHizoCompleto = Exhaustivo<
+  ClavesNoCubiertas<RegistrarNoHizoRequest, z.infer<typeof registrarNoHizo>>
+>;
+
+type _RegistrarConductaCompleto = Exhaustivo<
+  ClavesNoCubiertas<RegistrarConductaRequest, z.infer<typeof registrarConducta>>
+>;
+
 export const esquemaCrearActividad: z.ZodType<CrearActividadRequest> = crearActividad;
 
 export const esquemaEditarActividad: z.ZodType<EditarActividadRequest> = editarActividad;
@@ -572,6 +610,12 @@ export const esquemaRendimientos: z.ZodType<ConfigurarRendimientosAccionesReques
 export const esquemaAjustePuntos: z.ZodType<AjustarPuntosRequest> = ajustePuntos;
 
 export const esquemaAjusteMonedas: z.ZodType<AjustarMonedasRequest> = ajusteMonedas;
+
+export const esquemaCompletar: z.ZodType<CompletarActividadRequest> = completarActividad;
+
+export const esquemaNoHizo: z.ZodType<RegistrarNoHizoRequest> = registrarNoHizo;
+
+export const esquemaRegistrarConducta: z.ZodType<RegistrarConductaRequest> = registrarConducta;
 
 /**
  * Los dos únicos esquemas del archivo **sin `z.ZodType<Contrato>`**, y no es un

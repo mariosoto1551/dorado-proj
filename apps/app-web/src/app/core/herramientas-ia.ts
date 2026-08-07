@@ -53,6 +53,7 @@ const PROPUESTAS: Record<string, string> = {
   proponer_archivar: 'una propuesta de qué archivar',
   proponer_quitar_marcas: 'una propuesta de marcas a quitar',
   proponer_ajustes_manuales: 'una propuesta de puntos y monedas a mano',
+  proponer_anotar: 'una propuesta de qué anotar hoy',
 };
 
 export type EstadoHerramienta = 'corriendo' | 'ok' | 'error';

@@ -891,6 +891,9 @@ describe('PropuestasService', () => {
       proponer_ajustes_manuales: {
         ajustes: [{ participanteId: USUARIO_ID, puntos: 10, motivo: 'ayudó con la mudanza' }],
       },
+      proponer_anotar: {
+        anotaciones: [{ participanteId: USUARIO_ID, tipo: 'HIZO', id: ACTIVIDAD_OPCIONAL_ID }],
+      },
     };
 
     it('la tabla cubre TODAS las herramientas de propuesta del catálogo', () => {
@@ -1311,6 +1314,213 @@ describe('PropuestasService', () => {
 
       expect(resultado).toMatchObject({ ok: false });
       expect((resultado as { error: string }).error).toContain('listar_participantes');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * FAMILIA DE ANOTACIONES (fase-14-31 tanda 6).
+   *
+   * Es la familia que MENOS reglas tiene escritas en el armador, y eso es lo
+   * que hay que cuidar: las reglas viven en `estado_de_hoy` y acá solo se leen.
+   * Estos tests verifican las dos mitades de esa decisión — que el armador
+   * OBEDECE lo que la lectura resolvió (y le devuelve al modelo el motivo con
+   * esas palabras), y que se ocupa de lo único que la lectura no podía saber:
+   * que la propuesta no se contradiga a sí misma.
+   */
+  describe('anotar lo del día', () => {
+    it('marcar una hecha traduce participanteId → usuarioId en el body', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        { anotaciones: [{ participanteId: USUARIO_ID, tipo: 'HIZO', id: ACTIVIDAD_OPCIONAL_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(creadas[0]['tipo']).toBe('ANOTAR_REGISTROS');
+      expect(operaciones[0]).toMatchObject({
+        metodo: 'POST',
+        ruta: `/activity/actividades/${ACTIVIDAD_OPCIONAL_ID}/completar`,
+        // El catálogo le habla al modelo de `participanteId`; el contrato de
+        // activity espera `usuarioId`. La traducción es trabajo del armador.
+        body: { usuarioId: USUARIO_ID },
+      });
+      expect(operaciones[0].etiqueta).toContain('le suma 5 puntos');
+    });
+
+    it('marcar una NO hecha lleva el motivo en el body y dice que resta', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        {
+          anotaciones: [
+            {
+              participanteId: USUARIO_ID,
+              tipo: 'NO_HIZO',
+              id: ACTIVIDAD_ID,
+              motivo: 'se fue a jugar',
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones[0]).toMatchObject({
+        ruta: `/activity/actividades/${ACTIVIDAD_ID}/no-hizo`,
+        body: { usuarioId: USUARIO_ID, motivo: 'se fue a jugar' },
+      });
+      // Agregar y quitar tienen sentidos opuestos y la etiqueta es lo que lo
+      // dice, igual que en la familia destructiva.
+      expect(operaciones[0].etiqueta).toContain('NO hecha');
+      expect(operaciones[0].etiqueta).toContain('le resta 10 puntos');
+    });
+
+    it('una conducta mala dice que resta, aunque su valor esté guardado en positivo', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        { anotaciones: [{ participanteId: USUARIO_ID, tipo: 'CONDUCTA', id: CONDUCTA_MALA_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones[0]).toMatchObject({
+        ruta: `/activity/conductas/${CONDUCTA_MALA_ID}/registrar`,
+        body: { usuarioId: USUARIO_ID },
+      });
+      expect(operaciones[0].etiqueta).toContain('le resta 5 puntos');
+    });
+
+    /** Criterio de aceptación 9 de la spec. */
+    it('lo que la lectura dice que hoy no se puede NO crea propuesta, con su motivo', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        { anotaciones: [{ participanteId: USUARIO_ID, tipo: 'HIZO', id: ACTIVIDAD_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      // El motivo vuelve al modelo con las palabras de la lectura: es más útil
+      // que cualquier cosa que el armador pueda escribir sin conocer la regla.
+      expect((resultado as { error: string }).error).toContain('hoy no es uno de sus días');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('una opcional no se marca como NO hecha', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        {
+          anotaciones: [
+            { participanteId: USUARIO_ID, tipo: 'NO_HIZO', id: ACTIVIDAD_OPCIONAL_ID },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('obligatorias');
+    });
+
+    it('dos filas que juntas se pasan del cupo del día no se guardan', async () => {
+      const { servicio, prisma } = crearMocks();
+
+      // «Leer un rato» admite una vez hoy. Cada fila sola es válida contra el
+      // estado leído: lo que las hace inválidas es la otra, y eso solo lo puede
+      // ver el armador.
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        {
+          anotaciones: [
+            { participanteId: USUARIO_ID, tipo: 'HIZO', id: ACTIVIDAD_OPCIONAL_ID },
+            { participanteId: USUARIO_ID, tipo: 'HIZO', id: ACTIVIDAD_OPCIONAL_ID },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('admite');
+      expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
+    });
+
+    it('una actividad que no está en la lista de HOY de esa persona se rechaza', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        { anotaciones: [{ participanteId: USUARIO_ID, tipo: 'HIZO', id: RECOMPENSA_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      // El error dice que la lista es por persona: es el malentendido probable.
+      expect((resultado as { error: string }).error).toContain('por persona');
+    });
+
+    it('una conducta que no existe se rechaza citando de dónde sale el id', async () => {
+      const { servicio } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        {
+          anotaciones: [
+            {
+              participanteId: USUARIO_ID,
+              tipo: 'CONDUCTA',
+              id: '12345678-1234-4234-8234-123456789012',
+            },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('listar_conductas');
+    });
+
+    it('sin sesión abierta no se anota nada', async () => {
+      const { servicio, activity, prisma } = crearMocks();
+
+      (activity.estadoDeHoy as unknown as Mock).mockResolvedValue({
+        sesionAbierta: false,
+        participantes: [],
+      });
+
+      const resultado = await servicio.armar(
+        'proponer_anotar',
+        { anotaciones: [{ participanteId: USUARIO_ID, tipo: 'HIZO', id: ACTIVIDAD_OPCIONAL_ID }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: false });
+      expect((resultado as { error: string }).error).toContain('sesión abierta');
       expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
     });
   });
