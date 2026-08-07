@@ -1,0 +1,262 @@
+# Stack COMPLETO para un servidor de casa: los 10 procesos backend (gateway + 8
+# servicios + ai-service), los 3 frontends y la infra, todo en una máquina de la
+# red local, corriendo 24/7 sin depender de internet ni de ninguna nube.
+#
+# Uso (ver docs/runbook-deploy-casa.md):
+#   cp infra/docker/.env.casa.example infra/docker/.env.casa   # y completar
+#   docker compose -f infra/docker/docker-compose.casa.yml \
+#     --env-file infra/docker/.env.casa up -d --build
+#
+# Diferencias con docker-compose.prod.yml (VPS + internet):
+#   - incluye ai-service y los 3 frontends (en el VPS los frontends van a Vercel),
+#   - sin Caddy con HTTPS ni dominio: es HTTP plano dentro de la red de casa, así
+#     que REFRESH_COOKIE_SECURE=false (la cookie httpOnly Secure no viaja por
+#     HTTP) y el Gateway va con CORS_ALLOW_LAN=true,
+#   - NADA se configura por IP: las apps derivan la URL del Gateway del host
+#     desde el que se abren, y el Gateway refleja cualquier origen de la red
+#     local (IP privada, `casa.local`, etc.). El servidor puede cambiar de IP y
+#     nada deja de andar.
+#
+# Puertos publicados (los mismos de CLAUDE.md): 3000 gateway · 4200 app-web ·
+# 4300 admin-web · 4321 public-site. Postgres y RabbitMQ NO se publican: solo se
+# los alcanza desde adentro de la red de contenedores.
+name: dorado-casa
+
+x-service-build: &build
+  context: ../..
+  dockerfile: infra/docker/Dockerfile.service
+
+x-web-build: &web-build
+  context: ../..
+  dockerfile: infra/docker/Dockerfile.web
+
+x-common-env: &common-env
+  GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+  JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-dorado}:${RABBITMQ_PASS}@rabbitmq:5672
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dorado}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # postgres:18 movió PGDATA bajo /var/lib/postgresql/<major>/ — el mount
+      # correcto para persistencia es /var/lib/postgresql, no .../data.
+      - pgdata:/var/lib/postgresql
+      # Crea las 9 bases (incluida ai_db) en el primer arranque.
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-dorado}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    <<: *restart
+    image: rabbitmq:4.3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-dorado}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    # La UI de management (15672) queda sin publicar. Para mirarla desde el
+    # servidor: descomentar `ports: ['127.0.0.1:15672:15672']`.
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ─────────────────────────── backend ───────────────────────────
+
+  identity-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: identity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3001'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/identity_db
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      # HTTP plano en la red de casa: una cookie Secure no viajaría y no habría
+      # forma de refrescar la sesión. Es la misma decisión que toma el "modo
+      # casa" de scripts/home-up.mjs.
+      REFRESH_COOKIE_SECURE: 'false'
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  billing-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: billing-service } }
+    environment:
+      <<: *common-env
+      PORT: '3002'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/billing_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  activity-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: activity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3003'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/activity_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  session-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: session-service } }
+    environment:
+      <<: *common-env
+      PORT: '3004'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/session_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  scoring-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: scoring-service } }
+    environment:
+      <<: *common-env
+      PORT: '3005'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/scoring_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  rewards-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: rewards-service } }
+    environment:
+      <<: *common-env
+      PORT: '3006'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/rewards_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notification-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: notification-service } }
+    environment:
+      <<: *common-env
+      PORT: '3007'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/notification_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  audit-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: audit-service } }
+    environment:
+      <<: *common-env
+      PORT: '3008'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/audit_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # Asistente de IA (fase-14-29). Va sin RABBITMQ_URL a propósito: no publica ni
+  # consume eventos (decisión 15 de esa fase). Sin OPENAI_API_KEY el servicio
+  # levanta igual y el asistente queda apagado — el resto del sistema no cambia.
+  ai-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: ai-service } }
+    environment:
+      PORT: '3009'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/ai_db
+      GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-terra}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  gateway:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: gateway } }
+    ports: ['3000:3000']
+    environment:
+      <<: *common-env
+      PORT: '3000'
+      # La lista explícita de orígenes queda en los valores de localhost porque
+      # en la red de casa el que manda es CORS_ALLOW_LAN: refleja cualquier
+      # origen local (IP privada, `casa.local`, un nombre solo). Por eso no hay
+      # que anotar la IP del servidor en ningún lado — ver proxy/cors-origin.ts.
+      APP_WEB_URL: ${APP_WEB_URL:-http://localhost:4200}
+      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-http://localhost:4321}
+      CORS_ALLOW_LAN: 'true'
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      SESSION_INTERNAL_URL: http://session-service:3004
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      NOTIFICATION_INTERNAL_URL: http://notification-service:3007
+      AUDIT_INTERNAL_URL: http://audit-service:3008
+      AI_INTERNAL_URL: http://ai-service:3009
+    depends_on:
+      - identity-service
+      - billing-service
+      - activity-service
+      - session-service
+      - scoring-service
+      - rewards-service
+      - notification-service
+      - audit-service
+      - ai-service
+
+  # ────────────────────────── frontends ──────────────────────────
+  # Estáticos servidos por Caddy. No hablan con el Gateway por la red de
+  # contenedores sino desde el navegador de cada celu/laptop, así que el puerto
+  # 3000 del gateway tiene que estar publicado (arriba).
+
+  app-web:
+    <<: *restart
+    build: { <<: *web-build, args: { APP: app-web } }
+    ports: ['4200:80']
+
+  admin-web:
+    <<: *restart
+    build: { <<: *web-build, args: { APP: admin-web } }
+    ports: ['4300:80']
+
+  public-site:
+    <<: *restart
+    build: { <<: *web-build, args: { APP: public-site } }
+    ports: ['4321:80']
+
+volumes:
+  pgdata:
+  rabbitmqdata:

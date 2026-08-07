@@ -1,0 +1,11 @@
+# Caddy para un sitio estático de verdad (public-site, Astro SSG).
+#
+# Sin fallback a index.html a propósito: Astro emite un .html por ruta, así que
+# una URL inexistente TIENE que dar 404 y no la home.
+#
+# Escucha en :80 dentro del contenedor; el compose mapea el puerto del host.
+:80 {
+	root * /srv
+	encode zstd gzip
+	file_server
+}

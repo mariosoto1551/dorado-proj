@@ -1,0 +1,78 @@
+# Dockerfile parametrizado para los TRES frontends estáticos (app-web,
+# admin-web, public-site). Compila el sitio y lo sirve con Caddy.
+#
+#   docker build -f infra/docker/Dockerfile.web \
+#     --build-arg APP=app-web -t dorado/app-web .
+#
+# Lo usa docker-compose.casa.yml (servidor de casa). Para el despliegue a
+# internet los frontends van a Vercel y esta imagen no interviene.
+#
+# Las dos SPAs de Angular se compilan con la configuración `casa`, que es la de
+# producción MENOS el `fileReplacements` de environment.prod.ts. Eso es lo que
+# hace que el mismo build sirva para cualquier equipo de la red: sin el
+# reemplazo queda el environment.ts que DERIVA la URL del Gateway del host desde
+# el que se abre la app (`http://<host>:3000/api`). Si se hiciera el build de
+# producción habría que hornear una URL fija y rehacer la imagen cada vez que el
+# router cambia la IP. Por la misma razón public-site se compila SIN
+# PUBLIC_GATEWAY_URL / PUBLIC_APP_WEB_URL: su island de registro también deriva
+# del host cuando no están definidas (ver apps/public-site/src/scripts/registro.ts).
+#
+# Contexto de build = raíz del repo (ver .dockerignore).
+
+# ───────────────────────── build ─────────────────────────
+FROM node:24-bookworm-slim AS builder
+
+# Mismos timeouts generosos que Dockerfile.service: el árbol del monorepo son
+# ~1700 paquetes y en redes lentas un fetch corto aborta el install.
+ENV npm_config_fetch_timeout=1200000 \
+    npm_config_fetch_retries=8 \
+    npm_config_fetch_retry_maxtimeout=1200000 \
+    npm_config_fetch_retry_mintimeout=10000 \
+    npm_config_network_concurrency=3 \
+    PNPM_HOME=/pnpm
+RUN corepack enable && corepack prepare pnpm@11 --activate
+WORKDIR /repo
+
+# Capa de install cacheable: primero SOLO los manifiestos, después el código.
+# Es la misma secuencia que Dockerfile.service, así los tres frontends y los
+# diez servicios comparten esta capa en el build local.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --frozen-lockfile
+
+COPY . .
+
+ARG APP
+RUN test -n "$APP" || (echo "Falta --build-arg APP" && exit 1)
+
+# Angular deja el sitio en dist/apps/<app>/browser; Astro, en apps/public-site/dist.
+# Se normalizan a /sitio para que la etapa de runtime sea una sola.
+RUN case "$APP" in \
+      app-web|admin-web) \
+        pnpm nx build "$APP" --configuration=casa && \
+        cp -r "dist/apps/$APP/browser" /sitio ;; \
+      public-site) \
+        pnpm nx build public-site && \
+        cp -r apps/public-site/dist /sitio ;; \
+      *) \
+        echo "APP inválida: '$APP' (esperaba app-web | admin-web | public-site)" && exit 1 ;; \
+    esac
+
+# ──────────────────────── runtime ────────────────────────
+FROM caddy:2 AS runtime
+
+ARG APP
+COPY --from=builder /sitio /srv
+
+# Angular necesita fallback a index.html (routing del lado del cliente); Astro
+# ya emite un .html por ruta y no debe tenerlo, o un 404 real devolvería la home.
+COPY infra/docker/Caddyfile.spa /etc/caddy/Caddyfile.spa
+COPY infra/docker/Caddyfile.estatico /etc/caddy/Caddyfile.estatico
+RUN if [ "$APP" = 'public-site' ]; then \
+      cp /etc/caddy/Caddyfile.estatico /etc/caddy/Caddyfile ; \
+    else \
+      cp /etc/caddy/Caddyfile.spa /etc/caddy/Caddyfile ; \
+    fi
+
+EXPOSE 80

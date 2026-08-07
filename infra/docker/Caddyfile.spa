@@ -1,0 +1,13 @@
+# Caddy para una SPA de Angular ya compilada (app-web / admin-web).
+#
+# `try_files … /index.html` es el equivalente del rewrite de los vercel.json:
+# cualquier ruta que no exista como archivo la resuelve el router de Angular en
+# el cliente. Sin esto, recargar la página en /tutor/actividades daría 404.
+#
+# Escucha en :80 dentro del contenedor; el compose mapea el puerto del host.
+:80 {
+	root * /srv
+	encode zstd gzip
+	try_files {path} /index.html
+	file_server
+}

@@ -21,6 +21,7 @@ import type {
 } from '@dorado/shared-types';
 import { EstadoVacioComponent } from '@dorado/shared-ui';
 
+import { BotonDictadoComponent } from '../../../componentes/boton-dictado.component';
 import { EncabezadoPaginaComponent } from '../../../componentes/encabezado-pagina.component';
 import { IconoComponent } from '../../../componentes/icono.component';
 import { ToastService } from '../../../componentes/toast.service';
@@ -74,6 +75,7 @@ const SUGERENCIAS = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    BotonDictadoComponent,
     EncabezadoPaginaComponent,
     EstadoVacioComponent,
     IconoComponent,
@@ -200,6 +202,8 @@ const SUGERENCIAS = [
             [disabled]="ocupado()"
             (keydown)="alTeclear($event)"
           ></textarea>
+          <!-- fase-14-32: llena el borrador; enviar sigue siendo del Tutor. -->
+          <app-boton-dictado [(texto)]="borrador" [deshabilitado]="ocupado()" />
           <button
             type="submit"
             class="boton boton-primario shrink-0"

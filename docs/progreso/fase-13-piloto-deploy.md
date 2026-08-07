@@ -93,6 +93,41 @@ y que la familia acceda desde sus celulares/laptops por el **WiFi de casa**
 - Cookie de refresh con `REFRESH_COOKIE_SECURE=false` en LAN (http). Gateway
   build verificado tras el cambio de CORS.
 
+### Servidor de casa containerizado (2026-08-07)
+
+`scripts/home-up.mjs` resuelve el "modo casa" desde el código y muere al cerrar
+la terminal. Para dejarlo corriendo 24/7 en una máquina de la red (que es lo que
+José pidió) se agregó una tercera variante de despliegue, sin tocar las dos que
+ya existían (VPS y Render):
+
+- **`infra/docker/docker-compose.casa.yml`**: el sistema completo en
+  contenedores — los 10 procesos backend (**incluido `ai-service`**, que no está
+  en `stack.yml`/`prod.yml`), los 3 frontends, Postgres y RabbitMQ. Con
+  `restart: unless-stopped` (arranca con la máquina, sin systemd), volúmenes
+  persistentes, y Postgres/RabbitMQ sin publicar puertos.
+- **`infra/docker/Dockerfile.web`** + `Caddyfile.spa` / `Caddyfile.estatico`:
+  imagen parametrizada por `--build-arg APP` que compila un frontend y lo sirve
+  con Caddy. Las SPAs de Angular llevan fallback a `index.html`; public-site no
+  (Astro emite un `.html` por ruta y un 404 tiene que ser un 404).
+- **Configuración de build `casa`** en `apps/app-web/project.json` y
+  `apps/admin-web/project.json`: la de producción **sin** el `fileReplacements`
+  de `environment.prod.ts`. Es la pieza que hace que el mismo build sirva para
+  cualquier dirección del servidor — sobrevive el `environment.ts` que deriva la
+  URL del Gateway de `window.location`. Con la config de producción habría que
+  hornear una IP y rehacer la imagen cada vez que el router renueva el DHCP.
+- **Cero configuración de dirección**: `CORS_ALLOW_LAN=true` en el Gateway ya
+  refleja IPs privadas, `*.local`/`*.lan` y nombres de una etiqueta, así que
+  `APP_WEB_URL`/`PUBLIC_SITE_URL` quedan en sus defaults de localhost y no hay
+  ninguna IP anotada en ningún archivo.
+- **`infra/docker/.env.casa.example`** (5 secretos, `OPENAI_API_KEY` opcional) y
+  **`docs/runbook-deploy-casa.md`** (runbook completo, con notas por distro para
+  Ubuntu/Mint/Alpine/Raspberry).
+
+Sigue pendiente y **fuera del alcance de este corte**: `ai-service` tampoco está
+en `docker-compose.stack.yml`, `docker-compose.prod.yml`, `docker-compose.images.yml`
+ni en el matrix de `.github/workflows/images.yml`. El despliegue a internet
+sigue sin asistente de IA.
+
 ## Verificación hecha en esta sesión
 
 - **app-web build de producción**: `nx build app-web --configuration=production`

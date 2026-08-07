@@ -2923,3 +2923,170 @@ herramienta pasó a decir la verdad nueva («omitilo o mandá 0») en vez de un
 **Verificación:** `ai-service` test, lint y build verdes — 302 tests (los tres
 nuevos de esta corrección reemplazan al que solo afirmaba que un 0 no crea
 propuesta, que seguía siendo cierto y ya no era la razón).
+
+---
+
+## Ítem 32: Dictado por voz en el asistente — COMPLETADO (2026-08-07)
+
+**Spec:** `docs/phases/fase-14-32-dictado-por-voz.md`, escrita en la misma sesión y antes del código.
+
+**El pedido de José:** *«un conversor de voz a texto para la IA, para que en el asistente se pueda hablar, algo barato y simple, o no se puede?»*.
+
+**Lo que se entregó:** un botón de micrófono en la pantalla del asistente que
+llena el borrador dictando. Un archivo nuevo
+(`componentes/boton-dictado.component.ts`), un ícono (`microfono`) y una línea
+en `asistente.page.ts`. **Es el primer ítem de toda la Fase 14 que no toca
+ningún backend**: cero endpoints, cero migraciones, cero DTOs, cero eventos.
+
+### La decisión que define el ítem, y la que se descartó
+
+La transcripción la hace **el navegador** (Web Speech API), no el proveedor de
+IA. Costo cero, no consume la cuota de tokens, y `ai-service` no se entera de
+que este ítem existe.
+
+La alternativa —transcribir en el servidor vía el proveedor— se evaluó y se
+descartó, y **no por el precio de la transcripción**, que es bajo. Se descartó
+por las tres piezas que arrastra, que son decisiones de producto y no de
+implementación:
+
+1. La cuota del asistente se mide en **tokens** (decisión 8 del #29) y el audio
+   se factura **por minuto**. No hay conversión honesta entre las dos unidades:
+   habría que decidir si es cuota aparte, si se convierte, o si es gasto que la
+   organización no ve.
+2. `Mensaje.costoMicroUsd` guarda el costo por turno. Una transcripción **no es
+   un `Mensaje`**, así que su costo no tiene dónde vivir sin una tabla o una
+   columna nueva.
+3. El `rate-limit-ia` del Gateway cuenta **requests**, no minutos de audio:
+   dentro del límite actual entran audios de diez minutos.
+
+Queda como camino de salida si el dictado del navegador resulta insuficiente en
+uso real, y entonces con spec propia.
+
+### Lo que este ítem deja como precedente
+
+**Por qué igual lleva spec siendo tan chico.** El #27 se ejecutó sin
+`fase-14-NN-*.md` propio porque era *una vista nueva sobre datos que ya
+viajaban* y no tenía nada que decidir; dejó escrito «no sentar precedente: en
+cuanto un ítem toque backend, vuelve la spec antes del código». Éste **no toca
+backend** y aun así la lleva, porque tiene seis decisiones —entre ellas si el
+dictado obliga a volver a pedir el consentimiento de IA— que quedarían tomadas
+sin que nadie las tomara. *Lo que decide si hace falta spec no es el tamaño del
+diff, es cuántas cosas quedarían decididas sin que nadie las haya decidido.*
+
+**El consentimiento no se amplió, y es una decisión y no un olvido.** El
+`AVISO_IA_VERSION_VIGENTE` cubre mandarle **datos del Grupo** al proveedor; el
+dictado manda **la voz del propio Tutor** a su navegador, que además pide
+permiso de micrófono por su cuenta —consentimiento por usuario, revocable, más
+granular que el nuestro—. Subir la versión obligaría a **todas** las
+organizaciones a re-aceptar (el mecanismo de la decisión 11 del #31) por una
+función que la mayoría no va a apretar nunca. **Si mañana el dictado pasa al
+servidor, cambia el destinatario del audio y el aviso tiene que crecer.**
+
+### Lo que encontró el primer intento de probarlo (2026-08-07, mismo día)
+
+José levantó el dev server y entró desde `http://192.168.1.12:4200` para probar
+desde el celular. Chrome le mostró la opción de micrófono **deshabilitada** —no
+denegada, deshabilitada—, y su diagnóstico fue el correcto: *«quizás porque no
+es página segura»*.
+
+**Lo que pasa:** el micrófono solo existe en un **contexto seguro** (HTTPS, o
+`localhost`/`127.0.0.1`, que el navegador trata como confiables aunque sean
+HTTP). Una IP de LAN por HTTP no califica.
+
+**El defecto que eso destapó, y es de código:** en un contexto inseguro el
+constructor `webkitSpeechRecognition` **existe igual**. O sea que la detección
+de la decisión 3 daba `true`, el botón se dibujaba, la sesión moría con
+`not-allowed`, y el toast decía «habilitalo en tu navegador» — mandando a
+habilitar un permiso que el navegador tiene deshabilitado justamente por el
+protocolo. **Un consejo imposible de seguir es peor que ningún consejo**, y es
+exactamente lo que la decisión 3 existe para evitar.
+
+**El arreglo** (`contextoSeguro()`, junto a `constructorDisponible()`): el botón
+solo se renderiza si además `window.isSecureContext !== false`. Se compara
+contra `false` y no se pide `=== true` para que un navegador viejo que no
+implemente la propiedad no quede sin dictado por no poder responder la pregunta.
+No es una excepción a la decisión 3 sino **la misma regla aplicada a un caso que
+la spec no había enumerado**: no tenerlo es no tenerlo, aunque el motivo sea el
+protocolo y no el navegador. En producción `app-web` va por HTTPS, así que esto
+es siempre `true` y el comportamiento no cambia para nadie.
+
+**Lo que enseña:** *la presencia de una API no es lo mismo que su
+disponibilidad.* La feature detection preguntó si el constructor existía —que es
+la pregunta que se enseña— cuando la pregunta útil era si la sesión puede
+arrancar. Vale para cualquier API con permisos: cámara, geolocalización,
+notificaciones, portapapeles. Y ninguna de las 17 unitarias lo podía encontrar,
+porque el entorno de test no es inseguro: hizo falta abrir la app desde un
+teléfono.
+
+**Salida operativa para probar desde el celular** (no es un cambio de código):
+port forwarding de Chrome DevTools —`chrome://inspect/#devices` → *Port
+forwarding*, con **dos** reglas, `4200 → localhost:4200` y
+`3000 → localhost:3000`— y entrar desde el celular a `http://localhost:4200`.
+Las dos reglas son necesarias por cómo está armado `environment.ts`, que deriva
+`apiBaseUrl` del host de la página: entrando por `localhost`, la app le pega al
+Gateway en `http://localhost:3000/api` y el segundo forward es el que lo lleva a
+la PC. Alternativa rápida:
+`chrome://flags/#unsafely-treat-insecure-origin-as-secure` con la IP.
+
+Lo que **no** conviene es `--ssl` en el dev server: como `apiBaseUrl` copia el
+`protocol` de la página, un frontend en `https://…:4200` le pegaría a
+`https://…:3000/api`, y el Gateway no habla TLS. Serían certificados en los dos
+lados para probar un botón.
+
+### Desviaciones de la spec
+
+1. **Las clases del botón.** La spec (Parte A) decía `.boton .boton-neutro`
+   apagado y `.boton .boton-peligro` escuchando. Al maquetarlo apareció que las
+   dos llevan `border` y la del botón de enviar (`.boton-primario`) no, así que
+   el micrófono quedaba **2px más alto** que su vecino en una fila con
+   `items-end`. Se reemplazaron por clases sin borde, y de paso el estado
+   «escuchando» pasó a ser **rojo lleno** en vez de contorneado: es la
+   diferencia entre «hay un botón rojo» y «esto está grabando». Sin efecto sobre
+   ninguna decisión ni criterio de aceptación.
+2. **La detección incluye el contexto seguro**, que la Parte A no mencionaba
+   (ver la sección de arriba). Amplía la decisión 3 en vez de contradecirla, y
+   el criterio de aceptación 5 sigue valiendo tal cual — solo tiene una segunda
+   forma de cumplirse.
+
+### Deuda técnica que deja
+
+28. **El soporte por navegador sigue sin verificarse empíricamente.** El primer
+    intento (ver arriba) se quedó en el contexto seguro y no llegó a dictar, así
+    que todavía nadie vio el dictado andar en un navegador real — ni cuáles lo
+    soportan. Sigue siendo lo primero a mirar.
+29. **No hay E2E del dictado.** Playwright puede conceder el permiso de
+    micrófono pero no inyectar audio; lo único testeable end-to-end sería un
+    `addInitScript` que stubbee `webkitSpeechRecognition`, o sea probar el stub.
+    Las 17 unitarias cubren la lógica (acumulación con correcciones, base,
+    errores, tope, corte por `deshabilitado` y por `DestroyRef`) y los selectores
+    de la E2E del asistente son todos por nombre accesible, así que el botón
+    nuevo no las afecta.
+30. **El audio va a los servidores del fabricante del navegador** (en Chrome, a
+    Google). No es deuda de código sino una propiedad de la API que conviene
+    tener escrita: es un tercero más en el camino, distinto del proveedor de IA,
+    y el `title` del botón lo dice («lo transcribe tu navegador»).
+
+### Verificación
+
+`app-web` **test, lint y build verdes**: 255 tests (24 archivos), de los cuales
+**18 nuevos** en `boton-dictado.component.spec.ts` —corridos también aislados
+con `--filter=BotonDictado`: 18 passed / 237 skipped—. La Web Speech API no
+existe en jsdom, así que el test stubbea el **constructor global** y no el
+componente: lo que corre en el test es el mismo camino que corre en el navegador
+(detección, configuración de la sesión, acumulación de resultados y limpieza) y
+lo único distinto es de dónde sale el audio.
+
+**No se corrió la suite E2E** (requiere el stack completo levantado y este
+cambio no toca backend). Riesgo evaluado como nulo: no hay `toHaveScreenshot` en
+`apps/e2e` y los selectores del asistente son todos `getByRole`/`getByPlaceholder`
+por nombre, sin colisión con el `aria-label` nuevo («Dictar por voz»).
+
+### Qué debería verificar la próxima sesión antes de seguir
+
+1. Abrir el asistente **desde el celular** y dictar un párrafo largo: es el caso
+   que justifica el ítem entero y el único que dice si la calidad alcanza con
+   nombres propios (nombres de chicos y de actividades).
+2. Confirmar en qué navegadores aparece el botón (deuda 28).
+3. Si la calidad no alcanza, **no parchear este componente**: el camino escrito
+   es la transcripción en el servidor, con spec propia y las tres decisiones de
+   arriba resueltas.
