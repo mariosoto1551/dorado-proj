@@ -1238,14 +1238,15 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
               puntos: {
                 type: 'integer',
                 description:
-                  'Con signo: positivo suma, negativo resta. Nunca 0. Omitilo si el ajuste es ' +
-                  'solo de monedas. El puntaje puede quedar negativo — la zona más baja existe.',
+                  'Con signo: positivo suma, negativo resta. Si el ajuste es solo de monedas, ' +
+                  'omitilo o mandá 0 —las dos cosas significan «acá no hay puntos»—. El puntaje ' +
+                  'puede quedar negativo: la zona más baja existe.',
               },
               monedas: {
                 type: 'integer',
                 description:
-                  'Con signo: positivo acredita, negativo descuenta. Nunca 0. Omitilo si el ' +
-                  'ajuste es solo de puntos. **Descontar más de lo que la persona tiene se ' +
+                  'Con signo: positivo acredita, negativo descuenta. Si el ajuste es solo de ' +
+                  'puntos, omitilo o mandá 0. **Descontar más de lo que la persona tiene se ' +
                   'rechaza**: mirá el saldo en listar_billeteras.',
               },
               motivo: {

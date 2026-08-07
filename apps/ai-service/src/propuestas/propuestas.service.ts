@@ -2334,10 +2334,14 @@ export class PropuestasService {
     for (const [indice, fila] of filas.entries()) {
       // `null` es «no lo puse» en los dos números: el modelo no tiene forma de
       // omitir una propiedad del esquema y suele mandarla en null.
-      const { participanteId, puntos, monedas, motivo } = limpiarVacios(
-        fila as Record<string, unknown>,
-        true
-      );
+      const {
+        participanteId,
+        puntos: puntosCrudo,
+        monedas: monedasCrudo,
+        motivo,
+      } = limpiarVacios(fila as Record<string, unknown>, true);
+      const puntos = ceroEsNoLoPuse(puntosCrudo);
+      const monedas = ceroEsNoLoPuse(monedasCrudo);
       const persona = typeof participanteId === 'string' ? gente.get(participanteId) : undefined;
 
       if (!persona) {
@@ -2940,6 +2944,35 @@ function zonaCompleta(datos: Partial<CamposDeZona>): CamposDeZona | null {
  */
 function normalizar(nombre: string): string {
   return nombre.trim().toLowerCase();
+}
+
+/**
+ * En un ajuste manual, **`0` es «no lo puse»** — igual que `null` (fase-14-31,
+ * defecto encontrado en el piloto el 2026-08-06).
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * POR QUÉ SE NORMALIZA EN VEZ DE RECHAZARSE:
+ *
+ * el modelo **no tiene forma de omitir una propiedad** que el esquema declara,
+ * así que manda el valor vacío que tenga a mano. Para un string es `null` —y eso
+ * ya estaba contemplado—; para un número documentado como *«con signo, nunca
+ * 0»*, el vacío que tiene a mano **es el 0**. Pedirle a alguien pesos y monedas
+ * y que conteste «120 puntos y 0 monedas» no es un error: es la respuesta.
+ *
+ * Lo que pasaba sin esto: `monedas: 0` entraba al esquema del ajuste de monedas,
+ * fallaba con *«monto no puede ser 0»* y **la propuesta entera no se armaba**.
+ * El modelo, además, no podía corregirse —el error no le decía que la salida era
+ * omitir el campo— así que reintentaba lo mismo hasta agotar el loop: seis
+ * llamadas idénticas, seis rechazos y un Tutor sin su propuesta.
+ *
+ * No se traga nada ambiguo: `0` no tiene ningún significado legítimo acá (el
+ * endpoint destino lo rechaza con `NotEquals(0)`), y una fila con los dos
+ * números en 0 cae en el chequeo de «mandá al menos uno», que es el error
+ * correcto y accionable.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function ceroEsNoLoPuse(valor: unknown): unknown {
+  return valor === 0 ? undefined : valor;
 }
 
 /**

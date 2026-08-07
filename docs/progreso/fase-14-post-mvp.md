@@ -2856,3 +2856,70 @@ test estructural de `ai-service` desde la tanda 2, y los quince restantes acá.
     como las otras cinco suites de navegador. Es la única verificación del
     criterio 5, así que si algún día se sirve `app-web` en CI, esta es de las
     primeras que conviene prender.
+
+### Post-ítem — el defecto que encontró el piloto: `monedas: 0` (2026-08-07)
+
+Con el ítem ya cerrado y las nueve tandas verdes, **el primer uso real falló**.
+José pidió *«ajustá el puntaje de todos a 100»* con la sesión abierta y el
+asistente contestó que *«la app rechazó el ajuste por un error al cargar
+montos»*, con los tres números correctos calculados y ninguna propuesta armada.
+
+El rastro del ledger de `Mensaje` lo muestra entero:
+
+```
+proponer_ajustes_manuales({"ajustes":[{"participanteId":"…","puntos":120,
+  "monedas":0,"motivo":"…"}, …]})   → rechazada: ajustes.0 — monto: monto no puede ser 0
+```
+
+…seis veces, idénticas, hasta agotar el loop.
+
+**La causa:** el modelo **no puede omitir una propiedad** que el esquema declara,
+así que manda el valor vacío que tenga a mano. Para un string es `null` —y eso ya
+estaba contemplado, `limpiarVacios(fila, true)` lo trata como ausente— pero para
+un entero documentado como *«con signo, nunca 0»* el vacío que tiene a mano **es
+el 0**, y ahí no había nada: `monedas: 0` entraba al esquema del ajuste de
+monedas y moría con «monto no puede ser 0».
+
+**El arreglo** (`ceroEsNoLoPuse`, en el armador de la familia de ajustes): `0` es
+«no lo puse», exactamente igual que `null`. No se traga nada ambiguo — el 0 no
+tiene ningún significado legítimo acá, el endpoint destino lo rechaza con
+`NotEquals(0)`, y una fila con los **dos** números en 0 cae en el chequeo de
+«mandá al menos uno», que es el error accionable. La descripción de la
+herramienta pasó a decir la verdad nueva («omitilo o mandá 0») en vez de un
+«Nunca 0» que el modelo no obedecía y que el código castigaba.
+
+**Lo que este defecto enseña, y vale más que el arreglo:**
+
+1. **Un `enum`/`nullable` bien tratado no alcanza: hay que pensar cuál es el
+   "vacío" de CADA tipo.** La tanda 5 anticipó el `null` porque el campo de al
+   lado era un string. Para un número, el vacío es el 0; para un array, `[]`
+   (eso sí estaba); para un booleano sería `false`. **La regla general es que
+   ninguna herramienta puede exigir la ausencia de una propiedad.**
+2. **Un error que el modelo no puede accionar se convierte en un loop.** El
+   mensaje *«monto no puede ser 0»* le hablaba de un campo (`monto`) que él nunca
+   nombró —el suyo se llama `monedas`— y no le decía cuál era la salida. Seis
+   llamadas al proveedor, seis rechazos, tokens pagados y cero propuestas. Los
+   errores del armador **son parte de la interfaz con el modelo**, no logging.
+3. **Ninguna de las nueve tandas lo podía encontrar**, y no por falta de tests:
+   los del armador se escriben con los argumentos que uno *espera* del modelo, y
+   la E2E los guiona igual. Lo que falló es una diferencia entre lo que un LLM
+   manda de verdad y lo que quien escribe el test imagina que manda. **El piloto
+   es la única prueba de eso**, y por eso el rastro de `Mensaje` —que guarda
+   `nombre(argumentos)` de cada llamada— fue lo que resolvió el diagnóstico en un
+   minuto: sin ese ledger, esto era irreproducible.
+
+**Deuda que deja:**
+
+26. **El loop reintenta la misma llamada con los mismos argumentos sin límite
+    propio.** Corta solo al agotar las iteraciones máximas del turno. Detectar
+    «misma herramienta + mismos argumentos + mismo error» y cortar ahí —contándole
+    al Tutor lo que el modelo no pudo— ahorraría tokens y daría un mensaje mejor
+    que «un error al cargar montos». No entró acá porque toca el loop, que es del
+    #29 y no de este ítem.
+27. **Los otros armadores no se auditaron con esta lente.** El barrido a hacer es
+    concreto: cualquier propiedad numérica opcional cuyo «no aplica» sea 0, y
+    cualquier booleano opcional cuyo «no aplica» sea `false`.
+
+**Verificación:** `ai-service` test, lint y build verdes — 302 tests (los tres
+nuevos de esta corrección reemplazan al que solo afirmaba que un 0 no crea
+propuesta, que seguía siendo cierto y ya no era la razón).

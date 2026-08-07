@@ -1230,17 +1230,81 @@ describe('PropuestasService', () => {
       expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
     });
 
-    it('un ajuste de 0 no crea propuesta: es una fila del ledger que no dice nada', async () => {
+    /**
+     * EL DEFECTO DEL PILOTO (2026-08-06), y el más caro de los que encontró el
+     * ítem: con la sesión abierta y todo bien, *«ajustá el puntaje de todos a
+     * 100»* no armaba ninguna propuesta.
+     *
+     * El modelo mandó `monedas: 0` —su forma de decir «acá no hay monedas»,
+     * porque **no puede omitir una propiedad del esquema**— y el armador lo leyó
+     * como «un ajuste de 0 monedas», que el esquema de rewards rechaza. Peor: el
+     * error (*«monto no puede ser 0»*) no le decía cuál era la salida, así que
+     * reintentó **seis veces lo mismo** hasta agotar el loop.
+     *
+     * Estos tres tests fijan que `0` es «no lo puse», igual que `null`.
+     */
+    it('`monedas: 0` es «sin monedas»: arma solo el ajuste de puntos', async () => {
+      const { servicio, creadas } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        {
+          ajustes: [
+            { participanteId: USUARIO_ID, puntos: 120, monedas: 0, motivo: 'lo dejamos en 100' },
+          ],
+        },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      // Una sola operación, y contra scoring: el 0 no llegó a ser un request.
+      expect(operaciones).toHaveLength(1);
+      expect(operaciones[0]).toMatchObject({
+        ruta: `/scoring/grupos/grupo-1/usuarios/${USUARIO_ID}/ajuste`,
+        body: { puntos: 120, motivo: 'lo dejamos en 100' },
+      });
+    });
+
+    it('`puntos: 0` es «sin puntos»: arma solo el ajuste de monedas', async () => {
+      const { servicio, creadas, activity } = crearMocks();
+
+      const resultado = await servicio.armar(
+        'proponer_ajustes_manuales',
+        { ajustes: [{ participanteId: USUARIO_ID, puntos: 0, monedas: 5, motivo: 'ayudó' }] },
+        CONTEXTO,
+        'conv-1'
+      );
+
+      expect(resultado).toMatchObject({ ok: true });
+
+      const operaciones = creadas[0]['operaciones'] as OperacionPropuesta[];
+
+      expect(operaciones).toHaveLength(1);
+      expect(operaciones[0].ruta).toBe(`/rewards/grupos/grupo-1/usuarios/${USUARIO_ID}/ajuste`);
+      // Y sin ajuste de puntos no se consulta la sesión, igual que cuando el
+      // campo no viene: el 0 se normaliza ANTES de decidir eso.
+      expect(activity.estadoDeHoy).not.toHaveBeenCalled();
+    });
+
+    it('los dos números en 0 no crean propuesta, y el error dice qué falta', async () => {
       const { servicio, prisma } = crearMocks();
 
       const resultado = await servicio.armar(
         'proponer_ajustes_manuales',
-        { ajustes: [{ participanteId: USUARIO_ID, puntos: 0, motivo: 'nada' }] },
+        { ajustes: [{ participanteId: USUARIO_ID, puntos: 0, monedas: 0, motivo: 'nada' }] },
         CONTEXTO,
         'conv-1'
       );
 
       expect(resultado).toMatchObject({ ok: false });
+      // El error accionable —«mandá al menos uno»— y no el del esquema del
+      // endpoint destino, que le hablaría al modelo de un campo (`monto`) que
+      // él nunca nombró.
+      expect((resultado as { error: string }).error).toContain('sin ningún número');
       expect(prisma.client.propuesta.create).not.toHaveBeenCalled();
     });
 
