@@ -393,6 +393,7 @@ function filaDeActividad(registro: RegistroActividad): FilaDelTimeline {
       // fase-14-33: el chip «Cargado después» del timeline.
       cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
       motivoRetroactivo: registro.motivoRetroactivo,
+      motivoReversion: registro.motivoReversion,
       notas: [],
     }),
   };
@@ -433,6 +434,9 @@ function filaDeConducta(registro: RegistroConducta): FilaDelTimeline {
       // fase-14-33
       cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
       motivoRetroactivo: registro.motivoRetroactivo,
+      // Sin `motivoReversion` porque una conducta no se puede deshacer: es la
+      // misma asimetría de arriba, no un olvido de este ítem.
+      motivoReversion: null,
       notas: [],
     }),
   };
@@ -474,6 +478,7 @@ function filaDeTareaEquipo(registro: RegistroTareaEquipo): FilaDelTimeline {
       // fase-14-33
       cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
       motivoRetroactivo: registro.motivoRetroactivo,
+      motivoReversion: registro.motivoReversion,
       notas: [],
     }),
   };

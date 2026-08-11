@@ -32,7 +32,7 @@ import {
   SoloJefeCompletaTareaEquipoException,
 } from '../comun/excepciones';
 import { estaDisponibleEn, tieneProgramacion } from '../comun/programacion';
-import { resolverSesionDeTrabajo } from '../comun/sesion-abierta';
+import { resolverSesionDeTrabajo, type SesionDeTrabajo } from '../comun/sesion-abierta';
 import type { CompletarTareaEquipoRequest } from './dto/equipos.dto';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, RegistroTareaEquipo } from '../generated/prisma/client';
@@ -67,6 +67,7 @@ function registroTareaEquipoADto(registro: RegistroTareaEquipo): RegistroTareaEq
     // fase-14-33
     cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
     motivoRetroactivo: registro.motivoRetroactivo,
+    motivoReversion: registro.motivoReversion,
   };
 }
 
@@ -293,10 +294,16 @@ export class TareasEquipoService {
     registroId: string,
     motivo?: string
   ): Promise<RegistroTareaEquipoDto> {
-    const registro = await this.buscarRegistroDeLaSesion(tenant, registroId);
+    const { registro, sesion } = await this.buscarRegistroDeLaSesion(tenant, registroId);
 
     if (registro.eliminado) {
       throw new ConflictException('La tarea de equipo ya fue anulada');
+    }
+
+    // fase-14-33: mismo criterio que en actividades — anular algo de un día ya
+    // cerrado se explica, y se reusa el `motivo` que el endpoint ya aceptaba.
+    if (sesion.retroactiva && !motivo?.trim()) {
+      throw new MotivoRetroactivoRequeridoException();
     }
 
     const ahora = new Date();
@@ -330,12 +337,18 @@ export class TareasEquipoService {
    */
   async revertirAnulacion(
     tenant: TenantContext,
-    registroId: string
+    registroId: string,
+    motivoRetroactivo?: string
   ): Promise<RegistroTareaEquipoDto> {
-    const registro = await this.buscarRegistroDeLaSesion(tenant, registroId);
+    const { registro, sesion } = await this.buscarRegistroDeLaSesion(tenant, registroId);
 
     if (!registro.eliminado) {
       throw new MarcaNoReversibleException();
+    }
+
+    // fase-14-33: espejo exacto de `RegistroService.revertirMarca`.
+    if (sesion.retroactiva && !motivoRetroactivo?.trim()) {
+      throw new MotivoRetroactivoRequeridoException();
     }
 
     const ahora = new Date();
@@ -343,6 +356,7 @@ export class TareasEquipoService {
       eliminado: false,
       revertidoPorTutorId: tenant.principalId,
       revertidoEn: ahora,
+      ...(sesion.retroactiva && { motivoReversion: motivoRetroactivo?.trim() ?? null }),
     };
 
     await this.prisma.client.registroTareaEquipo.updateMany({
@@ -372,7 +386,7 @@ export class TareasEquipoService {
   private async buscarRegistroDeLaSesion(
     tenant: TenantContext,
     registroId: string
-  ): Promise<RegistroTareaEquipo> {
+  ): Promise<{ registro: RegistroTareaEquipo; sesion: SesionDeTrabajo }> {
     const registro = await this.prisma.client.registroTareaEquipo.findFirst({
       where: { id: registroId },
     });
@@ -388,7 +402,9 @@ export class TareasEquipoService {
       throw new SesionNoEditableException();
     }
 
-    return registro;
+    // fase-14-33: devuelve también la Sesión resuelta — quien opera sobre la
+    // fila necesita saber si está tocando un día ya cerrado.
+    return { registro, sesion: resolverSesionDeTrabajo(seccion, registro.sesionId) };
   }
 
   /** Anular y deshacer publican el mismo payload; scoring hace lo mismo con los dos. */

@@ -214,11 +214,17 @@ export class ActivityApiService {
     );
   }
 
-  /** Deshace una marca roja del tutor y devuelve los puntos (fase-14-12). */
-  revertirMarca(registroId: string): Observable<RegistroActividadDto> {
+  /**
+   * Deshace una marca roja del tutor y devuelve los puntos (fase-14-12).
+   * fase-14-33: si la fila es de un día ya cerrado, el motivo es obligatorio.
+   */
+  revertirMarca(
+    registroId: string,
+    motivoRetroactivo?: string
+  ): Observable<RegistroActividadDto> {
     return this.http.post<RegistroActividadDto>(
       `${this.base}/registros-actividad/${registroId}/revertir`,
-      {}
+      motivoRetroactivo ? { motivoRetroactivo } : {}
     );
   }
 
@@ -318,10 +324,14 @@ export class ActivityApiService {
   }
 
   /** Deshace la anulación y le devuelve el reparto al equipo (fase-14-13). */
-  revertirTareaEquipo(registroTareaEquipoId: string): Observable<RegistroTareaEquipoDto> {
+  /** fase-14-33: en un día ya cerrado el motivo es obligatorio. */
+  revertirTareaEquipo(
+    registroTareaEquipoId: string,
+    motivoRetroactivo?: string
+  ): Observable<RegistroTareaEquipoDto> {
     return this.http.post<RegistroTareaEquipoDto>(
       `${this.base}/registros-tarea-equipo/${registroTareaEquipoId}/revertir`,
-      {}
+      motivoRetroactivo ? { motivoRetroactivo } : {}
     );
   }
 

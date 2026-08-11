@@ -284,6 +284,12 @@ model RegistroActividad {
   // base no sabe quién escribió ni en qué estado estaba la Sesión.
   cargadoRetroactivamenteEn DateTime?
   motivoRetroactivo         String?
+  // fase-14-33: por qué se DESHIZO la marca en un día que ya había cerrado.
+  // Columna propia y no un reuso de motivoRetroactivo: son dos hechos
+  // distintos sobre la misma fila («apareció fuera de su día» / «se deshizo
+  // fuera de su día») y pisar uno con el otro borraría, justo en la fila más
+  // discutible del sistema, por qué había aparecido.
+  motivoReversion           String?
   createdAt           DateTime  @default(now())
 
   @@index([organizacionId])
@@ -367,6 +373,7 @@ model RegistroTareaEquipo {
   // fase-14-33: ver RegistroActividad.
   cargadoRetroactivamenteEn DateTime?
   motivoRetroactivo         String?
+  motivoReversion           String?
   createdAt             DateTime @default(now())
 
   @@index([organizacionId])

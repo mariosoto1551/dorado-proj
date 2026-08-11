@@ -265,7 +265,13 @@ export class RegistroService {
     // bloqueada — el usuario no puede "arreglarla" volviendo a confirmar.
     // fase-14-33: salvo que la haya puesto el cierre automático y quien escribe
     // sea el Tutor — ver `asegurarNoDenegada`.
-    await this.levantarCastigoAutomaticoSiCorresponde(actividad, tenant, usuarioId, sesion);
+    await this.levantarCastigoAutomaticoSiCorresponde(
+      actividad,
+      tenant,
+      usuarioId,
+      sesion,
+      datos.motivoRetroactivo
+    );
     await this.asegurarNoDenegada(actividadId, usuarioId, sesion.sesionId);
 
     // Sin `eliminado: false` a propósito (fase-14-12, decisión 1): una
@@ -801,7 +807,8 @@ export class RegistroService {
    */
   async revertirMarca(
     tenant: TenantContext,
-    registroId: string
+    registroId: string,
+    motivoRetroactivo?: string
   ): Promise<RegistroActividadDto> {
     const registro = await this.prisma.client.registroActividad.findFirst({
       where: { id: registroId },
@@ -825,24 +832,42 @@ export class RegistroService {
     // corrige: vive dentro de su **Sección**, que es la unidad que se evalúa.
     // Mientras la Sección no cerró, deshacer una marca del lunes es parte del
     // trabajo en curso; una vez cerrada, rige la regla 6 sin excepciones.
-    //
-    // Deshacer NO pide motivo, a diferencia de crear (decisión 7): no agrega
-    // una fila que haya que explicar, quita una que no correspondía, y su
-    // rastro (`revertidoEn`, `revertidoPorTutorId`) ya queda en la fila.
-    await this.asegurarSesionEditable(registro.grupoId, registro.sesionId);
+    const sesion = await this.asegurarSesionEditable(registro.grupoId, registro.sesionId);
+
+    // Deshacer algo de un día ya cerrado también se explica (spec, Parte B):
+    // el rastro (`revertidoEn`) dice CUÁNDO se deshizo, no por qué se deshizo
+    // en otro día. En la Sesión abierta no pide nada, como siempre.
+    if (sesion.retroactiva && !motivoRetroactivo?.trim()) {
+      throw new MotivoRetroactivoRequeridoException();
+    }
 
     const ahora = new Date();
     // Restaurar NO limpia eliminadoPorTutorId/eliminadoEn (decisión 7): la fila
     // conserva la historia entera. Un NO_HIZO no tiene otro estado de baja, así
     // que se reusa el soft-delete que ya existía.
+    //
+    // fase-14-33: `motivoReversion` es columna propia y NO se reusa
+    // `motivoRetroactivo` de la fila. Son dos hechos distintos —«esta fila se
+    // cargó fuera de su día» y «esta fila se deshizo fuera de su día»— y pisar
+    // el primero con el segundo borraría, justo en la fila más discutible del
+    // sistema, por qué había aparecido.
+    const marcaDeReversion = sesion.retroactiva
+      ? { motivoReversion: motivoRetroactivo?.trim() ?? null }
+      : {};
     const cambios = esCompletadaQuitada
-      ? { eliminado: false, revertidoPorTutorId: tenant.principalId, revertidoEn: ahora }
+      ? {
+          eliminado: false,
+          revertidoPorTutorId: tenant.principalId,
+          revertidoEn: ahora,
+          ...marcaDeReversion,
+        }
       : {
           eliminado: true,
           eliminadoPorTutorId: tenant.principalId,
           eliminadoEn: ahora,
           revertidoPorTutorId: tenant.principalId,
           revertidoEn: ahora,
+          ...marcaDeReversion,
         };
 
     await this.prisma.client.registroActividad.updateMany({
@@ -1465,7 +1490,8 @@ export class RegistroService {
     actividad: Actividad,
     tenant: TenantContext,
     usuarioId: string,
-    sesion: SesionDeRegistro
+    sesion: SesionDeRegistro,
+    motivoRetroactivo?: string
   ): Promise<void> {
     if (tenant.rol === Rol.USUARIO || !sesion.retroactiva) {
       return;
@@ -1496,6 +1522,10 @@ export class RegistroService {
         eliminadoEn: ahora,
         revertidoPorTutorId: tenant.principalId,
         revertidoEn: ahora,
+        // El mismo motivo con que el Tutor cargó la completada: es exactamente
+        // la explicación de por qué el castigo automático deja de valer, y sin
+        // esto el historial mostraría una marca levantada sola.
+        motivoReversion: motivoRetroactivo?.trim() ?? null,
       },
     });
 

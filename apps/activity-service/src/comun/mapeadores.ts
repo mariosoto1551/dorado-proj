@@ -135,6 +135,7 @@ export function registroActividadADto(registro: RegistroActividad): RegistroActi
     // fase-14-33: null = se cargó en su día (todo lo anterior a ese ítem).
     cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
     motivoRetroactivo: registro.motivoRetroactivo,
+    motivoReversion: registro.motivoReversion,
     createdAt: registro.createdAt.toISOString(),
   };
 }

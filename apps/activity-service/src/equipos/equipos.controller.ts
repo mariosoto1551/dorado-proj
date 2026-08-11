@@ -22,6 +22,7 @@ import {
   ListarReportesQuery,
   RechazarReporteRequest,
 } from './dto/equipos.dto';
+import { RevertirMarcaRequest } from '../registro/dto/registro.dto';
 import { ReportesService } from './reportes.service';
 import { TareasEquipoService } from './tareas-equipo.service';
 
@@ -78,9 +79,11 @@ export class EquiposController {
   @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
   async revertirAnulacionTarea(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id') registroId: string
+    @Param('id') registroId: string,
+    // fase-14-33: espejo del revertir de actividades — cuerpo nuevo y opcional.
+    @Body() datos: RevertirMarcaRequest = {}
   ): Promise<RegistroTareaEquipoDto> {
-    return await this.tareas.revertirAnulacion(tenant, registroId);
+    return await this.tareas.revertirAnulacion(tenant, registroId, datos.motivoRetroactivo);
   }
 
   /** El jefe reporta a un integrante por una conducta MALA concreta. */

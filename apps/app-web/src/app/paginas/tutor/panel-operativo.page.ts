@@ -52,10 +52,11 @@ type AccionConfirmable =
   // fase-14-23 T4: el motivo del tutor se pide en la confirmación.
   | 'no-hizo'
   | 'quitar'
-  // fase-14-33: las dos que en el día son de un click y en un día ya cerrado
+  // fase-14-33: las tres que en el día son de un click y en un día ya cerrado
   // pasan por el diálogo, porque ahí el motivo es obligatorio.
   | 'hizo'
   | 'conducta'
+  | 'deshacer'
   | null;
 
 /** fase-14-18: «Registrar» es lo de siempre; «historial» es la línea de tiempo. */
@@ -559,6 +560,9 @@ export class PanelOperativoPage {
   /** La fila sobre la que está preguntando el diálogo de confirmación. */
   protected readonly filaEnJuego = signal<FilaRegistro | null>(null);
 
+  /** fase-14-33: la marca roja que se está por deshacer en un día ya cerrado. */
+  protected readonly marcaEnJuego = signal<MarcaRojaDto | null>(null);
+
   /** Lo completado del integrante elegido: de acá salen los registroId a quitar. */
   protected readonly completadas = signal<CompletadaOpcionalDto[]>([]);
 
@@ -677,6 +681,8 @@ export class PanelOperativoPage {
         return `Marcar «${this.filaEnJuego()?.nombre ?? ''}» como hecha`;
       case 'conducta':
         return 'Registrar la conducta';
+      case 'deshacer':
+        return `Deshacer la marca de «${this.marcaEnJuego()?.nombre ?? ''}»`;
       default:
         return '';
     }
@@ -705,6 +711,8 @@ export class PanelOperativoPage {
         return `${enDiaCerrado}Le suma los puntos de la actividad en ese día.`;
       case 'conducta':
         return `${enDiaCerrado}La conducta suma o resta según sea buena o mala.`;
+      case 'deshacer':
+        return `${enDiaCerrado}Le devuelve los puntos y le saca la marca de esa sesión.`;
       default:
         return '';
     }
@@ -726,6 +734,8 @@ export class PanelOperativoPage {
         return 'Marcar hecha';
       case 'conducta':
         return 'Registrar';
+      case 'deshacer':
+        return 'Deshacer';
       default:
         return 'Confirmar';
     }
@@ -957,18 +967,33 @@ export class PanelOperativoPage {
 
   /** Deshace una marca roja: devuelve los puntos y limpia el rojo (fase-14-12). */
   protected deshacerMarca(marca: MarcaRojaDto): void {
+    // fase-14-33: en el día se deshace de un click, como siempre; en un día que
+    // ya cerró pasa por el diálogo, porque el motivo es obligatorio.
+    if (this.esRetroactiva()) {
+      this.marcaEnJuego.set(marca);
+      this.confirmar.set('deshacer');
+
+      return;
+    }
+
+    this.ejecutarDeshacer(marca, '');
+  }
+
+  private ejecutarDeshacer(marca: MarcaRojaDto, motivoRetroactivo: string): void {
     this.procesando.set(true);
-    this.activity.revertirMarca(marca.registroId).subscribe({
-      next: () => {
-        this.toasts.exito(`Se deshizo la marca de «${marca.nombre}».`);
-        this.procesando.set(false);
-        this.cargarUsuario();
-      },
-      error: (e) => {
-        this.toasts.error(mensajeDeError(e));
-        this.procesando.set(false);
-      },
-    });
+    this.activity
+      .revertirMarca(marca.registroId, motivoRetroactivo.trim() || undefined)
+      .subscribe({
+        next: () => {
+          this.toasts.exito(`Se deshizo la marca de «${marca.nombre}».`);
+          this.procesando.set(false);
+          this.cargarUsuario();
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.procesando.set(false);
+        },
+      });
   }
 
   protected registrarConducta(): void {
@@ -1048,6 +1073,7 @@ export class PanelOperativoPage {
   protected cerrarConfirmacion(): void {
     this.confirmar.set(null);
     this.filaEnJuego.set(null);
+    this.marcaEnJuego.set(null);
   }
 
   protected elegirUsuario(usuarioId: string): void {
@@ -1103,9 +1129,11 @@ export class PanelOperativoPage {
   protected ejecutarConfirmado(motivo: string): void {
     const accion = this.confirmar();
     const fila = this.filaEnJuego();
+    const marca = this.marcaEnJuego();
     const s = this.seccion();
     this.confirmar.set(null);
     this.filaEnJuego.set(null);
+    this.marcaEnJuego.set(null);
 
     // Las que operan sobre una fila no necesitan la Sección: van primero.
     if (accion === 'no-hizo' && fila) {
@@ -1129,6 +1157,12 @@ export class PanelOperativoPage {
 
     if (accion === 'conducta') {
       this.ejecutarConducta(motivo);
+
+      return;
+    }
+
+    if (accion === 'deshacer' && marca) {
+      this.ejecutarDeshacer(marca, motivo);
 
       return;
     }

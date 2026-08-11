@@ -37,6 +37,10 @@ function evento(sobrescribir: Partial<EventoHistorialDto> = {}): EventoHistorial
     motivoTutor: null,
     revertidoEn: null,
     revertidoPorNombre: null,
+    // fase-14-33: null = se registró en su día, que es el caso por default.
+    cargadoRetroactivamenteEn: null,
+    motivoRetroactivo: null,
+    motivoReversion: null,
     notas: [],
     ...sobrescribir,
   };

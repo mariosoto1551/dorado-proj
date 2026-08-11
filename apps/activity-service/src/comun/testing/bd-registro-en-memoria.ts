@@ -160,6 +160,11 @@ export function crearBdRegistroEnMemoria(datos: {
       motivoTutor: null,
       revertidoPorTutorId: null,
       revertidoEn: null,
+      // fase-14-33: nullable en la base — el fixture las devuelve como null y
+      // no como undefined, que es lo que devolvería Prisma de verdad.
+      cargadoRetroactivamenteEn: null,
+      motivoRetroactivo: null,
+      motivoReversion: null,
       createdAt: new Date(),
     })),
     registroConducta: crearDelegado<RegistroConducta>(registrosConducta, () => ({
@@ -167,6 +172,9 @@ export function crearBdRegistroEnMemoria(datos: {
       eliminado: false,
       eliminadoPorTutorId: null,
       eliminadoEn: null,
+      // fase-14-33 (la conducta no tiene motivoReversion: no se deshace).
+      cargadoRetroactivamenteEn: null,
+      motivoRetroactivo: null,
       createdAt: new Date(),
     })),
     registroTareaEquipo: crearDelegado<RegistroTareaEquipo>(registrosTareaEquipo, () => ({
@@ -178,6 +186,10 @@ export function crearBdRegistroEnMemoria(datos: {
       motivoTutor: null,
       revertidoPorTutorId: null,
       revertidoEn: null,
+      // fase-14-33
+      cargadoRetroactivamenteEn: null,
+      motivoRetroactivo: null,
+      motivoReversion: null,
       createdAt: new Date(),
     })),
     cronometroActivo: {

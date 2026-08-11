@@ -164,6 +164,12 @@ export interface RegistroActividadDto {
   cargadoRetroactivamenteEn: string | null;
   /** fase-14-33: por qué se cargó fuera de su día. Obligatorio si el anterior no es null. */
   motivoRetroactivo: string | null;
+  /**
+   * fase-14-33: por qué se **deshizo** la marca en un día ya cerrado. Distinto
+   * del anterior: aquel explica que la fila apareció fuera de su día, éste que
+   * se deshizo fuera del suyo. Una misma fila puede tener los dos.
+   */
+  motivoReversion: string | null;
   createdAt: string;
 }
 
@@ -516,6 +522,8 @@ export interface RegistroTareaEquipoDto {
   /** fase-14-33: la tarea se cargó a una Sesión que ya había cerrado. */
   cargadoRetroactivamenteEn: string | null;
   motivoRetroactivo: string | null;
+  /** fase-14-33: por qué se deshizo la anulación en un día ya cerrado. */
+  motivoReversion: string | null;
 }
 
 /**
@@ -747,6 +755,8 @@ export interface EventoHistorialDto {
    */
   cargadoRetroactivamenteEn: string | null;
   motivoRetroactivo: string | null;
+  /** fase-14-33: por qué se deshizo la marca en un día ya cerrado. */
+  motivoReversion: string | null;
   notas: NotaRegistroDto[];
 }
 

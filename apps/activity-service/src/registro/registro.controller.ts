@@ -23,6 +23,7 @@ import {
   QuitarCompletadaQuery,
   RegistrarConductaRequest,
   RegistrarNoHizoRequest,
+  RevertirMarcaRequest,
   SesionDeLaSeccionQuery,
 } from './dto/registro.dto';
 
@@ -138,9 +139,12 @@ export class RegistroController {
   @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
   async revertirMarca(
     @CurrentTenant() tenant: TenantContext,
-    @Param('id') registroId: string
+    @Param('id') registroId: string,
+    // fase-14-33: el cuerpo es nuevo y opcional entero — deshacer una marca de
+    // hoy sigue siendo un POST sin nada, como desde el #12.
+    @Body() datos: RevertirMarcaRequest = {}
   ): Promise<RegistroActividadDto> {
-    return await this.registro.revertirMarca(tenant, registroId);
+    return await this.registro.revertirMarca(tenant, registroId, datos.motivoRetroactivo);
   }
 
   @Post('conductas/:id/registrar')

@@ -249,6 +249,21 @@ const MS_AUTO_REFRESCO = 30_000;
       (cancelar)="notaABorrar.set(null)"
     />
 
+    <!-- fase-14-33: corregir una fila de un día que ya cerró exige decir por
+         qué. En la sesión abierta estas dos acciones siguen siendo de un clic,
+         como desde el #18. -->
+    <ui-confirm-dialog
+      [abierto]="correccionEnJuego() !== null"
+      [titulo]="tituloCorreccion()"
+      [mensaje]="mensajeCorreccion()"
+      [textoConfirmar]="textoCorreccion()"
+      [tono]="correccionEnJuego()?.accion === 'anular' ? 'peligro' : 'primario'"
+      [requiereMotivo]="true"
+      placeholderMotivo="Motivo — por qué se corrige un día ya cerrado"
+      (confirmar)="ejecutarCorreccion($event)"
+      (cancelar)="correccionEnJuego.set(null)"
+    />
+
     <!-- fase-14-23 T4·2ª: acá había un SEGUNDO «Registrar conducta rápida»,
          idéntico en función al de la pestaña «Registrar» —que la primera vuelta
          rehízo— pero con otro aspecto y un tono de botón que no existía en
@@ -376,6 +391,37 @@ export class HistorialSesionComponent {
 
   /** Nota sobre la que pregunta el diálogo de borrado (fase-14-23 T4·2ª). */
   protected readonly notaABorrar = signal<string | null>(null);
+
+  /** fase-14-33: la corrección sobre un día cerrado que espera su motivo. */
+  protected readonly correccionEnJuego = signal<{
+    accion: 'anular' | 'deshacer';
+    evento: EventoHistorialDto;
+  } | null>(null);
+
+  protected readonly tituloCorreccion = computed(() => {
+    const enJuego = this.correccionEnJuego();
+
+    if (!enJuego) {
+      return '';
+    }
+
+    return enJuego.accion === 'anular'
+      ? `Anular «${enJuego.evento.itemNombre}»`
+      : `Deshacer la marca de «${enJuego.evento.itemNombre}»`;
+  });
+
+  protected readonly mensajeCorreccion = computed(() => {
+    const numero = this.sesionNumero();
+
+    return (
+      `Esto corrige la sesión ${numero ?? ''}, que ya cerró. ` +
+      'El motivo queda en el historial junto a la fila.'
+    );
+  });
+
+  protected readonly textoCorreccion = computed(() =>
+    this.correccionEnJuego()?.accion === 'anular' ? 'Anular' : 'Deshacer'
+  );
 
   /** Cuántas páginas acumuló el tutor: con más de una se corta el auto-refresco. */
   protected readonly paginas = signal(1);
@@ -506,21 +552,63 @@ export class HistorialSesionComponent {
   }
 
   protected anular(evento: EventoHistorialDto): void {
+    // fase-14-33: en un día ya cerrado el servidor exige motivo, así que la
+    // acción pasa por el diálogo en vez de fallar con un toast rojo.
+    if (this.esDiaCerrado()) {
+      this.correccionEnJuego.set({ accion: 'anular', evento });
+
+      return;
+    }
+
+    this.ejecutarAnular(evento, '');
+  }
+
+  protected deshacer(evento: EventoHistorialDto): void {
+    if (this.esDiaCerrado()) {
+      this.correccionEnJuego.set({ accion: 'deshacer', evento });
+
+      return;
+    }
+
+    this.ejecutarDeshacer(evento, '');
+  }
+
+  /** fase-14-33: el diálogo devolvió el motivo (o no hacía falta). */
+  protected ejecutarCorreccion(motivo: string): void {
+    const enJuego = this.correccionEnJuego();
+    this.correccionEnJuego.set(null);
+
+    if (!enJuego) {
+      return;
+    }
+
+    if (enJuego.accion === 'anular') {
+      this.ejecutarAnular(enJuego.evento, motivo);
+    } else {
+      this.ejecutarDeshacer(enJuego.evento, motivo);
+    }
+  }
+
+  private ejecutarAnular(evento: EventoHistorialDto, motivo: string): void {
+    const texto = motivo.trim() || undefined;
     const peticion =
       evento.tipo === TipoEventoHistorial.CONDUCTA
-        ? this.activity.eliminarRegistroConducta(evento.id)
+        ? // La conducta sigue sin aceptar motivo: asimetría declarada fuera de
+          // alcance desde el #18, que este ítem hereda tal cual.
+          this.activity.eliminarRegistroConducta(evento.id)
         : evento.tipo === TipoEventoHistorial.TAREA_EQUIPO
-          ? this.activity.anularTareaEquipo(evento.id)
-          : this.activity.eliminarRegistroActividad(evento.id);
+          ? this.activity.anularTareaEquipo(evento.id, texto)
+          : this.activity.eliminarRegistroActividad(evento.id, texto);
 
     this.ejecutar(peticion, `Se anuló «${evento.itemNombre}».`);
   }
 
-  protected deshacer(evento: EventoHistorialDto): void {
+  private ejecutarDeshacer(evento: EventoHistorialDto, motivo: string): void {
+    const texto = motivo.trim() || undefined;
     const peticion =
       evento.tipo === TipoEventoHistorial.TAREA_EQUIPO
-        ? this.activity.revertirTareaEquipo(evento.id)
-        : this.activity.revertirMarca(evento.id);
+        ? this.activity.revertirTareaEquipo(evento.id, texto)
+        : this.activity.revertirMarca(evento.id, texto);
 
     this.ejecutar(peticion, `Se deshizo la marca de «${evento.itemNombre}».`);
   }

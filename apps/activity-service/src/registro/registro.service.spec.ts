@@ -2196,11 +2196,9 @@ describe('RegistroService — editar una Sesión pasada de la Sección (fase-14-
     expect(hoy.actividades[0]).toMatchObject({ vecesHechas: 0 });
   });
 
-  it('deshacer una marca de la Sesión de ayer ahora funciona (revisa la decisión 4 del #12)', async () => {
-    const { servicio } = crearServicio({
-      bd: bdConOpcional(),
-      seccionActual: seccionConDosSesiones(),
-    });
+  it('deshacer una marca de la Sesión de ayer ahora funciona, y exige motivo', async () => {
+    const bd = bdConOpcional();
+    const { servicio } = crearServicio({ bd, seccionActual: seccionConDosSesiones() });
 
     const registro = await servicio.completar(tenantTutor(), 'actividad-1', {
       usuarioId: 'usuario-1',
@@ -2209,8 +2207,40 @@ describe('RegistroService — editar una Sesión pasada de la Sección (fase-14-
     });
     await servicio.eliminarRegistroActividad(tenantTutor(), registro.id, 'me equivoqué');
 
+    // Sin motivo no va: deshacer en un día ya cerrado también se explica.
+    await expect(servicio.revertirMarca(tenantTutor(), registro.id)).rejects.toThrow(
+      MotivoRetroactivoRequeridoException
+    );
+
+    // La decisión 4 del #12 («la marca vive dentro de su Sesión») queda
+    // revisada: con motivo, deshacer lo de ayer funciona.
+    await expect(
+      servicio.revertirMarca(tenantTutor(), registro.id, 'me confundí de persona')
+    ).resolves.toMatchObject({ eliminado: false });
+
+    // Y los dos motivos conviven en la fila sin pisarse: uno explica por qué
+    // apareció fuera de su día, el otro por qué se deshizo fuera del suyo.
+    const fila = bd.registrosActividad.find((candidata) => candidata.id === registro.id);
+    expect(fila).toMatchObject({
+      motivoRetroactivo: 'la hizo ayer',
+      motivoReversion: 'me confundí de persona',
+    });
+  });
+
+  it('deshacer una marca de la Sesión ABIERTA sigue sin pedir motivo (decisión 10)', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    const registro = await servicio.completar(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+    });
+    await servicio.eliminarRegistroActividad(tenantTutor(), registro.id);
+
     await expect(servicio.revertirMarca(tenantTutor(), registro.id)).resolves.toMatchObject({
       eliminado: false,
+      motivoReversion: null,
     });
   });
 
