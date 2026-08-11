@@ -399,6 +399,51 @@ stub del Gateway, y se comprobó contra HTTP:
 Lo que **no** se pudo verificar desde acá: la instancia de Oracle en sí y el
 certificado de Let's Encrypt (hacen falta la cuenta y el DNS).
 
+### Segundo modo de la variante libre: PRIVADO con Tailscale (2026-08-11)
+
+José acotó el alcance: "solo para mi familia de 5 personas, no es necesario que
+sea público para todo el mundo". Eso cambia la recomendación, y no por
+comodidad: el sistema **no tiene recuperación de contraseña, ni observabilidad,
+ni alertas**, y guarda datos de chicos. Publicarlo a internet para que lo usen
+cinco personas conocidas es aceptar una superficie de ataque que no hace falta.
+
+El stack es el mismo; cambia **quién puede llegar**. Se agregó un segundo modo
+al mismo `docker-compose.libre.yml` en vez de un quinto archivo:
+
+- **`BORDE_SITIO`** (default `${DOMINIO}`) reemplaza al `{$DOMINIO}` del
+  `Caddyfile.libre`. En Caddy el formato de la dirección del sitio ES la
+  configuración: un nombre de dominio activa HTTPS automático, y `:80` sirve
+  HTTP plano sin intentar sacar certificado. En modo Tailscale eso último es lo
+  correcto **y lo único posible**: no hay nada publicado a internet contra qué
+  validar un desafío de Let's Encrypt. El TLS lo termina `tailscale serve` sobre
+  el nombre `*.ts.net`, que ya viene con certificado.
+- **`BORDE_HTTP` / `BORDE_HTTPS`** parametrizan los puertos publicados. En modo
+  familiar quedan en `127.0.0.1:8080` / `127.0.0.1:8443`: el borde **no se
+  alcanza desde la red**, solo desde la propia máquina, que es de donde le habla
+  `tailscale serve`.
+- **`TRUST_PROXY`** pasó de estar fijo en `1` a `${TRUST_PROXY:-1}`, y el modo
+  Tailscale usa **2**: hay dos saltos delante del Gateway (Serve, que pone el
+  `X-Forwarded-For` con la IP real del cliente — verificado que lo hace —, y el
+  borde, que agrega el suyo al proxear). Se documentó por qué no se pone un
+  número más alto "por las dudas": de más, haría confiable un header que el
+  cliente puede escribir.
+
+Ventaja de haber elegido origen único: **no hay que tocar `cors-origin.ts`**. Si
+se hubiera ido por el modo casa sobre Tailscale, habría hecho falta, porque el
+rango de Tailscale es `100.64.0.0/10` (CGNAT) y los nombres son `*.ts.net` —
+ninguno de los dos entra en `IPV4_PRIVADA` ni en `SUFIJOS_LOCALES`, así que el
+CORS los habría rechazado.
+
+Dato de plan: el free de Tailscale pasó a **6 usuarios y dispositivos
+ilimitados** (abril 2026), que es justo el tamaño de una familia.
+
+Verificado: `lint test build` en verde, los 4 composes resuelven, los dos modos
+del borde producen la configuración esperada (público → `80:80`/`443:443` y el
+dominio como sitio; Tailscale → `:80` y los puertos atados a loopback), y se
+volvió a correr el banco de pruebas de ruteo con la variable ya renombrada.
+Sin verificar desde acá: la tailnet real y `tailscale serve` (hacen falta las
+cuentas y los dispositivos).
+
 ## Qué debería verificar la próxima sesión
 
 - Confirmar con José los datos bloqueantes (catálogo/usernames/recompensas).

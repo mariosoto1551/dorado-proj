@@ -211,10 +211,19 @@ services:
     environment:
       <<: *common-env
       PORT: '3000'
-      # `borde` es el único salto delante. Sin esto el rate limiting contaría
-      # por la IP de Caddy y todos los usuarios compartirían un balde: el
+      # Saltos de proxy delante del Gateway. Sin esto el rate limiting contaría
+      # por la IP del proxy y todos los usuarios compartirían un balde: el
       # límite de 10/min del login sería 10/min para toda la plataforma.
-      TRUST_PROXY: '1'
+      #
+      #   modo público:   1 — solo el Caddy de borde.
+      #   modo Tailscale: 2 — `tailscale serve` pone el X-Forwarded-For con la
+      #     IP real del cliente, y el borde le agrega un salto más al proxear.
+      #
+      # En una tailnet privada de cinco personas conocidas esto es casi
+      # cosmético (no hay nadie a quien limitarle la fuerza bruta), pero un
+      # valor de más haría CONFIABLE un header que el cliente puede escribir,
+      # así que se pone el número exacto y no "por las dudas, más alto".
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       # Los tres comparten origen con el Gateway, así que ninguna llamada es
       # cross-origin y esta lista nunca llega a usarse. Se completan igual
       # porque las dos primeras son requeridas por el schema de entorno, y
@@ -276,9 +285,19 @@ services:
   borde:
     <<: *restart
     image: caddy:2
-    ports: ['80:80', '443:443']
+    # Los puertos publicados dependen del modo (ver BORDE_SITIO abajo):
+    #   - público:  '80:80' y '443:443'  → expuesto a internet, Caddy hace TLS.
+    #   - Tailscale: '127.0.0.1:8080:80' → NO expuesto; solo lo alcanza
+    #     `tailscale serve` desde la propia máquina. El 443 del contenedor no se
+    #     usa, y por eso el default del segundo es una dirección de loopback.
+    ports:
+      - '${BORDE_HTTP:-80}:80'
+      - '${BORDE_HTTPS:-443}:443'
     environment:
-      DOMINIO: ${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+      # Dirección de escucha del Caddy de borde, y con ella si maneja TLS o no.
+      # Por defecto el dominio (HTTPS automático); en modo familiar se pone
+      # `:80` y el TLS lo termina Tailscale. Ver Caddyfile.libre.
+      BORDE_SITIO: ${BORDE_SITIO:-${DOMINIO:?falta DOMINIO en .env.libre — el nombre público (DuckDNS) o el de Tailscale, sin https://. Ver docs/runbook-deploy-libre.md}}
     volumes:
       - ./Caddyfile.libre:/etc/caddy/Caddyfile:ro
       - caddydata:/data

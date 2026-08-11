@@ -52,13 +52,38 @@ de diagnosticar (parece un problema de contraseña). Con un origen único:
 
 ---
 
+## Elegí primero el modo de exposición
+
+El stack es el mismo; lo que cambia es quién puede llegar.
+
+| | **A · Privado (Tailscale)** | **B · Público (DuckDNS)** |
+|---|---|---|
+| Quién entra | solo los dispositivos de tu tailnet | cualquiera con el link |
+| Puertos abiertos a internet | **ninguno** | 80 y 443 |
+| HTTPS | sí, lo da Tailscale | sí, Let's Encrypt vía Caddy |
+| Desde afuera de casa | sí | sí |
+| Pasos extra | instalar Tailscale en cada dispositivo | abrir 2 firewalls + DNS |
+| Para | **una familia, un grupo cerrado** | abrirlo a desconocidos |
+
+**Para uso familiar, andá por A.** No es solo comodidad: hoy el sistema **no
+tiene recuperación de contraseña, ni observabilidad, ni alertas**, y guarda
+datos de chicos. Publicarlo a internet cuando lo van a usar cinco personas
+conocidas es aceptar una superficie de ataque que no necesitás. Con Tailscale el
+sistema simplemente **no existe** para el resto de internet.
+
+El plan free de Tailscale son **6 usuarios y dispositivos ilimitados**, que es
+exactamente el tamaño de una familia.
+
 ## 0. Lo que necesitás
 
-- Una cuenta de **Oracle Cloud** (pide tarjeta **solo para verificar
-  identidad**; no cobra mientras la cuenta siga en *Always Free* y no la
-  upgradees a Pay As You Go).
-- Una cuenta de **DuckDNS** (login con GitHub/Google, gratis).
-- Nada más: ni dominio pago, ni tarjeta con saldo, ni IP fija, ni router.
+- Una **máquina que quede prendida**. Dos formas de conseguirla gratis:
+  - una cuenta de **Oracle Cloud** (pide tarjeta **solo para verificar
+    identidad**; no cobra mientras siga en *Always Free*), o
+  - **una PC vieja, mini-PC, NAS o Raspberry Pi 4/5** que ya tengas en casa —
+    con Tailscale no hace falta que esté en la nube ni que tenga IP pública.
+- Para el modo A: una cuenta de **Tailscale** (login con Google/GitHub, gratis).
+- Para el modo B: una cuenta de **DuckDNS** (gratis).
+- Nada más: ni dominio pago, ni IP fija, ni tocar el router.
 
 ## 1. La máquina (Oracle Cloud Always Free)
 
@@ -78,17 +103,54 @@ Creá una instancia **VM.Standard.A1.Flex** (ARM Ampere) con **Ubuntu 24.04**:
 > imágenes para las dos arquitecturas: el servidor baja las suyas y no compila
 > nada del backend.
 
-## 2. Abrir los puertos 80 y 443 — EN LOS DOS LUGARES
+## 2 y 3 · Cómo se llega al servidor
 
-El error clásico de Oracle, y el que hace perder más tiempo: hay **dos**
+### Modo A · Privado con Tailscale (recomendado para la familia)
+
+**No hay que abrir ningún puerto.** Ni en Oracle, ni en la máquina, ni en el
+router. Salteate toda la parte de firewalls y de DNS.
+
+**a) Tailscale en el servidor:**
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+# seguí el link que imprime para autorizar la máquina
+```
+
+**b) Activá HTTPS en tu tailnet:** en [login.tailscale.com](https://login.tailscale.com)
+→ DNS → *Enable HTTPS*. Eso te da un nombre estable del estilo
+`servidor.tu-tailnet.ts.net` con certificado de Let's Encrypt, sin tener un
+dominio propio. Anotalo: **ese es tu `DOMINIO`**.
+
+**c) Tailscale en los 5 dispositivos de la familia.** Dos caminos:
+
+- **Todos bajo tu cuenta** (más simple): instalás la app en cada celu/laptop y
+  los autorizás vos. Un solo usuario, dispositivos ilimitados.
+- **Una cuenta por persona**: los invitás a la tailnet desde el panel. El plan
+  free llega a 6 usuarios, así que entran los cinco.
+
+**d) Publicá el sistema dentro de la tailnet** (después del paso 6, cuando el
+stack esté arriba):
+
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
+sudo tailscale serve status     # confirmá el nombre que quedó sirviendo
+```
+
+> **No uses `tailscale funnel`**: eso es justo lo contrario — publica el
+> servicio a internet, que es lo que este modo evita.
+
+### Modo B · Público con DuckDNS
+
+**a) Abrí 80 y 443 EN LOS DOS LUGARES.** Es el error clásico de Oracle: hay dos
 firewalls y los dos bloquean por defecto.
 
-**a) En la consola de Oracle** — Networking → VCN → Security List de la subred →
-*Add Ingress Rules*: origen `0.0.0.0/0`, TCP, puertos 80 y 443.
-
-**b) En la máquina** — la imagen Ubuntu de OCI trae reglas de `iptables` que
-descartan todo salvo SSH (y viene con UFW deshabilitado, así que no alcanza con
-`ufw allow`):
+- **Consola de Oracle** — Networking → VCN → Security List de la subred → *Add
+  Ingress Rules*: origen `0.0.0.0/0`, TCP, puertos 80 y 443.
+- **En la máquina** — la imagen Ubuntu de OCI trae reglas de `iptables` que
+  descartan todo salvo SSH, y viene con UFW deshabilitado (así que `ufw allow`
+  no alcanza):
 
 ```bash
 sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
@@ -99,16 +161,13 @@ sudo apt-get install -y iptables-persistent   # o: sudo netfilter-persistent sav
 Si hacés solo uno de los dos, Caddy no va a poder sacar el certificado y el
 síntoma es un timeout sin explicación.
 
-## 3. El dominio (DuckDNS)
+**b) El dominio:** entrá a [duckdns.org](https://www.duckdns.org), creá un
+subdominio, poné ahí la IP pública de la máquina, y verificá que resuelva
+**antes** de levantar nada (Caddy pide el certificado en el arranque):
 
-1. Entrá a [duckdns.org](https://www.duckdns.org), logueate y creá un subdominio
-   (ej. `destino-dorado`).
-2. Poné la **IP pública** de la instancia en el campo `current ip` y guardá.
-3. Verificá desde tu PC antes de seguir — Caddy pide el certificado en el
-   arranque y necesita que el DNS ya resuelva:
-   ```bash
-   nslookup destino-dorado.duckdns.org
-   ```
+```bash
+nslookup destino-dorado.duckdns.org
+```
 
 ## 4. Docker
 
@@ -131,9 +190,27 @@ cp infra/docker/.env.libre.example infra/docker/.env.libre
 nano infra/docker/.env.libre
 ```
 
-Completá: `DOMINIO` (sin `https://`), `POSTGRES_PASSWORD`, `RABBITMQ_PASS`,
-`JWT_PUBLIC_KEY`, `JWT_PRIVATE_KEY`, `GATEWAY_INTERNAL_SECRET`. Los secretos se
-generan con `openssl rand -hex 24`.
+Completá: `DOMINIO` (sin `https://` — el nombre `.ts.net` en el modo A, el de
+DuckDNS en el B), `POSTGRES_PASSWORD`, `RABBITMQ_PASS`, `JWT_PUBLIC_KEY`,
+`JWT_PRIVATE_KEY`, `GATEWAY_INTERNAL_SECRET`. Los secretos se generan con
+`openssl rand -hex 24`.
+
+**En el modo A, descomentá además estas cuatro:**
+
+```
+BORDE_SITIO=:80
+BORDE_HTTP=127.0.0.1:8080
+BORDE_HTTPS=127.0.0.1:8443
+TRUST_PROXY=2
+```
+
+Qué hace cada una: `BORDE_SITIO=:80` le dice a Caddy que sirva HTTP plano y no
+intente sacar un certificado (el TLS lo pone Tailscale, y acá no habría nada
+público contra qué validar un desafío). Las dos de puertos atan el borde a
+**loopback**: desde la red no se lo alcanza, solo `tailscale serve` desde la
+propia máquina. Y `TRUST_PROXY=2` son los dos saltos que hay delante del Gateway
+en este modo (Tailscale Serve, que pone el `X-Forwarded-For` real, y el borde,
+que agrega el suyo al proxear).
 
 > Si te olvidás `DOMINIO`, el `up` falla al instante con un mensaje que lo dice.
 > Es a propósito: sin dominio, Caddy fallaría de una forma mucho menos clara.
@@ -170,6 +247,18 @@ Los 3 frontends se siguen compilando localmente: llevan el prefijo de ruta y el
 dominio horneados, así que no hay una imagen genérica que sirva para todos.
 
 ## 7. Verificar
+
+**Modo A**, desde la propia máquina primero (el borde escucha en loopback):
+
+```bash
+curl http://127.0.0.1:8080/api/health   # {"status":"ok"} con los 10 servicios
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
+```
+
+…y después desde un celular con Tailscale prendido, entrando a
+`https://servidor.tu-tailnet.ts.net/`.
+
+**Modo B**, directo:
 
 ```bash
 curl https://TU-DOMINIO/api/health     # {"status":"ok"} con los 10 servicios
@@ -240,13 +329,18 @@ docker compose $COMPOSE up -d --build public-site borde
 
 ## Lo que estás aceptando al no pagar
 
-- **Un solo nodo, sin alta disponibilidad.** Se cae la VM, se cae todo. Los
-  backups son la red, y solo si te los llevaste de la máquina.
+- **Un solo nodo, sin alta disponibilidad.** Se cae la máquina, se cae todo. Los
+  backups son la red, y solo si te los llevaste de ahí.
 - **Oracle puede reclamar recursos de cuentas inactivas.** Un sistema con cron y
-  consumidores corriendo no está inactivo, pero es un riesgo de la casa.
+  consumidores corriendo no está inactivo, pero es un riesgo de la casa. (Con
+  una máquina propia en casa, este punto no aplica.)
 - **2 OCPU ARM** alcanzan para una familia o un grupo chico; no para vender esto
   a cincuenta organizaciones.
 - **Sin observabilidad**: no hay Sentry ni métricas ni alertas. Si algo falla, te
   enterás mirando `docker compose logs`.
 - **Sin recuperación de contraseña**: todavía no existe en el sistema (no hay
-  SMTP). Un olvido se arregla con SQL a mano.
+  SMTP). Un olvido se arregla con SQL a mano. En el modo A esto duele menos —
+  nadie de afuera puede intentar entrar— pero sigue siendo trabajo tuyo.
+- **En el modo A, hay que tener Tailscale prendido** en el dispositivo para
+  entrar. Es el precio de que el sistema no exista para internet: si un chico se
+  desinstala la app, deja de ver la suya hasta que la vuelva a poner.

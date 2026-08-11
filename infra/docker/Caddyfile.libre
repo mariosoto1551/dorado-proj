@@ -13,11 +13,20 @@
 #     cuando cambia el dominio, y el handoff de sesión del registro
 #     (public-site → app-web) funciona como está escrito.
 #
-# Requiere que {$DOMINIO} tenga un A apuntando a la IP pública ANTES de levantar
-# esto: Caddy pide el certificado a Let's Encrypt en el arranque y necesita
-# responder el desafío por el puerto 80.
+# La dirección de escucha viene de {$BORDE_SITIO} y decide TAMBIÉN si Caddy
+# maneja TLS, porque en Caddy el formato del sitio es la configuración:
+#
+#   - `midominio.duckdns.org`  → HTTPS automático (Let's Encrypt). Requiere que
+#     el nombre YA resuelva a la IP pública y que el 80 esté abierto: el
+#     certificado se pide en el arranque respondiendo un desafío por ahí.
+#   - `:80` → HTTP plano, sin certificados. Es el modo para uso familiar detrás
+#     de Tailscale: el TLS lo termina `tailscale serve` sobre el nombre
+#     `*.ts.net`, y este Caddy no tiene —ni puede tener— forma de sacar un
+#     certificado, porque no hay nada publicado a internet contra qué validar.
+#
+# Ver docs/runbook-deploy-libre.md.
 
-{$DOMINIO} {
+{$BORDE_SITIO} {
 	encode zstd gzip
 
 	# Solo lo que corresponde al BORDE. El resto de las cabeceras
