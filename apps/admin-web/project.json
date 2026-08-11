@@ -60,6 +60,28 @@
           ],
           "outputHashing": "all"
         },
+        "libre": {
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "500kb",
+              "maximumError": "1mb"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "6kb",
+              "maximumError": "12kb"
+            }
+          ],
+          "outputHashing": "all",
+          "baseHref": "/admin/",
+          "fileReplacements": [
+            {
+              "replace": "apps/admin-web/src/environments/environment.ts",
+              "with": "apps/admin-web/src/environments/environment.libre.ts"
+            }
+          ]
+        },
         "development": {
           "optimization": false,
           "extractLicenses": false,

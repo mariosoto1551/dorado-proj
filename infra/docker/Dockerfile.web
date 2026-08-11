@@ -4,18 +4,26 @@
 #   docker build -f infra/docker/Dockerfile.web \
 #     --build-arg APP=app-web -t dorado/app-web .
 #
-# Lo usa docker-compose.casa.yml (servidor de casa). Para el despliegue a
-# internet los frontends van a Vercel y esta imagen no interviene.
+# Lo usan docker-compose.casa.yml (servidor de casa) y docker-compose.libre.yml
+# (despliegue gratuito de origen único). En la variante de Vercel los frontends
+# se compilan allá y esta imagen no interviene.
 #
-# Las dos SPAs de Angular se compilan con la configuración `casa`, que es la de
-# producción MENOS el `fileReplacements` de environment.prod.ts. Eso es lo que
-# hace que el mismo build sirva para cualquier equipo de la red: sin el
-# reemplazo queda el environment.ts que DERIVA la URL del Gateway del host desde
-# el que se abre la app (`http://<host>:3000/api`). Si se hiciera el build de
-# producción habría que hornear una URL fija y rehacer la imagen cada vez que el
-# router cambia la IP. Por la misma razón public-site se compila SIN
-# PUBLIC_GATEWAY_URL / PUBLIC_APP_WEB_URL: su island de registro también deriva
-# del host cuando no están definidas (ver apps/public-site/src/scripts/registro.ts).
+# ── Las dos configuraciones de build de las SPAs de Angular ──
+#
+# `casa` (default) es la de producción MENOS el `fileReplacements` de
+# environment.prod.ts. Eso es lo que hace que el mismo build sirva para
+# cualquier equipo de la red: sin el reemplazo queda el environment.ts que
+# DERIVA la URL del Gateway del host desde el que se abre la app
+# (`http://<host>:3000/api`). Con el build de producción habría que hornear una
+# URL fija y rehacer la imagen cada vez que el router cambia la IP. Por la misma
+# razón public-site se compila SIN PUBLIC_GATEWAY_URL / PUBLIC_APP_WEB_URL: su
+# island de registro también deriva del host cuando no están definidas
+# (ver apps/public-site/src/scripts/registro.ts).
+#
+# `libre` (CONFIG=libre) sirve las apps bajo un PREFIJO del mismo dominio
+# (`/app/`, `/admin/`) con `apiBaseUrl` relativo. No hace falta que derive nada
+# del host porque todo comparte origen; lo que sí hace falta es el `baseHref`,
+# que va en la configuración de Nx y no acá.
 #
 # Contexto de build = raíz del repo (ver .dockerignore).
 
@@ -46,13 +54,34 @@ COPY . .
 ARG APP
 RUN test -n "$APP" || (echo "Falta --build-arg APP" && exit 1)
 
+# Configuración de build de las SPAs: `casa` (default) o `libre`. Ver arriba.
+ARG CONFIG=casa
+
+# Solo las usa public-site, y solo en la variante `libre`: ahí el dominio SÍ es
+# fijo y conocido, así que los links a la app y el POST del registro salen
+# absolutos contra el mismo origen. Vacías (el caso de casa), el island los
+# deriva del host.
+ARG PUBLIC_GATEWAY_URL=
+ARG PUBLIC_APP_WEB_URL=
+ARG SITE_URL=
+
 # Angular deja el sitio en dist/apps/<app>/browser; Astro, en apps/public-site/dist.
 # Se normalizan a /sitio para que la etapa de runtime sea una sola.
+#
+# El `unset` de las tres variables de public-site no es defensivo porque sí: un
+# ARG declarado queda como variable de entorno del RUN AUNQUE esté vacío, y para
+# el código de public-site "vacía" no es lo mismo que "ausente" — usa
+# `?? fallback`, que solo salta con `undefined`. Una cadena vacía se quedaría
+# como valor bueno y en el modo casa el POST del registro saldría relativo
+# contra el :4321 del sitio en vez de contra el Gateway.
 RUN case "$APP" in \
       app-web|admin-web) \
-        pnpm nx build "$APP" --configuration=casa && \
+        pnpm nx build "$APP" --configuration="$CONFIG" && \
         cp -r "dist/apps/$APP/browser" /sitio ;; \
       public-site) \
+        { [ -n "$PUBLIC_GATEWAY_URL" ] || unset PUBLIC_GATEWAY_URL; } && \
+        { [ -n "$PUBLIC_APP_WEB_URL" ] || unset PUBLIC_APP_WEB_URL; } && \
+        { [ -n "$SITE_URL" ] || unset SITE_URL; } && \
         pnpm nx build public-site && \
         cp -r apps/public-site/dist /sitio ;; \
       *) \

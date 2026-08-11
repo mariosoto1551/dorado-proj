@@ -1,0 +1,65 @@
+# Caddy de borde de la variante LIBRE (docs/runbook-deploy-libre.md).
+#
+# Es la pieza central de esta variante: sirve el sitio público, las dos SPAs y
+# el Gateway **bajo un solo origen**, repartiendo por prefijo de ruta. Eso no es
+# una comodidad de configuración, es lo que hace que el despliegue funcione con
+# un dominio gratuito:
+#
+#   - `duckdns.org` está en la Public Suffix List, así que `app.tuyo.duckdns.org`
+#     y `api.tuyo.duckdns.org` son SITIOS DISTINTOS para el navegador. La cookie
+#     `dorado_refresh` es `SameSite=Lax`: partida en subdominios, no viaja, y el
+#     login queda roto de una forma difícil de diagnosticar.
+#   - Con un origen único no hay CORS que configurar ni que mantener al día
+#     cuando cambia el dominio, y el handoff de sesión del registro
+#     (public-site → app-web) funciona como está escrito.
+#
+# Requiere que {$DOMINIO} tenga un A apuntando a la IP pública ANTES de levantar
+# esto: Caddy pide el certificado a Let's Encrypt en el arranque y necesita
+# responder el desafío por el puerto 80.
+
+{$DOMINIO} {
+	encode zstd gzip
+
+	# Solo lo que corresponde al BORDE. El resto de las cabeceras
+	# (X-Frame-Options, Permissions-Policy, CSP) las pone cada backend según lo
+	# que necesita —app-web habilita el micrófono para el dictado, el Gateway
+	# manda una CSP de API— y pasan por acá sin tocarse. Ponerlas también acá
+	# las pisaría con un valor genérico y apagaría el dictado.
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		-Server
+	}
+
+	# ── API ──────────────────────────────────────────────────────────────
+	# `handle` y NO `handle_path`: el Gateway rutea por el prefijo `/api` (su
+	# tabla son `/api/auth`, `/api/scoring`, …) y lo saca él mismo antes de
+	# proxear al servicio. Si se lo quitáramos acá, no reconocería ninguna ruta
+	# y todo respondería 404.
+	handle /api/* {
+		reverse_proxy gateway:3000
+	}
+
+	# ── app-web, bajo /app/ ──────────────────────────────────────────────
+	# `handle_path` sí quita el prefijo: adentro del contenedor la SPA vive en
+	# la raíz. Vuelve a encajar porque el build `libre` lleva
+	# `baseHref: "/app/"`, así que el HTML pide `/app/main-XXXX.js`, esto lo
+	# convierte en `/main-XXXX.js` y el Caddy de adentro lo encuentra.
+	redir /app /app/ 301
+	handle_path /app/* {
+		reverse_proxy app-web:80
+	}
+
+	# ── admin-web, bajo /admin/ ──────────────────────────────────────────
+	redir /admin /admin/ 301
+	handle_path /admin/* {
+		reverse_proxy admin-web:80
+	}
+
+	# ── Todo lo demás: el sitio público ──────────────────────────────────
+	# Va último a propósito: es el catch-all. Sin fallback a index.html (Astro
+	# emite un .html por ruta y un 404 tiene que ser un 404) — eso lo resuelve
+	# el Caddyfile.estatico del contenedor.
+	handle {
+		reverse_proxy public-site:80
+	}
+}

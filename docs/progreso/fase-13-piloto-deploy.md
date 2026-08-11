@@ -315,6 +315,90 @@ salió con código 1).
 - Los tres ítems de Fase 14 que bloquean un lanzamiento comercial (pagos,
   privacidad de menores, white-label) siguen `PENDIENTE` en su archivo.
 
+## Cuarta variante de despliegue: LIBRE, en internet y sin costo (2026-08-10)
+
+Pedido de José: "un plan para deployarlo 100% gratis, supongo que se podría si
+todo se encapsula en un solo docker". La respuesta corta es que **sí se puede,
+pero no por ahí**: consolidar los 10 servicios en una imagen no desbloquea
+ningún tier gratuito —los que regalan un contenedor dan 256–512 MB y lo duermen,
+y esto necesita ~2 GB y procesos que no pueden dormir— y encima se pierde
+reinicio, logs y health por servicio. La unidad que importa no es el contenedor,
+es la máquina. Así que la variante consigue **una máquina gratis** (Oracle Cloud
+Always Free, ARM) y corre el compose que ya existía.
+
+### La decisión de diseño: UN SOLO ORIGEN
+
+Todo se sirve del mismo dominio, repartido por prefijo: `/` public-site, `/app/`
+app-web, `/admin/` admin-web, `/api/…` el Gateway.
+
+No es comodidad. **`duckdns.org` está en la Public Suffix List**, así que
+`app.tuyo.duckdns.org` y `api.tuyo.duckdns.org` serían sitios DISTINTOS para el
+navegador: `dorado_refresh` es `SameSite=Lax`, no viajaría, y el login quedaría
+roto de una forma que se ve como "la contraseña no anda". Con origen único no
+hay CORS, la cookie es first-party y el handoff de sesión del registro
+(public-site → app-web) funciona como está escrito en `registro.ts`.
+
+Efecto lateral bueno: las SPAs se compilan con `apiBaseUrl` **relativo**, así que
+**no llevan el dominio adentro** — cambiar de dominio no obliga a reconstruirlas.
+
+### Lo agregado
+
+- **Configuración de build `libre`** en `app-web` y `admin-web`: `baseHref`
+  (`/app/`, `/admin/`) + `fileReplacements` a un `environment.libre.ts` nuevo
+  con `apiBaseUrl: '/api'`.
+- **`Dockerfile.web`**: build arg `CONFIG` (default `casa`, para no cambiar el
+  comportamiento existente) y los tres `PUBLIC_*` de public-site. Hay un
+  `unset` explícito de esas tres variables cuando vienen vacías: **un ARG
+  declarado queda como variable de entorno del RUN aunque esté vacío**, y el
+  código de public-site usa `?? fallback`, que solo salta con `undefined`. Sin
+  el `unset`, el modo casa habría empezado a mandar el POST del registro
+  relativo contra el :4321 del sitio en vez de contra el Gateway.
+- **`Caddyfile.libre`**: el borde. `handle` (sin strip) para `/api/*` porque el
+  Gateway rutea por ese prefijo, `handle_path` (con strip) para las dos SPAs, y
+  el sitio público de catch-all.
+- **`docker-compose.libre.yml`** + **`.env.libre.example`**: los 10 backends, los
+  3 frontends, Postgres, RabbitMQ, backups y el borde. Único puerto expuesto:
+  80/443. `TRUST_PROXY=1`, `REFRESH_COOKIE_SECURE=true`.
+- **`docs/runbook-deploy-libre.md`**: paso a paso, con los dos firewalls de
+  Oracle (Security List **y** el `iptables` de la imagen Ubuntu, que es el error
+  que más tiempo hace perder) y la sección de lo que uno acepta al no pagar.
+
+### Bug encontrado y corregido en el camino
+
+Los `.env.*.example` usan comentarios inline (`VAR=    # explicación`).
+`docker compose` los saca bien **cuando la variable tiene valor**, pero si queda
+vacía **se lleva el comentario COMO valor**. Con las variables que están
+justamente para dejar vacías eso rompe el arranque: `ADMIN_WEB_URL` habría
+llegado al Gateway como `"# https://…"` y no habría pasado su validación de URL
+(o sea, **el Gateway no levantaba**), y `OPENAI_API_KEY` habría llegado como
+`"# [SECRETO]"`, 12 caracteres, y ai-service tampoco. Las dos las había agregado
+yo hoy. Corregido moviendo el comentario arriba, con la explicación al lado para
+que no se reintroduzca. El resto de las variables del archivo se dejan como
+están: se completan siempre, y ahí el parseo es correcto.
+
+### Verificación
+
+Además de `lint test build` en verde (19 proyectos), se **probó el enrutamiento
+real**: se levantó el `Caddyfile.libre` de verdad con los dists compilados y un
+stub del Gateway, y se comprobó contra HTTP:
+
+- `/api/health` y `/api/auth/login` llegan al Gateway **con el path intacto**
+  (si se strippeara, no reconocería ninguna ruta y todo daría 404);
+- `/app/` y el deep link `/app/tutor/actividades` sirven la SPA (fallback a
+  index.html), y los assets que pide el HTML resuelven por el `<base href>`:
+  `/app/main-*.js` y `/app/styles-*.css` dan 200;
+- `/admin/` sirve la otra SPA y su bundle;
+- `/` sirve el sitio público y **`/no-existe` da 404**, no la home;
+- `/app` y `/admin` sin barra redirigen 301 a la versión con barra;
+- las cabeceras llegan bien y **sin pisarse**: HSTS del borde y
+  `Permissions-Policy: microphone=(self)` de app-web conviven (si el borde
+  hubiera puesto una Permissions-Policy genérica, habría apagado el dictado);
+- public-site quedó con los links al `/app` del mismo origen y el registro
+  apuntando a `/api/auth/organizaciones`.
+
+Lo que **no** se pudo verificar desde acá: la instancia de Oracle en sí y el
+certificado de Let's Encrypt (hacen falta la cuenta y el DNS).
+
 ## Qué debería verificar la próxima sesión
 
 - Confirmar con José los datos bloqueantes (catálogo/usernames/recompensas).

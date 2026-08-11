@@ -1,0 +1,317 @@
+# Stack de la variante LIBRE: el sistema entero en internet, con HTTPS y
+# dominio propio, en una máquina que no cuesta nada (ver
+# docs/runbook-deploy-libre.md). Los 10 procesos backend, los 3 frontends,
+# Postgres, RabbitMQ, backups y un Caddy de borde.
+#
+# Uso:
+#   cp infra/docker/.env.libre.example infra/docker/.env.libre   # y completar
+#   docker compose -f infra/docker/docker-compose.libre.yml \
+#     --env-file infra/docker/.env.libre up -d --build
+#
+# ── En qué se diferencia de las otras dos ──
+#
+# vs. `casa`: acá hay dominio y HTTPS de verdad, así que la cookie de refresh va
+# `Secure`, no existe `CORS_ALLOW_LAN` y NO se publica ningún puerto salvo el
+# 80/443 de Caddy. Postgres, RabbitMQ y los diez servicios solo se alcanzan
+# desde adentro de la red de contenedores.
+#
+# vs. `prod` (VPS + Vercel): los tres frontends se sirven desde ACÁ, bajo el
+# MISMO origen que el Gateway (`/app/`, `/admin/`, `/api/`, y el sitio público
+# en la raíz). Eso evita el CORS por completo y, sobre todo, mantiene la cookie
+# `dorado_refresh` como first-party: con un dominio gratuito de DuckDNS —que
+# está en la Public Suffix List— repartir subdominios la convertiría en
+# cross-site y `SameSite=Lax` la bloquearía. Ver Caddyfile.libre.
+#
+# El único puerto expuesto a internet es el de `borde` (80/443).
+name: dorado-libre
+
+x-service-build: &build
+  context: ../..
+  dockerfile: infra/docker/Dockerfile.service
+
+x-web-build: &web-build
+  context: ../..
+  dockerfile: infra/docker/Dockerfile.web
+
+x-common-env: &common-env
+  GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+  JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:-dorado}:${RABBITMQ_PASS}@rabbitmq:5672
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dorado}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # postgres:18 movió PGDATA bajo /var/lib/postgresql/<major>/ — el mount
+      # correcto para persistencia es /var/lib/postgresql, no .../data.
+      - pgdata:/var/lib/postgresql
+      # Crea las 9 bases (incluida ai_db) en el primer arranque.
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-dorado}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    <<: *restart
+    image: rabbitmq:4.3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-dorado}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # ─────────────────────────── backend ───────────────────────────
+
+  identity-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: identity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3001'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/identity_db
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      # A diferencia de casa, acá hay TLS de verdad en el borde: la cookie de
+      # refresh va Secure.
+      REFRESH_COOKIE_SECURE: 'true'
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  billing-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: billing-service } }
+    environment:
+      <<: *common-env
+      PORT: '3002'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/billing_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  activity-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: activity-service } }
+    environment:
+      <<: *common-env
+      PORT: '3003'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/activity_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  session-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: session-service } }
+    environment:
+      <<: *common-env
+      PORT: '3004'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/session_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  scoring-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: scoring-service } }
+    environment:
+      <<: *common-env
+      PORT: '3005'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/scoring_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SESSION_INTERNAL_URL: http://session-service:3004
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  rewards-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: rewards-service } }
+    environment:
+      <<: *common-env
+      PORT: '3006'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/rewards_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notification-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: notification-service } }
+    environment:
+      <<: *common-env
+      PORT: '3007'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/notification_db
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  audit-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: audit-service } }
+    environment:
+      <<: *common-env
+      PORT: '3008'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/audit_db
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  # Asistente de IA (fase-14-29). Sin RABBITMQ_URL a propósito: no publica ni
+  # consume eventos (decisión 15 de esa fase). Sin OPENAI_API_KEY levanta igual
+  # y el asistente queda apagado: /api/ai responde 503 y nada más cambia. En la
+  # variante libre ese es el default, porque OpenAI es lo único de todo el
+  # sistema que no tiene forma de ser gratis.
+  ai-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: ai-service } }
+    environment:
+      PORT: '3009'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dorado}:${POSTGRES_PASSWORD}@postgres:5432/ai_db
+      GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-terra}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  gateway:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: gateway } }
+    environment:
+      <<: *common-env
+      PORT: '3000'
+      # `borde` es el único salto delante. Sin esto el rate limiting contaría
+      # por la IP de Caddy y todos los usuarios compartirían un balde: el
+      # límite de 10/min del login sería 10/min para toda la plataforma.
+      TRUST_PROXY: '1'
+      # Los tres comparten origen con el Gateway, así que ninguna llamada es
+      # cross-origin y esta lista nunca llega a usarse. Se completan igual
+      # porque las dos primeras son requeridas por el schema de entorno, y
+      # porque si algún día se separa un frontend, esto ya está bien puesto.
+      APP_WEB_URL: https://${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+      PUBLIC_SITE_URL: https://${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+      ADMIN_WEB_URL: https://${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      SESSION_INTERNAL_URL: http://session-service:3004
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      NOTIFICATION_INTERNAL_URL: http://notification-service:3007
+      AUDIT_INTERNAL_URL: http://audit-service:3008
+      AI_INTERNAL_URL: http://ai-service:3009
+    depends_on:
+      - identity-service
+      - billing-service
+      - activity-service
+      - session-service
+      - scoring-service
+      - rewards-service
+      - notification-service
+      - audit-service
+      - ai-service
+
+  # ─────────────────────────── frontends ───────────────────────────
+  # Los tres con `CONFIG: libre`: las SPAs se compilan con baseHref del prefijo
+  # bajo el que las sirve el borde y con apiBaseUrl relativo.
+
+  app-web:
+    <<: *restart
+    build: { <<: *web-build, args: { APP: app-web, CONFIG: libre } }
+
+  admin-web:
+    <<: *restart
+    build: { <<: *web-build, args: { APP: admin-web, CONFIG: libre } }
+
+  # public-site es el único que necesita el dominio EN EL BUILD: sus links a la
+  # app y el POST del registro se resuelven en tiempo de compilación (Astro los
+  # inlinea). Si cambiás de dominio, hay que reconstruir este contenedor —los
+  # otros dos no, porque no llevan ninguna URL adentro.
+  public-site:
+    <<: *restart
+    build:
+      <<: *web-build
+      args:
+        APP: public-site
+        PUBLIC_GATEWAY_URL: https://${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+        PUBLIC_APP_WEB_URL: https://${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}/app
+        SITE_URL: https://${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+
+  # ─────────────────────────── borde ───────────────────────────
+
+  # Lo único expuesto a internet. HTTPS automático (Let's Encrypt) y reparto por
+  # prefijo hacia los cuatro destinos. Necesita que ${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md} ya resuelva a la
+  # IP pública: el certificado se pide en el arranque.
+  borde:
+    <<: *restart
+    image: caddy:2
+    ports: ['80:80', '443:443']
+    environment:
+      DOMINIO: ${DOMINIO:?falta DOMINIO en .env.libre — el nombre de DuckDNS sin https:// (ej. destino-dorado.duckdns.org). Ver docs/runbook-deploy-libre.md}
+    volumes:
+      - ./Caddyfile.libre:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - gateway
+      - app-web
+      - admin-web
+      - public-site
+
+  # Backup diario de las 9 bases (scripts/backup-postgres.sh) a las 03:00, con
+  # verificación de cada dump y 14 días de retención. Sacarlos de la máquina
+  # sigue siendo manual — ver el runbook.
+  backup:
+    <<: *restart
+    image: postgres:18
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-dorado}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_RETENCION_DIAS: ${BACKUP_RETENCION_DIAS:-14}
+      BACKUP_HORA: ${BACKUP_HORA:-03}
+    volumes:
+      - ../../scripts/backup-postgres.sh:/usr/local/bin/backup-postgres.sh:ro
+      - ../../scripts/restore-postgres.sh:/usr/local/bin/restore-postgres.sh:ro
+      - backups:/backups
+    entrypoint: ['/usr/local/bin/backup-postgres.sh', '--loop']
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  rabbitmqdata:
+  caddydata:
+  caddyconfig:
+  backups:
