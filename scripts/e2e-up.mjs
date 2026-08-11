@@ -6,6 +6,7 @@
  * Levanta el STACK COMPLETO reutilizando el flujo de dev — no dockeriza los
  * servicios (eso es Fase 13):
  *
+ *   0. Genera los `apps/<servicio>/.env` que falten (clon limpio / CI).
  *   1. Infra vía docker-compose (Postgres + RabbitMQ).
  *   2. `prisma migrate deploy` en las 9 bases.
  *   3. `nx run-many -t serve` de gateway + 9 servicios (billing siembra planes
@@ -24,6 +25,8 @@
  * POSIX para bajar el árbol de `nx run-many`.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const esWindows = process.platform === 'win32';
@@ -144,6 +147,120 @@ async function levantarInfra() {
   }
 }
 
+/**
+ * Crea los `apps/<servicio>/.env` que falten, a partir de su `.env.example`.
+ *
+ * **Por qué existe.** Los `.env` están gitignoreados (y tiene que seguir siendo
+ * así), pero todo el stack depende de ellos: el CLI de Prisma lee `DATABASE_URL`
+ * de ahí vía `prisma.config.ts`, y cada servicio valida su entorno al arrancar.
+ * En un clon limpio —o sea, en CI— no existe ninguno, y el síntoma no dice nada
+ * de eso: `prisma migrate deploy` se conecta al placeholder que deja
+ * `prisma.config.ts` cuando no hay `DATABASE_URL` y falla con
+ * `P1000: Authentication failed ... database "placeholder"`. El job `e2e` del
+ * workflow venía fallando así desde que se creó.
+ *
+ * **Nunca pisa un `.env` existente**: el de desarrollo puede tener la key real
+ * de OpenAI, la cuenta de PLATFORM_ADMIN o una base distinta.
+ *
+ * Dos detalles que parecen de más y no lo son:
+ *
+ * 1. **Las claves JWT se comparten.** Identity firma y los otros nueve validan
+ *    con la pública del mismo par. Si ya hay algún `.env`, se REUSA su par en
+ *    vez de generar uno nuevo: generarlo dejaría a los servicios nuevos
+ *    validando con una clave que no corresponde a la que firma, y el síntoma
+ *    sería un 401 en todos lados sin ninguna pista de por qué.
+ * 2. **Las líneas con valor vacío se descartan.** `@IsOptional()` de
+ *    class-validator solo saltea `undefined`, no la cadena vacía, así que un
+ *    `PLATFORM_ADMIN_EMAIL=` copiado tal cual del ejemplo entra al `@Matches`
+ *    y **tira abajo el arranque de identity-service**. Ausente es opcional;
+ *    vacío es inválido.
+ */
+function prepararEntorno() {
+  const rutaEnv = (servicio) => `apps/${servicio}/.env`;
+  const faltantes = SERVICIOS_SERVE.filter((s) => !existsSync(rutaEnv(s)));
+
+  if (faltantes.length === 0) {
+    log('env', 'todos los .env ya existen — no se toca ninguno');
+
+    return;
+  }
+
+  const claves = clavesJwtExistentes() ?? generarClavesJwt();
+
+  for (const servicio of faltantes) {
+    const ejemplo = `apps/${servicio}/.env.example`;
+
+    if (!existsSync(ejemplo)) {
+      throw new Error(`Falta ${ejemplo} y tampoco hay ${rutaEnv(servicio)}`);
+    }
+
+    const lineas = readFileSync(ejemplo, 'utf8')
+      .split(/\r?\n/)
+      .filter((linea) => {
+        const asignacion = linea.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+
+        // Comentarios y líneas en blanco se conservan; las asignaciones sin
+        // valor se van (ver punto 2 del comentario de arriba).
+        return !asignacion || asignacion[2].trim() !== '';
+      });
+
+    lineas.push(`JWT_PUBLIC_KEY=${claves.publica}`);
+
+    if (servicio === 'identity-service') {
+      lineas.push(`JWT_PRIVATE_KEY=${claves.privada}`);
+    }
+
+    writeFileSync(rutaEnv(servicio), `${lineas.join('\n')}\n`);
+  }
+
+  log('env', `${faltantes.length} .env generados desde su .env.example: ${faltantes.join(', ')}`);
+}
+
+/** Par RS256 ya en uso, leído de los `.env` que existan (o `null`). */
+function clavesJwtExistentes() {
+  const leer = (servicio, clave) => {
+    const ruta = `apps/${servicio}/.env`;
+
+    if (!existsSync(ruta)) {
+      return undefined;
+    }
+
+    return readFileSync(ruta, 'utf8').match(new RegExp(`^${clave}=(.+)$`, 'm'))?.[1]?.trim();
+  };
+
+  const privada = leer('identity-service', 'JWT_PRIVATE_KEY');
+  const publica = leer('identity-service', 'JWT_PUBLIC_KEY');
+
+  if (privada && publica) {
+    return { privada, publica };
+  }
+
+  // Hay .env de otros servicios pero no el de identity (o está incompleto): no
+  // se puede recuperar la privada, y generar un par nuevo dejaría a los que ya
+  // existen validando con otra clave. Se avisa en vez de romper en silencio.
+  const ajena = SERVICIOS_SERVE.map((s) => leer(s, 'JWT_PUBLIC_KEY')).find(Boolean);
+
+  if (ajena) {
+    log(
+      'env',
+      '\x1b[33mAVISO\x1b[0m: hay .env con JWT_PUBLIC_KEY pero no se pudo leer el par completo ' +
+        'de identity-service. Se genera uno nuevo y los .env viejos van a quedar desalineados ' +
+        '(401 en todos lados). Borrá los apps/*/.env y volvé a correr para regenerarlos juntos.'
+    );
+  }
+
+  return null;
+}
+
+function generarClavesJwt() {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+
+  return {
+    privada: Buffer.from(privateKey.export({ type: 'pkcs8', format: 'pem' })).toString('base64'),
+    publica: Buffer.from(publicKey.export({ type: 'spki', format: 'pem' })).toString('base64'),
+  };
+}
+
 function migrar() {
   log('migrate', `prisma migrate deploy en ${SERVICIOS_DB.length} bases…`);
   for (const servicio of SERVICIOS_DB) {
@@ -226,6 +343,9 @@ async function main() {
   let stack;
 
   try {
+    // Antes que la infra: si falta un .env, mejor enterarse en el primer
+    // segundo que después de levantar Postgres y RabbitMQ para nada.
+    prepararEntorno();
     await levantarInfra();
     migrar();
     stack = levantarStack();

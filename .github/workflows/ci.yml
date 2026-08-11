@@ -67,5 +67,23 @@ jobs:
 
       # Levanta infra + stack, corre la suite y hace teardown. El exit code de
       # Playwright se propaga como exit del script (falla el job si falla la suite).
+      #
+      # El script genera los apps/*/.env que falten desde sus .env.example: en
+      # un clon limpio no existe ninguno (están gitignoreados) y sin ellos el
+      # CLI de Prisma se conecta al placeholder de prisma.config.ts y falla con
+      # un P1000 que no menciona en ningún lado que el problema es un .env.
       - run: node scripts/e2e-up.mjs
+
+      # Sin esto, un fallo en CI solo deja el texto del log: ni el trace de
+      # Playwright ni las capturas del momento exacto. Es la diferencia entre
+      # diagnosticar el problema y adivinarlo desde otra máquina.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-e2e
+          path: |
+            test-results/
+            apps/e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
 

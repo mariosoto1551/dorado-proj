@@ -444,6 +444,83 @@ volvió a correr el banco de pruebas de ruteo con la variable ya renombrada.
 Sin verificar desde acá: la tailnet real y `tailscale serve` (hacen falta las
 cuentas y los dispositivos).
 
+## El job `e2e` de CI: por qué nunca pasó (2026-08-11)
+
+**Las 10 corridas del workflow desde que se creó (21-jul) terminaron en rojo**, y
+nadie lo había mirado. Se creía cerrada la deuda "E2E en CI" de la Fase 12
+porque el job existía; existía y fallaba.
+
+Eran **dos fallas distintas**:
+
+1. **Job `main`** (`nx affected -t lint,test,build`): el target `test` de
+   `admin-web` no se salteaba, fallaba (`No tests found`). Cerrado más arriba,
+   en el endurecimiento — el job pasa desde el commit de esa tanda.
+2. **Job `e2e`**: sigue siendo el de este apartado.
+
+### El diagnóstico
+
+```
+Datasource "db": PostgreSQL database "placeholder" ... at "localhost:5432"
+Error: P1000: Authentication failed against database server, the provided
+database credentials for `placeholder` are not valid.
+[e2e:error] "npx prisma migrate deploy" salió con código 1
+```
+
+Los `apps/*/.env` están gitignoreados —y tienen que seguir estándolo—, pero
+**todo el stack depende de ellos**: el CLI de Prisma 7 lee `DATABASE_URL` vía
+`prisma.config.ts`, y cada servicio valida su entorno al arrancar. En un clon
+limpio no existe ninguno. `prisma.config.ts` tiene un `?? 'postgresql://
+placeholder:placeholder@localhost:5432/placeholder'` pensado para que `generate`
+funcione sin base, y `migrate` cae ahí y muere.
+
+El mensaje no menciona `.env` en ningún lado, que es por lo que sobrevivió tres
+semanas: parece un problema de credenciales de Postgres y es un archivo ausente.
+
+### El arreglo
+
+Paso 0 nuevo en `scripts/e2e-up.mjs` (`prepararEntorno`): genera los `.env` que
+falten desde su `.env.example`. **Nunca pisa uno existente** — el de desarrollo
+puede tener la key real de OpenAI o la cuenta de PLATFORM_ADMIN.
+
+Dos detalles que parecen de más y no lo son, los dos descubiertos haciéndolo:
+
+- **Las claves JWT se comparten**: identity firma y los otros nueve validan con
+  la pública del mismo par. Si ya hay algún `.env`, se REUSA su par; generar uno
+  nuevo dejaría a los servicios recién creados validando con una clave que no
+  corresponde a la que firma, y el síntoma sería 401 en todos lados sin ninguna
+  pista. Si el par no se puede recuperar entero, avisa en vez de romper callado.
+- **Las líneas con valor vacío se descartan**: `@IsOptional()` de
+  class-validator solo saltea `undefined`, no la cadena vacía, así que un
+  `PLATFORM_ADMIN_EMAIL=` copiado tal cual del ejemplo entra al `@Matches` y
+  **tira abajo el arranque de identity-service**. Ausente es opcional; vacío es
+  inválido. (Es la misma trampa que ya había obligado al `@Transform` de
+  `OPENAI_API_KEY` en el ítem 29.)
+
+Efecto lateral bueno: **un clon limpio ahora corre la suite sin configurar
+nada**, que antes pedía copiar diez `.env.example` a mano y generar el par JWT.
+
+También se agregó al workflow un `upload-artifact` con `test-results/` y el
+reporte de Playwright **si el job falla**. Sin eso, un fallo en CI deja solo
+texto: ni trace ni capturas. Es la diferencia entre diagnosticar desde otra
+máquina y adivinar.
+
+### Verificación
+
+Se reprodujo el escenario de CI de verdad, no de palabra: se **movieron los diez
+`.env` locales fuera del repo** y se corrió `node scripts/e2e-up.mjs` desde ese
+estado.
+
+- Generó los 10 `.env`, con la misma pública en todos y la privada solo en
+  identity, y sin las líneas vacías (`PLATFORM_ADMIN_*`, `OPENAI_API_KEY`).
+- `prisma migrate deploy` pasó en las 9 bases (antes moría en la primera).
+- Los 10 procesos pasaron su healthcheck.
+- **92 passed / 0 failed**, exit 0.
+- Los `.env` originales se restauraron y se comprobó que quedaron **byte a byte**
+  iguales a su respaldo.
+
+Ninguna suite E2E necesita la cuenta de PLATFORM_ADMIN, así que omitirla en el
+`.env` generado no deja nada sin cubrir.
+
 ## Qué debería verificar la próxima sesión
 
 - Confirmar con José los datos bloqueantes (catálogo/usernames/recompensas).
