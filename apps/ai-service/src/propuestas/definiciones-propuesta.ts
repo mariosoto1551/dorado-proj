@@ -1275,15 +1275,20 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
   {
     nombre: 'proponer_anotar',
     descripcion:
-      `Propone anotar lo que pasó HOY: marcar una actividad como hecha, marcar una obligatoria ` +
+      `Propone anotar lo que pasó: marcar una actividad como hecha, marcar una obligatoria ` +
       `como no hecha, o registrarle una conducta a alguien. ${NO_APLICA} ` +
       'Llamá SIEMPRE a estado_de_hoy antes: de ahí salen los actividadId, y ahí está resuelto ' +
-      'qué se le puede marcar hoy a cada uno y por qué no cuando no se puede (`puedeMarcarHizo`, ' +
+      'qué se le puede marcar a cada uno y por qué no cuando no se puede (`puedeMarcarHizo`, ' +
       '`puedeMarcarNoHizo`, `motivoNoDisponible`). No propongas lo que esa lectura dice que no ' +
       'se puede: contale al Tutor el motivo que ella te dio. ' +
       'Las conductas son otra cosa: su id sale de listar_conductas y se pueden registrar ' +
       'siempre, no dependen de la lista del día. ' +
-      'Sin sesión abierta no se anota nada. Y esto NO sirve para corregir un día ya cerrado.',
+      'Si el Tutor habla de un día que NO es hoy ("el lunes", "ayer"), llamá primero a ' +
+      'listar_sesiones_de_la_seccion, mandá ese `sesionId` **y** un `motivoRetroactivo`, y ' +
+      'después llamá a estado_de_hoy con ese mismo id — la lista de ese día no es la de hoy. ' +
+      'Decí siempre en el resumen a qué día apunta la propuesta. ' +
+      'Solo se puede corregir dentro de la sección vigente: lo de secciones anteriores está ' +
+      'cerrado y no hay forma de tocarlo.',
     parametros: {
       type: 'object',
       properties: {
@@ -1326,9 +1331,27 @@ export const HERRAMIENTAS_PROPUESTA: DefinicionHerramienta[] = [
           minItems: 1,
           maxItems: 50,
         },
+        // fase-14-33: van FUERA del array a propósito. Una propuesta apunta a
+        // UN día: mezclar anotaciones del lunes y del martes en una sola tarjeta
+        // le pediría al Tutor que revise dos cosas distintas de un solo vistazo,
+        // que es justo lo que la ceremonia de aplicar existe para evitar.
+        sesionId: uuidDe(
+          'el día al que apuntan TODAS las anotaciones de esta propuesta. Omitilo para hoy',
+          'listar_sesiones_de_la_seccion'
+        ),
+        motivoRetroactivo: {
+          type: 'string',
+          description:
+            'Por qué se está cargando esto en un día que ya cerró. **Obligatorio si mandás ' +
+            'sesionId y no es la sesión abierta** — sin esto el sistema rechaza la carga. ' +
+            'Es distinto del `motivo` de cada fila: aquel explica la marca al integrante, ' +
+            'éste explica por qué la fila aparece en un día terminado. Máximo 200.',
+        },
         resumen: {
           type: 'string',
-          description: 'Una línea con qué se está anotando y de dónde salió.',
+          description:
+            'Una línea con qué se está anotando y de dónde salió. Si apunta a un día que no ' +
+            'es hoy, decilo acá con todas las letras.',
         },
       },
       required: ['anotaciones'],

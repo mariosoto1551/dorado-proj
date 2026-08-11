@@ -277,6 +277,13 @@ model RegistroActividad {
   // en vez de volver a un estado que finge que nunca pasó.
   revertidoPorTutorId String?
   revertidoEn         DateTime?
+  // fase-14-33: la fila se cargó a una Sesión que NO era la abierta. NULL en
+  // todo lo anterior a este ítem y en todo lo que se registra en el día — no es
+  // un default que haya que backfillear, es la ausencia de la marca. El motivo
+  // es obligatorio cuando el instante no es null, y lo valida el endpoint: la
+  // base no sabe quién escribió ni en qué estado estaba la Sesión.
+  cargadoRetroactivamenteEn DateTime?
+  motivoRetroactivo         String?
   createdAt           DateTime  @default(now())
 
   @@index([organizacionId])
@@ -302,6 +309,9 @@ model RegistroConducta {
   eliminado           Boolean   @default(false)
   eliminadoPorTutorId String?
   eliminadoEn         DateTime?
+  // fase-14-33: ver RegistroActividad.
+  cargadoRetroactivamenteEn DateTime?
+  motivoRetroactivo         String?
   createdAt           DateTime  @default(now())
 
   @@index([organizacionId])
@@ -354,6 +364,9 @@ model RegistroTareaEquipo {
   motivoTutor           String?
   revertidoPorTutorId   String?
   revertidoEn           DateTime?
+  // fase-14-33: ver RegistroActividad.
+  cargadoRetroactivamenteEn DateTime?
+  motivoRetroactivo         String?
   createdAt             DateTime @default(now())
 
   @@index([organizacionId])

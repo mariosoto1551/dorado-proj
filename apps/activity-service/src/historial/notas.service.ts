@@ -5,11 +5,10 @@ import { NotaRegistroDto, TenantContext, TipoRegistroHistorial } from '@dorado/s
 import { IdentityClientService } from '../clientes/identity-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import {
-  NoHaySesionAbiertaException,
   NotaDeOtroTutorException,
   RegistroDelHistorialNoEncontradoException,
+  SesionNoEditableException,
 } from '../comun/excepciones';
-import { resolverSesionAbierta } from '../comun/sesion-abierta';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CrearNotaRegistroRequest } from './dto/historial.dto';
 import { notaADto } from './historial.service';
@@ -47,12 +46,15 @@ export class NotasService {
   ): Promise<NotaRegistroDto> {
     const registro = await this.buscarRegistro(tenant, registroTipo, registroId);
 
-    // Las notas son parte del trabajo del día, no anotaciones retroactivas
-    // sobre lo ya cerrado (spec, Parte A).
-    const sesion = resolverSesionAbierta(await this.session.obtenerSeccionActual(registro.grupoId));
+    // fase-14-18 decía «las notas son parte del trabajo del día, no anotaciones
+    // retroactivas sobre lo ya cerrado». fase-14-33 mueve el borde una unidad
+    // arriba, igual que en todo el resto: el trabajo en curso es la **Sección**
+    // vigente, y anotar por qué se corrigió el lunes es exactamente para lo que
+    // sirve una nota interna. Lo ya cerrado sigue sin admitir notas.
+    const seccion = await this.session.obtenerSeccionActual(registro.grupoId);
 
-    if (registro.sesionId !== sesion.sesionId) {
-      throw new NoHaySesionAbiertaException();
+    if (!seccion?.sesiones.some((sesion) => sesion.id === registro.sesionId)) {
+      throw new SesionNoEditableException();
     }
 
     const nota = await this.prisma.client.notaRegistro.create({

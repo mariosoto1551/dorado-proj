@@ -41,6 +41,56 @@ export class NoHaySesionAbiertaException extends DomainException {
   }
 }
 
+// Codes de escritura en una Sesión pasada (fase-14-33).
+
+/**
+ * La Sesión pedida no pertenece a la Sección vigente del Grupo.
+ *
+ * Un solo code para cuatro casos —no existe, es de otro Grupo, es de otra
+ * organización, es de una Sección ya CERRADA— a propósito: distinguirlos le
+ * diría a quien prueba ids cuál de sus intentos rozó algo real.
+ */
+export class SesionNoEditableException extends DomainException {
+  constructor() {
+    super(
+      'SESION_NO_EDITABLE',
+      'Esa Sesión no pertenece a la Sección vigente del grupo — una Sección cerrada no se edita',
+      409
+    );
+  }
+}
+
+/**
+ * Escribir en una Sesión que ya cerró exige decir por qué (decisión 7): una
+ * fila que aparece en un día terminado, sin explicación, es exactamente lo que
+ * la regla 6 del proyecto existe para evitar.
+ */
+export class MotivoRetroactivoRequeridoException extends DomainException {
+  constructor() {
+    super(
+      'MOTIVO_RETROACTIVO_REQUERIDO',
+      'Cargar algo en una Sesión que ya cerró exige un motivo',
+      400
+    );
+  }
+}
+
+/**
+ * Un cronómetro es un instrumento del momento presente: «empezá a contar 40
+ * minutos en el martes pasado» no significa nada (decisión 3). Completar
+ * retroactivamente una actividad de cronómetro sí se puede — lo que no se
+ * puede es arrancarlo.
+ */
+export class CronometroNoRetroactivoException extends DomainException {
+  constructor() {
+    super(
+      'CRONOMETRO_NO_RETROACTIVO',
+      'Un cronómetro solo se inicia en la Sesión abierta',
+      400
+    );
+  }
+}
+
 export class LimiteRepeticionesAlcanzadoException extends DomainException {
   constructor() {
     super(

@@ -26,12 +26,14 @@ import {
   excepcionSiNoDisponible,
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
+  MotivoRetroactivoRequeridoException,
   NoEsTareaDeEquipoException,
-  NoHaySesionAbiertaException,
+  SesionNoEditableException,
   SoloJefeCompletaTareaEquipoException,
 } from '../comun/excepciones';
 import { estaDisponibleEn, tieneProgramacion } from '../comun/programacion';
-import { resolverSesionAbierta } from '../comun/sesion-abierta';
+import { resolverSesionDeTrabajo } from '../comun/sesion-abierta';
+import type { CompletarTareaEquipoRequest } from './dto/equipos.dto';
 import { EventosPublisherService } from '../eventos/eventos-publisher.service';
 import type { Actividad, RegistroTareaEquipo } from '../generated/prisma/client';
 import { AlcanceActividad, EstadoCatalogo } from '../generated/prisma/enums';
@@ -62,6 +64,9 @@ function registroTareaEquipoADto(registro: RegistroTareaEquipo): RegistroTareaEq
     eliminado: registro.eliminado,
     motivoTutor: registro.motivoTutor,
     completadaEn: registro.createdAt.toISOString(),
+    // fase-14-33
+    cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
+    motivoRetroactivo: registro.motivoRetroactivo,
   };
 }
 
@@ -93,7 +98,8 @@ export class TareasEquipoService {
   async completar(
     tenant: TenantContext,
     equipoId: string,
-    actividadId: string
+    actividadId: string,
+    datos: CompletarTareaEquipoRequest = {}
   ): Promise<CompletarTareaEquipoResponse> {
     const equipo = await this.resolverEquipo(tenant, equipoId);
 
@@ -101,7 +107,16 @@ export class TareasEquipoService {
 
     const actividad = await this.buscarTareaEquipo(actividadId, equipo.grupoId);
     const seccion = await this.session.obtenerSeccionActual(equipo.grupoId);
-    const sesion = resolverSesionAbierta(seccion);
+    // fase-14-33: el jefe del equipo (USUARIO) nunca elige Sesión — sólo un
+    // Tutor puede cargar la tarea en un día que ya cerró.
+    const sesion = resolverSesionDeTrabajo(
+      seccion,
+      tenant.rol === Rol.USUARIO ? undefined : datos.sesionId
+    );
+
+    if (sesion.retroactiva && !datos.motivoRetroactivo?.trim()) {
+      throw new MotivoRetroactivoRequeridoException();
+    }
 
     // fase-14-11 + fase-14-24: una tarea de equipo también puede estar
     // programada por días o acotada por fechas. El cruce REST para resolver la
@@ -162,6 +177,11 @@ export class TareasEquipoService {
         miembrosSnapshot: asignaciones as unknown as object,
         completadaPorId: tenant.principalId,
         completadaPorTipo: tenant.rol === Rol.USUARIO ? 'USUARIO' : 'TUTOR',
+        // fase-14-33: null salvo carga fuera de su día.
+        cargadoRetroactivamenteEn: sesion.retroactiva ? new Date() : null,
+        motivoRetroactivo: sesion.retroactiva
+          ? (datos.motivoRetroactivo?.trim() ?? null)
+          : null,
       },
     });
 
@@ -342,8 +362,12 @@ export class TareasEquipoService {
 
   /**
    * La completada sobre la que opera el Tutor: de su organización y de la
-   * Sesión abierta. La marca vive dentro de su Sesión (fase-14-12, decisión 4):
-   * una vez cerrada, lo registrado queda como quedó.
+   * Sección vigente.
+   *
+   * fase-14-12 decía "de la Sesión abierta"; fase-14-33 lo corrige a la
+   * Sección, que es la unidad que se evalúa — misma corrección que en
+   * `RegistroService.revertirMarca`. Una Sección CERRADA sigue siendo
+   * intocable (regla 6).
    */
   private async buscarRegistroDeLaSesion(
     tenant: TenantContext,
@@ -359,10 +383,9 @@ export class TareasEquipoService {
     }
 
     const seccion = await this.session.obtenerSeccionActual(registro.grupoId);
-    const sesion = resolverSesionAbierta(seccion);
 
-    if (registro.sesionId !== sesion.sesionId) {
-      throw new NoHaySesionAbiertaException();
+    if (!seccion?.sesiones.some((sesion) => sesion.id === registro.sesionId)) {
+      throw new SesionNoEditableException();
     }
 
     return registro;

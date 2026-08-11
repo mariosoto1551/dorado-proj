@@ -72,7 +72,7 @@ export class AjustesService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    const sesion = await this.resolverSesionAbierta(grupoId);
+    const sesion = await this.resolverSesionDeTrabajo(grupoId, datos.sesionId);
 
     const evento = await this.prisma.client.eventoPuntos.create({
       data: {
@@ -94,6 +94,10 @@ export class AjustesService {
         // es exactamente lo que es esto. Renombrarlo sería mejor nombre y peor
         // idea: es una columna persistida con filas vivas.
         motivoCorreccion: datos.motivo,
+        // fase-14-33: trazabilidad, no criterio de suma. Sin `motivoRetroactivo`
+        // aparte: `motivo` ya es obligatorio en TODO ajuste, y pedir dos textos
+        // para el mismo movimiento es fricción sin información.
+        cargadoRetroactivamenteEn: sesion.retroactiva ? new Date() : null,
       },
     });
 
@@ -120,28 +124,63 @@ export class AjustesService {
   }
 
   /**
-   * Dónde cae el asiento: la Sesión abierta de la Sección abierta.
+   * Dónde cae el asiento (fase-14-31, ampliado por fase-14-33).
    *
-   * Es la misma resolución que hace activity al registrar, y **falla cerrado**
-   * por el mismo motivo: sin Sesión no hay dónde escribir, y elegir la última
-   * cerrada sería mover el puntaje de un período que ya se evaluó.
+   * El #31 decía «la Sesión abierta de la Sección abierta, o no cae» — su
+   * decisión 5. El #33 la revisa: cae en cualquier Sesión de la Sección
+   * **vigente**, porque la Sección es la unidad que se evalúa y mientras no
+   * cerró nada de lo que contiene está decidido. Lo que no cambia es que
+   * **falla cerrado**: sin Sección vigente no hay dónde escribir, y una Sección
+   * ya CERRADA es intocable (regla 6).
+   *
+   * Es una copia local del resolvedor de activity y no una lib compartida a
+   * propósito: son dos servicios con dos clientes internos distintos, y
+   * compartir esto obligaría a compartir el tipo del cliente (regla 2).
    */
-  private async resolverSesionAbierta(
-    grupoId: string
-  ): Promise<{ seccionId: string; sesionId: string }> {
+  private async resolverSesionDeTrabajo(
+    grupoId: string,
+    sesionIdPedido?: string
+  ): Promise<{ seccionId: string; sesionId: string; retroactiva: boolean }> {
     const seccion = await this.session.obtenerSeccionActual(grupoId);
+
+    if (!seccion || seccion.estado === EstadoSeccion.CERRADA) {
+      throw new ConflictException(
+        'No hay ninguna sección vigente en este grupo: un ajuste de puntos necesita una sesión ' +
+          'donde caer. Abrí la sesión del día y volvé a intentar.'
+      );
+    }
+
+    if (sesionIdPedido) {
+      const pedida = seccion.sesiones.find((sesion) => sesion.id === sesionIdPedido);
+
+      // Mismo cuerpo para "no existe", "es de otro grupo" y "es de una Sección
+      // cerrada": distinguirlos le diría a quien prueba ids cuál rozó algo real.
+      if (!pedida) {
+        throw new ConflictException(
+          'Esa sesión no pertenece a la sección vigente del grupo — una sección cerrada no se edita'
+        );
+      }
+
+      return {
+        seccionId: seccion.id,
+        sesionId: pedida.id,
+        retroactiva:
+          seccion.estado !== EstadoSeccion.ABIERTA || pedida.estado !== EstadoSesion.ABIERTA,
+      };
+    }
+
     const sesionAbierta =
-      seccion?.estado === EstadoSeccion.ABIERTA
+      seccion.estado === EstadoSeccion.ABIERTA
         ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
         : undefined;
 
-    if (!seccion || !sesionAbierta) {
+    if (!sesionAbierta) {
       throw new ConflictException(
         'No hay ninguna sesión abierta en este grupo: un ajuste de puntos necesita una sesión ' +
           'donde caer. Abrí la sesión del día y volvé a intentar.'
       );
     }
 
-    return { seccionId: seccion.id, sesionId: sesionAbierta.id };
+    return { seccionId: seccion.id, sesionId: sesionAbierta.id, retroactiva: false };
   }
 }

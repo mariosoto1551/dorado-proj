@@ -101,7 +101,15 @@ const MS_AUTO_REFRESCO = 30_000;
 
     @if (soloLectura()) {
       <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-        La sesión ya está cerrada: esto es lo que pasó, en solo lectura.
+        La sección ya está cerrada: esto es lo que pasó, en solo lectura.
+      </p>
+    } @else if (esDiaCerrado()) {
+      <p
+        role="status"
+        class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"
+      >
+        Estás viendo la sesión {{ sesionNumero() ?? '' }}, que ya cerró. Podés corregirla: lo que
+        cargues queda marcado como cargado después y pide un motivo.
       </p>
     }
 
@@ -156,11 +164,24 @@ const MS_AUTO_REFRESCO = 30_000;
                 @if (evento.revertidoEn) {
                   <span class="font-semibold text-emerald-600 dark:text-emerald-400">· Deshecha</span>
                 }
+                <!-- fase-14-33: se distingue de «Anulada» por color e icono,
+                     no solo por el texto (accesibilidad, decisión del #18). -->
+                @if (evento.cargadoRetroactivamenteEn) {
+                  <span class="font-semibold text-violet-600 dark:text-violet-400">
+                    · ⏱ Cargado después
+                  </span>
+                }
               </p>
 
               @if (evento.motivoTutor) {
                 <p class="mt-0.5 truncate text-xs italic text-slate-500 dark:text-slate-400">
                   «{{ evento.motivoTutor }}»
+                </p>
+              }
+
+              @if (evento.motivoRetroactivo) {
+                <p class="mt-0.5 truncate text-xs italic text-violet-600 dark:text-violet-400">
+                  Cargado después: «{{ evento.motivoRetroactivo }}»
                 </p>
               }
 
@@ -305,6 +326,13 @@ export class HistorialSesionComponent {
 
   readonly conductas = input<ConductaDto[]>([]);
 
+  /**
+   * fase-14-33: qué Sesión mirar. La elige el selector del panel operativo, que
+   * gobierna las dos pestañas — ver la Sesión 3 en «Registrar» y la 5 acá sería
+   * la peor versión de esto. `null` = la de hoy.
+   */
+  readonly sesionId = input<string | null>(null);
+
   protected readonly maxLargoNota = MAX_LARGO_NOTA;
 
   protected readonly chips = [
@@ -328,7 +356,17 @@ export class HistorialSesionComponent {
 
   protected readonly sesionEstado = signal<EstadoSesion | null>(null);
 
-  protected readonly sesionId = signal<string | null>(null);
+  /** La que devolvió el servidor (puede no ser la pedida: ver decisión 14). */
+  protected readonly sesionMostrada = signal<string | null>(null);
+
+  protected readonly sesionNumero = signal<number | null>(null);
+
+  /**
+   * fase-14-33: la Sección vigente admite escritura. Reemplaza a «la Sesión
+   * está ABIERTA» como criterio para habilitar los botones — que era la
+   * decisión 14 del #18 y este ítem la revisa.
+   */
+  protected readonly seccionEditable = signal(true);
 
   protected readonly timezone = signal('UTC');
 
@@ -348,10 +386,18 @@ export class HistorialSesionComponent {
 
   protected textoNota = '';
 
-  protected readonly sinSesion = computed(() => this.sesionId() === null);
+  protected readonly sinSesion = computed(() => this.sesionMostrada() === null);
 
-  /** Sesión cerrada: se ve, no se toca (spec, decisión 14). */
-  protected readonly soloLectura = computed(
+  /**
+   * fase-14-18 decía «sesión cerrada: se ve, no se toca» (decisión 14).
+   * fase-14-33 lo corrige: lo que decide es la **Sección**. Una Sesión cerrada
+   * de la Sección vigente sí se corrige — es el ítem entero. Solo queda en
+   * solo lectura lo que ya no admite escritura de ningún tipo.
+   */
+  protected readonly soloLectura = computed(() => !this.seccionEditable());
+
+  /** fase-14-33: el aviso de «estás mirando un día que ya cerró». */
+  protected readonly esDiaCerrado = computed(
     () => this.sesionEstado() !== null && this.sesionEstado() !== EstadoSesion.ABIERTA
   );
 
@@ -365,6 +411,8 @@ export class HistorialSesionComponent {
   constructor() {
     effect(() => {
       this.grupoId();
+      // fase-14-33: cambiar de Sesión en el selector recarga el timeline.
+      this.sesionId();
       this.recargarDesdeCero();
     });
 
@@ -597,12 +645,16 @@ export class HistorialSesionComponent {
       tipo: this.tipoFiltro() || undefined,
       incluirAnulados: this.ocultarAnuladas ? false : undefined,
       cursor: cursor ?? undefined,
+      // fase-14-33: el día que eligió el selector del panel.
+      sesionId: this.sesionId() ?? undefined,
     });
   }
 
   private aplicar(historial: HistorialSesionDto, esPrimeraPagina: boolean): void {
-    this.sesionId.set(historial.sesionId);
+    this.sesionMostrada.set(historial.sesionId);
     this.sesionEstado.set(historial.sesionEstado);
+    this.sesionNumero.set(historial.sesionNumero);
+    this.seccionEditable.set(historial.seccionEditable);
     this.timezone.set(historial.timezoneGrupo);
     this.cursor.set(historial.cursorSiguiente);
     this.eventos.update((previos) =>

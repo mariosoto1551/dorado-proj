@@ -1,4 +1,12 @@
-import { IsInt, IsNotEmpty, IsString, MaxLength, NotEquals } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  NotEquals,
+} from 'class-validator';
 
 import type {
   ClavesNoCubiertas,
@@ -30,6 +38,14 @@ export class AjustarPuntosRequest implements ContratoAjustar {
   @IsNotEmpty()
   @MaxLength(MAX_LARGO_MOTIVO_AJUSTE)
   motivo!: string;
+
+  /**
+   * fase-14-33: en qué Sesión de la Sección vigente cae el asiento. Sin él, la
+   * abierta — el comportamiento del #31, byte por byte.
+   */
+  @IsOptional()
+  @IsUUID()
+  sesionId?: string;
 }
 
 // Cobertura de claves (fase-14-30 tanda 2): `implements` sola no ve un campo

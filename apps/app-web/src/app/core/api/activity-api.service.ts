@@ -40,9 +40,32 @@ import type {
   CrearConductaRequest,
   EditarActividadRequest,
   EditarConductaRequest,
+  EnSesion,
   FiltrosHistorial,
   IniciarCronometroResponse,
 } from './api.types';
+
+/**
+ * fase-14-33: `?sesionId=` de las lecturas del Tutor. Sin él no se manda el
+ * parámetro en absoluto — el servidor no distingue «vacío» de «ausente», pero
+ * mandar `sesionId=` vacío es exactamente el tipo de cosa que rompe un
+ * `@IsUUID()` del otro lado.
+ */
+function paramsDeSesion(sesionId?: string): HttpParams | undefined {
+  return sesionId ? new HttpParams().set('sesionId', sesionId) : undefined;
+}
+
+/** fase-14-33: los dos campos de una escritura en otra Sesión, o nada. */
+function cuerpoDeSesion(enSesion?: EnSesion): Record<string, string> {
+  if (!enSesion?.sesionId) {
+    return {};
+  }
+
+  return {
+    sesionId: enSesion.sesionId,
+    ...(enSesion.motivoRetroactivo && { motivoRetroactivo: enSesion.motivoRetroactivo }),
+  };
+}
 
 /** Cliente REST de activity-service: catálogo (actividades/conductas) + registros. */
 @Injectable({ providedIn: 'root' })
@@ -85,9 +108,14 @@ export class ActivityApiService {
    * lo que ve el integrante en su pantalla, con sus días, plan del día, rol y
    * turno aplicados.
    */
-  estadoHoyDeUsuario(grupoId: string, usuarioId: string): Observable<MiEstadoHoyDto> {
+  estadoHoyDeUsuario(
+    grupoId: string,
+    usuarioId: string,
+    sesionId?: string
+  ): Observable<MiEstadoHoyDto> {
     return this.http.get<MiEstadoHoyDto>(
-      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/estado-hoy`
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/estado-hoy`,
+      { params: paramsDeSesion(sesionId) }
     );
   }
 
@@ -115,10 +143,14 @@ export class ActivityApiService {
   }
 
   // ---- Registros ----
-  completarActividad(actividadId: string, usuarioId?: string): Observable<RegistroActividadDto> {
+  completarActividad(
+    actividadId: string,
+    usuarioId?: string,
+    enSesion?: EnSesion
+  ): Observable<RegistroActividadDto> {
     return this.http.post<RegistroActividadDto>(
       `${this.base}/actividades/${actividadId}/completar`,
-      usuarioId ? { usuarioId } : {}
+      { ...(usuarioId && { usuarioId }), ...cuerpoDeSesion(enSesion) }
     );
   }
 
@@ -132,25 +164,36 @@ export class ActivityApiService {
   registrarNoHizo(
     actividadId: string,
     usuarioId: string,
-    motivo?: string
+    motivo?: string,
+    enSesion?: EnSesion
   ): Observable<RegistroActividadDto> {
     return this.http.post<RegistroActividadDto>(
       `${this.base}/actividades/${actividadId}/no-hizo`,
-      motivo ? { usuarioId, motivo } : { usuarioId }
+      { usuarioId, ...(motivo && { motivo }), ...cuerpoDeSesion(enSesion) }
     );
   }
 
-  /** Completadas OPCIONALES de un usuario en la sesión abierta (para corregir). */
-  completadasOpcionales(grupoId: string, usuarioId: string): Observable<CompletadaOpcionalDto[]> {
+  /** Completadas OPCIONALES de un usuario en la sesión elegida (para corregir). */
+  completadasOpcionales(
+    grupoId: string,
+    usuarioId: string,
+    sesionId?: string
+  ): Observable<CompletadaOpcionalDto[]> {
     return this.http.get<CompletadaOpcionalDto[]>(
-      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/completadas`
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/completadas`,
+      { params: paramsDeSesion(sesionId) }
     );
   }
 
-  /** Marcas rojas vivas de un usuario en la sesión abierta (fase-14-12). */
-  marcasRojas(grupoId: string, usuarioId: string): Observable<MarcaRojaDto[]> {
+  /** Marcas rojas vivas de un usuario en la sesión elegida (fase-14-12). */
+  marcasRojas(
+    grupoId: string,
+    usuarioId: string,
+    sesionId?: string
+  ): Observable<MarcaRojaDto[]> {
     return this.http.get<MarcaRojaDto[]>(
-      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/marcas`
+      `${this.base}/grupos/${grupoId}/usuarios/${usuarioId}/marcas`,
+      { params: paramsDeSesion(sesionId) }
     );
   }
 
@@ -179,10 +222,14 @@ export class ActivityApiService {
     );
   }
 
-  registrarConducta(conductaId: string, usuarioId?: string): Observable<RegistroConductaDto> {
+  registrarConducta(
+    conductaId: string,
+    usuarioId?: string,
+    enSesion?: EnSesion
+  ): Observable<RegistroConductaDto> {
     return this.http.post<RegistroConductaDto>(
       `${this.base}/conductas/${conductaId}/registrar`,
-      usuarioId ? { usuarioId } : {}
+      { ...(usuarioId && { usuarioId }), ...cuerpoDeSesion(enSesion) }
     );
   }
 
@@ -220,6 +267,11 @@ export class ActivityApiService {
 
     if (filtros.limite !== undefined) {
       params = params.set('limite', String(filtros.limite));
+    }
+
+    // fase-14-33: el selector de Sesión del panel gobierna también el historial.
+    if (filtros.sesionId) {
+      params = params.set('sesionId', filtros.sesionId);
     }
 
     return this.http.get<HistorialSesionDto>(`${this.base}/grupos/${grupoId}/historial`, {

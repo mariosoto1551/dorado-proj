@@ -36,18 +36,24 @@ import {
   ActividadNoEsDeTuRolException,
   ActividadPersonalDeOtroUsuarioException,
   CronometroNoIniciadoException,
+  CronometroNoRetroactivoException,
   CronometroVencidoException,
   DeadlineVencidoException,
   EsTareaDeEquipoException,
   excepcionSiNoDisponible,
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
+  MotivoRetroactivoRequeridoException,
   NoEsSuTurnoException,
   NoEsTuTurnoException,
-  NoHaySesionAbiertaException,
+  SesionNoEditableException,
   ObligatoriaNoSeCompletaException,
   SinTurnoVigenteException,
 } from '../comun/excepciones';
+import {
+  resolverSesionDeTrabajo,
+  type SesionDeTrabajo,
+} from '../comun/sesion-abierta';
 import { registroActividadADto, registroConductaADto } from '../comun/mapeadores';
 import {
   estaDisponibleEn,
@@ -80,12 +86,15 @@ import type {
   RegistrarNoHizoRequest,
 } from './dto/registro.dto';
 
-/** Sesión resuelta contra session-service donde cae el registro. */
-interface SesionDeRegistro {
-  seccionId: string;
-  sesionId: string;
-  fechaInicioSesion: Date;
-}
+/**
+ * Sesión resuelta contra session-service donde cae el registro.
+ *
+ * fase-14-33: pasó a ser `SesionDeTrabajo` (el mismo shape más `retroactiva`,
+ * `sesionNumero` y `sesionEstado`). El alias se mantiene porque los helpers de
+ * validación de este archivo hablan de "la sesión del registro", no de "la
+ * sesión de trabajo del tutor".
+ */
+type SesionDeRegistro = SesionDeTrabajo;
 
 /**
  * Cuándo el tutor aplicó la marca (fase-14-12): un NO_HIZO se creó en ese
@@ -160,9 +169,16 @@ export class RegistroService {
     // tenant (su grupo), así que el usuario objetivo es siempre él mismo.
     const usuarioId = tenant.principalId;
 
-    await this.asegurarActividadVisible(actividad, tenant, usuarioId);
+    // Solo USUARIO llega acá, así que `resolverSesion` ya descarta cualquier
+    // `sesionId` — el 400 de abajo es para el día que este endpoint se le
+    // habilite a un Tutor (decisión 3: un cronómetro no arranca en el pasado).
+    const sesion = await this.resolverSesion(actividad.grupoId, tenant);
 
-    const sesion = await this.resolverSesionAbierta(actividad.grupoId);
+    if (sesion.retroactiva) {
+      throw new CronometroNoRetroactivoException();
+    }
+
+    await this.asegurarActividadVisible(actividad, tenant, usuarioId, sesion);
 
     // fase-14-11: no tiene sentido arrancar un cronómetro que hoy no se va a
     // poder cerrar (el `completar` lo rechazaría). fase-14-12: ídem si el tutor
@@ -234,14 +250,22 @@ export class RegistroService {
 
     const usuarioId = await this.resolverUsuarioObjetivo(tenant, actividad.grupoId, datos.usuarioId);
 
-    await this.asegurarActividadVisible(actividad, tenant, usuarioId);
+    const sesion = await this.resolverSesion(actividad.grupoId, tenant, datos.sesionId);
 
-    const sesion = await this.resolverSesionAbierta(actividad.grupoId);
+    this.exigirMotivoSiRetroactiva(sesion, datos.motivoRetroactivo);
+
+    // fase-14-33: la visibilidad se evalúa DESPUÉS de resolver la Sesión y no
+    // antes, porque el turno rotativo depende del ámbito de esa Sesión — quién
+    // tenía el turno el lunes no es quién lo tiene hoy (decisión 4).
+    await this.asegurarActividadVisible(actividad, tenant, usuarioId, sesion);
 
     await this.asegurarProgramacionVigente(actividad, sesion);
 
     // fase-14-12: una obligatoria que el tutor marcó como no hecha queda
     // bloqueada — el usuario no puede "arreglarla" volviendo a confirmar.
+    // fase-14-33: salvo que la haya puesto el cierre automático y quien escribe
+    // sea el Tutor — ver `asegurarNoDenegada`.
+    await this.levantarCastigoAutomaticoSiCorresponde(actividad, tenant, usuarioId, sesion);
     await this.asegurarNoDenegada(actividadId, usuarioId, sesion.sesionId);
 
     // Sin `eliminado: false` a propósito (fase-14-12, decisión 1): una
@@ -264,11 +288,17 @@ export class RegistroService {
 
     const ahora = new Date();
 
-    if (actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE) {
+    // fase-14-33 (decisión 5): deadline y cronómetro son reglas del INSTANTE, y
+    // en una Sesión que ya cerró siempre estarían vencidas — mantenerlas
+    // convertiría la carga retroactiva en una pantalla que rechaza todo. Las de
+    // la actividad (cupo de repeticiones) y las del DÍA (programación,
+    // vigencia, turno) siguen rigiendo enteras, arriba.
+    if (actividad.tipoLimiteTiempo === TipoLimiteTiempo.DEADLINE && !sesion.retroactiva) {
       await this.asegurarDeadlineVigente(actividad, sesion, ahora);
     }
 
-    const conCronometro = actividad.tipoLimiteTiempo === TipoLimiteTiempo.CRONOMETRO;
+    const conCronometro =
+      actividad.tipoLimiteTiempo === TipoLimiteTiempo.CRONOMETRO && !sesion.retroactiva;
 
     if (conCronometro) {
       await this.asegurarCronometroVigente(actividad, usuarioId, sesion.sesionId, ahora);
@@ -293,6 +323,8 @@ export class RegistroService {
             : actividad.valorPuntos,
           registradoPorId: tenant.principalId,
           registradoPorTipo: tenant.principalType,
+          // fase-14-33: null salvo que se esté cargando fuera de su día.
+          ...this.marcaRetroactiva(sesion, datos.motivoRetroactivo),
         },
       });
 
@@ -329,6 +361,10 @@ export class RegistroService {
         valorPuntosSnapshot: registro.valorPuntosSnapshot,
         registradoPorId: tenant.principalId,
         registradoPorTipo: tenant.principalType,
+        // fase-14-33: sin consumidor todavía; viaja para audit y reportes.
+        ...(registro.cargadoRetroactivamenteEn && {
+          cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn.toISOString(),
+        }),
       },
     });
 
@@ -374,9 +410,13 @@ export class RegistroService {
   async estadoHoyDe(
     tenant: TenantContext,
     grupoId: string,
-    usuarioId: string
+    usuarioId: string,
+    sesionId?: string
   ): Promise<MiEstadoHoyDto> {
-    return await this.estadoHoyInterno(grupoId, usuarioId);
+    // fase-14-33: el Tutor puede pedir la lista de otra Sesión de la Sección
+    // vigente para corregirla. Un USUARIO nunca llega acá con `sesionId`: su
+    // endpoint (`mi-estado-hoy`) no lo acepta.
+    return await this.estadoHoyInterno(grupoId, usuarioId, sesionId);
   }
 
   /**
@@ -388,15 +428,31 @@ export class RegistroService {
    * el camino interno — un tenant inventado es exactamente la clase de cosa
    * que después nadie encuentra cuando la regla 3 se rompe.
    */
-  async estadoHoyInterno(grupoId: string, usuarioId: string): Promise<MiEstadoHoyDto> {
+  async estadoHoyInterno(
+    grupoId: string,
+    usuarioId: string,
+    sesionIdPedido?: string
+  ): Promise<MiEstadoHoyDto> {
     const seccion = await this.session.obtenerSeccionActual(grupoId);
-    const sesionAbierta =
-      seccion?.estado === EstadoSeccion.ABIERTA
+    // fase-14-33: la Sesión pedida tiene que ser de la Sección vigente; si no
+    // lo es, `sesionAbierta` queda undefined y se devuelve el estado vacío en
+    // vez de un error — mismo criterio que "no hay Sesión abierta", que es lo
+    // que esta lectura siempre hizo. El 409 lo dan las ESCRITURAS, que son las
+    // que tienen que ser tajantes.
+    const sesionAbierta = sesionIdPedido
+      ? seccion?.sesiones.find((sesion) => sesion.id === sesionIdPedido)
+      : seccion?.estado === EstadoSeccion.ABIERTA
         ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
         : undefined;
 
     if (!sesionAbierta) {
-      return { sesionId: null, planDelDiaActivo: false, actividades: [] };
+      return {
+        sesionId: null,
+        planDelDiaActivo: false,
+        sesionEstado: null,
+        sesionNumero: null,
+        actividades: [],
+      };
     }
 
     const [actividades, conteos, marcas, planActivo, elegidas] = await Promise.all([
@@ -544,7 +600,15 @@ export class RegistroService {
       };
     });
 
-    return { sesionId: sesionAbierta.id, planDelDiaActivo: planActivo, actividades: items };
+    return {
+      sesionId: sesionAbierta.id,
+      planDelDiaActivo: planActivo,
+      // fase-14-33: qué Sesión se está mirando. La pantalla del Tutor lo usa
+      // para el banner de "estás editando un día que ya cerró".
+      sesionEstado: sesionAbierta.estado,
+      sesionNumero: sesionAbierta.numero,
+      actividades: items,
+    };
   }
 
   /** POST /activity/actividades/:id/no-hizo — solo Tutores, solo OBLIGATORIA. */
@@ -563,12 +627,14 @@ export class RegistroService {
 
     const usuarioId = await this.resolverUsuarioObjetivo(tenant, actividad.grupoId, datos.usuarioId);
 
+    const sesion = await this.resolverSesion(actividad.grupoId, tenant, datos.sesionId);
+
+    this.exigirMotivoSiRetroactiva(sesion, datos.motivoRetroactivo);
+
     // Defensa en profundidad: el contenido de integrante es siempre OPCIONAL
     // (fase-14-10, decisión 8), así que acá no debería llegar ninguno — si algún
     // día eso cambia, el dueño sigue siendo el único alcanzado.
-    await this.asegurarActividadVisible(actividad, tenant, usuarioId);
-
-    const sesion = await this.resolverSesionAbierta(actividad.grupoId);
+    await this.asegurarActividadVisible(actividad, tenant, usuarioId, sesion);
 
     // fase-14-11: tampoco se castiga a mano por un día que no correspondía.
     await this.asegurarProgramacionVigente(actividad, sesion);
@@ -589,6 +655,8 @@ export class RegistroService {
         registradoPorTipo: tenant.principalType,
         // fase-14-12: la nota que el integrante va a leer en su pantalla.
         motivoTutor: datos.motivo ?? null,
+        // fase-14-33: distinto de la anterior — ésta explica el día, no la marca.
+        ...this.marcaRetroactiva(sesion, datos.motivoRetroactivo),
       },
     });
 
@@ -606,6 +674,9 @@ export class RegistroService {
         valorPuntosSnapshot: registro.valorPuntosSnapshot,
         registradoPorId: tenant.principalId,
         registradoPorTipo: 'TUTOR',
+        ...(registro.cargadoRetroactivamenteEn && {
+          cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn.toISOString(),
+        }),
       },
     });
 
@@ -674,14 +745,11 @@ export class RegistroService {
   async listarMarcasRojas(
     tenant: TenantContext,
     grupoId: string,
-    usuarioId: string
+    usuarioId: string,
+    sesionIdPedido?: string
   ): Promise<MarcaRojaDto[]> {
     const usuarioObjetivo = await this.resolverUsuarioObjetivo(tenant, grupoId, usuarioId);
-    const seccion = await this.session.obtenerSeccionActual(grupoId);
-    const sesionAbierta =
-      seccion?.estado === EstadoSeccion.ABIERTA
-        ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
-        : undefined;
+    const sesionAbierta = await this.sesionDeLectura(grupoId, sesionIdPedido);
 
     if (!sesionAbierta) {
       return [];
@@ -718,6 +786,9 @@ export class RegistroService {
             : -marca.valorPuntosSnapshot,
         motivoTutor: marca.motivoTutor,
         marcadaEn: instanteDeLaMarca(marca).toISOString(),
+        // fase-14-33
+        cargadoRetroactivamenteEn: marca.cargadoRetroactivamenteEn?.toISOString() ?? null,
+        motivoRetroactivo: marca.motivoRetroactivo,
       }))
       .sort((a, b) => b.marcadaEn.localeCompare(a.marcadaEn));
   }
@@ -750,13 +821,15 @@ export class RegistroService {
       throw new MarcaNoReversibleException();
     }
 
-    // La marca vive dentro de su Sesión (decisión 4): una vez cerrada, lo
-    // registrado queda como quedó — mismo principio que la regla 6.
-    const sesion = await this.resolverSesionAbierta(registro.grupoId);
-
-    if (registro.sesionId !== sesion.sesionId) {
-      throw new NoHaySesionAbiertaException();
-    }
+    // fase-14-12 decía «la marca vive dentro de su Sesión». fase-14-33 la
+    // corrige: vive dentro de su **Sección**, que es la unidad que se evalúa.
+    // Mientras la Sección no cerró, deshacer una marca del lunes es parte del
+    // trabajo en curso; una vez cerrada, rige la regla 6 sin excepciones.
+    //
+    // Deshacer NO pide motivo, a diferencia de crear (decisión 7): no agrega
+    // una fila que haya que explicar, quita una que no correspondía, y su
+    // rastro (`revertidoEn`, `revertidoPorTutorId`) ya queda en la fila.
+    await this.asegurarSesionEditable(registro.grupoId, registro.sesionId);
 
     const ahora = new Date();
     // Restaurar NO limpia eliminadoPorTutorId/eliminadoEn (decisión 7): la fila
@@ -806,14 +879,11 @@ export class RegistroService {
   async listarCompletadasOpcionales(
     tenant: TenantContext,
     grupoId: string,
-    usuarioId: string
+    usuarioId: string,
+    sesionIdPedido?: string
   ): Promise<CompletadaOpcionalDto[]> {
     const usuarioObjetivo = await this.resolverUsuarioObjetivo(tenant, grupoId, usuarioId);
-    const seccion = await this.session.obtenerSeccionActual(grupoId);
-    const sesionAbierta =
-      seccion?.estado === EstadoSeccion.ABIERTA
-        ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
-        : undefined;
+    const sesionAbierta = await this.sesionDeLectura(grupoId, sesionIdPedido);
 
     if (!sesionAbierta) {
       return [];
@@ -893,6 +963,21 @@ export class RegistroService {
       throw new ConflictException('El registro ya fue eliminado');
     }
 
+    // fase-14-33. Dos cambios acá, y el primero es un ENDURECIMIENTO de algo
+    // preexistente: este endpoint no validaba la Sesión en absoluto —solo la
+    // organización—, así que hasta hoy se podía anular una fila de hace tres
+    // Secciones mientras que deshacer esa misma anulación exigía Sesión
+    // abierta. Ahora las dos piden lo mismo: Sección vigente.
+    const sesion = await this.asegurarSesionEditable(registro.grupoId, registro.sesionId);
+
+    // El segundo: anular algo de un día ya cerrado exige explicarlo. Se usa el
+    // `motivo` que el endpoint ya aceptaba —el que el integrante lee— en vez de
+    // un campo nuevo: pedirle al Tutor dos textos para el mismo acto sería
+    // fricción sin información.
+    if (sesion.retroactiva && !motivo?.trim()) {
+      throw new MotivoRetroactivoRequeridoException();
+    }
+
     const ahora = new Date();
     // fase-14-12: el motivo pisa el de una marca anterior sobre la misma fila
     // (que solo puede existir si el tutor ya la había quitado y deshecho).
@@ -947,7 +1032,10 @@ export class RegistroService {
       usuarioId = await this.resolverUsuarioObjetivo(tenant, conducta.grupoId, datos.usuarioId);
     }
 
-    const sesion = await this.resolverSesionAbierta(conducta.grupoId);
+    const sesion = await this.resolverSesion(conducta.grupoId, tenant, datos.sesionId);
+
+    this.exigirMotivoSiRetroactiva(sesion, datos.motivoRetroactivo);
+
     const valorConSigno =
       conducta.tipo === TipoConducta.BUENA ? conducta.valorPuntos : -conducta.valorPuntos;
 
@@ -962,6 +1050,8 @@ export class RegistroService {
         valorPuntosSnapshot: valorConSigno,
         registradoPorId: tenant.principalId,
         registradoPorTipo: tenant.principalType,
+        // fase-14-33
+        ...this.marcaRetroactiva(sesion, datos.motivoRetroactivo),
       },
     });
 
@@ -980,6 +1070,9 @@ export class RegistroService {
         valorPuntosSnapshot: valorConSigno,
         registradoPorId: tenant.principalId,
         registradoPorTipo: tenant.principalType,
+        ...(registro.cargadoRetroactivamenteEn && {
+          cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn.toISOString(),
+        }),
       },
     });
 
@@ -1006,6 +1099,12 @@ export class RegistroService {
     if (registro.eliminado) {
       throw new ConflictException('El registro ya fue eliminado');
     }
+
+    // fase-14-33: mismo endurecimiento que en actividades. Sin motivo porque
+    // este endpoint nunca aceptó uno — la asimetría de conductas (sin motivo y
+    // sin reversión) sigue declarada fuera de alcance desde el #18, y este ítem
+    // la hereda tal cual en vez de arreglarla de contrabando.
+    await this.asegurarSesionEditable(registro.grupoId, registro.sesionId);
 
     const ahora = new Date();
 
@@ -1068,7 +1167,8 @@ export class RegistroService {
   private async asegurarEsSuTurno(
     actividad: Actividad,
     tenant: TenantContext,
-    usuarioObjetivo: string
+    usuarioObjetivo: string,
+    sesion: SesionDeRegistro
   ): Promise<void> {
     // Una consulta local barata primero: sin rotación no se paga nada más, que
     // es el caso de todas las actividades anteriores al ítem.
@@ -1076,7 +1176,9 @@ export class RegistroService {
       return;
     }
 
-    const asignacion = await this.turnos.asignacionVigente(actividad);
+    // fase-14-33: el turno se resuelve con el ámbito de la Sesión ELEGIDA — a
+    // quién le tocaba lavar los platos el lunes no es a quién le toca hoy.
+    const asignacion = await this.turnos.asignacionVigente(actividad, sesion);
 
     if (!asignacion) {
       // Rota, pero hoy no se selló turno (día no programado por el #11, o
@@ -1110,7 +1212,8 @@ export class RegistroService {
   private async asegurarActividadVisible(
     actividad: Actividad,
     tenant: TenantContext,
-    usuarioObjetivo: string
+    usuarioObjetivo: string,
+    sesion: SesionDeRegistro
   ): Promise<void> {
     if (!esVisiblePara(actividad, usuarioObjetivo)) {
       if (tenant.rol === Rol.USUARIO) {
@@ -1121,7 +1224,7 @@ export class RegistroService {
     }
 
     await this.asegurarEsDestinatario(actividad, tenant, usuarioObjetivo);
-    await this.asegurarEsSuTurno(actividad, tenant, usuarioObjetivo);
+    await this.asegurarEsSuTurno(actividad, tenant, usuarioObjetivo, sesion);
   }
 
   /**
@@ -1269,27 +1372,190 @@ export class RegistroService {
   }
 
   /**
-   * Sección ABIERTA con Sesión ABIERTA del grupo (spec, validación 3) — 409
-   * `NO_HAY_SESION_ABIERTA` si no la hay (incluye Sección en EVALUACION: ahí
-   * ya no se registra nada).
+   * Dónde cae el registro (spec fase-07 validación 3, ampliada por fase-14-33).
+   *
+   * Sin `sesionIdPedido`: la Sección ABIERTA con Sesión ABIERTA, 409
+   * `NO_HAY_SESION_ABIERTA` si no la hay — el comportamiento de siempre.
+   *
+   * Con `sesionIdPedido`: cualquier Sesión de la Sección **vigente** (ABIERTA o
+   * EVALUACION), 409 `SESION_NO_EDITABLE` si no es una de ellas.
+   *
+   * **Un USUARIO nunca elige Sesión** (decisión 11): el parámetro se descarta
+   * antes de mirarlo, igual que `usuarioId` en `completar`. Se resuelve acá y
+   * no en el controlador para que ningún camino nuevo pueda saltearlo por
+   * olvido — es la misma razón por la que `resolverUsuarioObjetivo` vive acá.
    */
-  private async resolverSesionAbierta(grupoId: string): Promise<SesionDeRegistro> {
+  private async resolverSesion(
+    grupoId: string,
+    tenant: TenantContext,
+    sesionIdPedido?: string
+  ): Promise<SesionDeRegistro> {
+    const seccion = await this.session.obtenerSeccionActual(grupoId);
+    const pedida = tenant.rol === Rol.USUARIO ? undefined : sesionIdPedido;
+
+    return resolverSesionDeTrabajo(seccion, pedida);
+  }
+
+  /**
+   * La Sesión de una fila que ya existe todavía admite correcciones
+   * (fase-14-33): tiene que pertenecer a la Sección vigente.
+   *
+   * Es el resolvedor de las acciones que **no eligen** Sesión sino que la
+   * heredan del registro sobre el que operan (anular, deshacer, anotar). Por
+   * eso no recibe un `sesionId` del cliente: lo saca de la fila, que es dato
+   * del servidor.
+   */
+  private async asegurarSesionEditable(
+    grupoId: string,
+    sesionId: string
+  ): Promise<SesionDeRegistro> {
     const seccion = await this.session.obtenerSeccionActual(grupoId);
 
-    if (!seccion || seccion.estado !== EstadoSeccion.ABIERTA) {
-      throw new NoHaySesionAbiertaException();
+    if (!seccion?.sesiones.some((sesion) => sesion.id === sesionId)) {
+      throw new SesionNoEditableException();
     }
 
-    const abierta = seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA);
+    return resolverSesionDeTrabajo(seccion, sesionId);
+  }
 
-    if (!abierta) {
-      throw new NoHaySesionAbiertaException();
+  /**
+   * La Sesión que mira una LECTURA del Tutor (fase-14-33), o `null`.
+   *
+   * A diferencia de las escrituras, una Sesión pedida que no existe en la
+   * Sección vigente devuelve `null` y no un 409: estas tres lecturas ya
+   * devolvían lista vacía cuando no había Sesión abierta, y una pantalla que
+   * explota porque el uuid de la URL quedó viejo es peor que una vacía. Las
+   * escrituras sí son tajantes — ahí un id equivocado tiene consecuencias.
+   */
+  private async sesionDeLectura(
+    grupoId: string,
+    sesionIdPedido?: string
+  ): Promise<{ id: string; numero: number; estado: EstadoSesion; seccionId: string } | null> {
+    const seccion = await this.session.obtenerSeccionActual(grupoId);
+
+    if (!seccion) {
+      return null;
+    }
+
+    const elegida = sesionIdPedido
+      ? seccion.sesiones.find((sesion) => sesion.id === sesionIdPedido)
+      : seccion.estado === EstadoSeccion.ABIERTA
+        ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
+        : undefined;
+
+    return elegida ?? null;
+  }
+
+  /**
+   * El «no hizo» que puso el CIERRE AUTOMÁTICO no puede bloquear la corrección
+   * del Tutor (fase-14-33, decisión 8).
+   *
+   * Al cerrar una Sesión, fase-14-08 escribe un `NO_HIZO` por cada obligatoria
+   * sin confirmar. Si el Tutor entra al día siguiente a cargar la que el chico
+   * sí hizo, `asegurarNoDenegada` lo frenaría — y esa es **la corrección más
+   * frecuente de todas**, la que motiva este ítem entero. Así que el castigo
+   * automático se levanta solo, con su compensación en el ledger.
+   *
+   * **Un `NO_HIZO` puesto por un Tutor NO se levanta acá**, y la diferencia no
+   * es de permisos: uno es un default que el sistema aplicó sin mirar, el otro
+   * es el juicio de una persona. Automatizar el segundo se lo borraría sin que
+   * se entere; para eso está el botón de deshacer, que es explícito.
+   */
+  private async levantarCastigoAutomaticoSiCorresponde(
+    actividad: Actividad,
+    tenant: TenantContext,
+    usuarioId: string,
+    sesion: SesionDeRegistro
+  ): Promise<void> {
+    if (tenant.rol === Rol.USUARIO || !sesion.retroactiva) {
+      return;
+    }
+
+    const automaticos = await this.prisma.client.registroActividad.findMany({
+      where: {
+        usuarioId,
+        actividadId: actividad.id,
+        sesionId: sesion.sesionId,
+        tipo: TipoRegistroActividad.NO_HIZO,
+        eliminado: false,
+        registradoPorTipo: 'SYSTEM',
+      },
+    });
+
+    if (automaticos.length === 0) {
+      return;
+    }
+
+    const ahora = new Date();
+
+    await this.prisma.client.registroActividad.updateMany({
+      where: { id: { in: automaticos.map((fila) => fila.id) } },
+      data: {
+        eliminado: true,
+        eliminadoPorTutorId: tenant.principalId,
+        eliminadoEn: ahora,
+        revertidoPorTutorId: tenant.principalId,
+        revertidoEn: ahora,
+      },
+    });
+
+    // Misma compensación que `revertirMarca` sobre un NO_HIZO: scoring niega el
+    // último asiento de la cadena. Sin esto el integrante se quedaría con el
+    // castigo Y el premio, que es el bug silencioso que este ítem podía traer.
+    for (const fila of automaticos) {
+      await this.eventos.publicar<ActividadRegistroRevertidoPayload>({
+        eventType: 'ActividadRegistroRevertido',
+        routingKey: ROUTING_KEYS.ACTIVIDAD_REGISTRO_REVERTIDO,
+        organizacionId: fila.organizacionId,
+        grupoId: fila.grupoId,
+        payload: {
+          registroId: fila.id,
+          usuarioId: fila.usuarioId,
+          revertidoPorTutorId: tenant.principalId,
+          tipoRegistro: fila.tipo,
+          valorPuntosSnapshot: fila.valorPuntosSnapshot,
+        },
+      });
+    }
+  }
+
+  /**
+   * Escribir en una Sesión que ya cerró exige decir por qué (decisión 7).
+   *
+   * En la Sesión abierta no pide nada y no valida nada: la inmensa mayoría de
+   * los registros son del día, y sumarles fricción por una función que no usan
+   * sería pagar el costo del caso raro en el caso común.
+   */
+  private exigirMotivoSiRetroactiva(
+    sesion: SesionDeRegistro,
+    motivoRetroactivo?: string
+  ): void {
+    if (!sesion.retroactiva) {
+      return;
+    }
+
+    if (!motivoRetroactivo?.trim()) {
+      throw new MotivoRetroactivoRequeridoException();
+    }
+  }
+
+  /**
+   * Los dos campos de marca que lleva toda fila escrita fuera de su día
+   * (fase-14-33). En la Sesión abierta devuelve los dos en `null`, que es lo
+   * que hace que una fila del día siga siendo indistinguible de una anterior a
+   * este ítem.
+   */
+  private marcaRetroactiva(
+    sesion: SesionDeRegistro,
+    motivoRetroactivo?: string
+  ): { cargadoRetroactivamenteEn: Date | null; motivoRetroactivo: string | null } {
+    if (!sesion.retroactiva) {
+      return { cargadoRetroactivamenteEn: null, motivoRetroactivo: null };
     }
 
     return {
-      seccionId: seccion.id,
-      sesionId: abierta.id,
-      fechaInicioSesion: new Date(abierta.fechaInicio),
+      cargadoRetroactivamenteEn: new Date(),
+      motivoRetroactivo: motivoRetroactivo?.trim() ?? null,
     };
   }
 

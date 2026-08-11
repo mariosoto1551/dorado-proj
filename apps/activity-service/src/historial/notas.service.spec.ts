@@ -9,7 +9,7 @@ import type {
   SessionClientService,
 } from '../clientes/session-client.service';
 import {
-  NoHaySesionAbiertaException,
+  SesionNoEditableException,
   NotaDeOtroTutorException,
   RegistroDelHistorialNoEncontradoException,
 } from '../comun/excepciones';
@@ -158,24 +158,29 @@ describe('NotasService (fase-14-18)', () => {
     ).rejects.toBeInstanceOf(RegistroDelHistorialNoEncontradoException);
   });
 
-  it('409 si el registro es de una sesión anterior — no se anota lo ya cerrado', async () => {
+  /**
+   * fase-14-33: el borde se movió una unidad arriba — de la Sesión a la
+   * Sección. Anotar por qué se corrigió el lunes es justamente para lo que
+   * sirve una nota interna; lo que sigue sin admitir notas es lo ya cerrado.
+   */
+  it('409 si el registro es de una Sesión que no es de la Sección vigente', async () => {
     const bd = crearBdHistorialEnMemoria({
-      registrosActividad: [registro({ sesionId: 'sesion-de-ayer' })],
+      registrosActividad: [registro({ sesionId: 'sesion-de-otra-seccion' })],
     });
     const servicio = armar(bd);
 
     await expect(
       servicio.crear(tenant(), TipoRegistroHistorial.ACTIVIDAD, 'reg-act-1', { texto: 'hola' })
-    ).rejects.toBeInstanceOf(NoHaySesionAbiertaException);
+    ).rejects.toBeInstanceOf(SesionNoEditableException);
   });
 
-  it('409 si no hay ninguna sesión abierta', async () => {
+  it('409 si no hay ninguna sección vigente', async () => {
     const bd = crearBdHistorialEnMemoria({ registrosActividad: [registro()] });
     const servicio = armar(bd, null);
 
     await expect(
       servicio.crear(tenant(), TipoRegistroHistorial.ACTIVIDAD, 'reg-act-1', { texto: 'hola' })
-    ).rejects.toBeInstanceOf(NoHaySesionAbiertaException);
+    ).rejects.toBeInstanceOf(SesionNoEditableException);
   });
 
   it('borra la nota propia', async () => {

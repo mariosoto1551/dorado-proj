@@ -304,8 +304,16 @@ export class TurnosService {
    * La asignación del ámbito vigente (la Sesión abierta, o su Sección si la
    * frecuencia es semanal). `null` si no hay Sesión abierta o si hoy no se
    * selló turno — que es un estado normal, no un error (decisiones 9 y 19).
+   *
+   * fase-14-33: `ambito` permite preguntar por **otra** Sesión de la Sección
+   * vigente. Es el mismo turno sellado que se guardó ese día: la asignación ya
+   * vive por `ambitoId`, así que esto no reconstruye nada — lee la fila que
+   * corresponde. Sin `ambito` resuelve la Sesión abierta, igual que siempre.
    */
-  async asignacionVigente(actividad: Actividad): Promise<AsignacionTurno | null> {
+  async asignacionVigente(
+    actividad: Actividad,
+    ambito?: { sesionId: string; seccionId: string }
+  ): Promise<AsignacionTurno | null> {
     const turno = await this.prisma.client.turnoActividad.findFirst({
       where: { actividadId: actividad.id, activo: true },
     });
@@ -314,15 +322,19 @@ export class TurnosService {
       return null;
     }
 
-    const seccion = await this.session.obtenerSeccionActual(actividad.grupoId);
-
     let sesion: { sesionId: string; seccionId: string };
 
-    try {
-      sesion = resolverSesionAbierta(seccion);
-    } catch {
-      // Sin Sesión abierta no hay turno vigente; no es un error de este flujo.
-      return null;
+    if (ambito) {
+      sesion = ambito;
+    } else {
+      const seccion = await this.session.obtenerSeccionActual(actividad.grupoId);
+
+      try {
+        sesion = resolverSesionAbierta(seccion);
+      } catch {
+        // Sin Sesión abierta no hay turno vigente; no es un error de este flujo.
+        return null;
+      }
     }
 
     const ambitoId =

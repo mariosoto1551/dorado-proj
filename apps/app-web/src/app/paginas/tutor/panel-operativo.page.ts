@@ -7,6 +7,7 @@ import {
   input,
   signal,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, type Observable } from 'rxjs';
@@ -18,6 +19,7 @@ import {
   EstadoSesion,
   type MarcaRojaDto,
   type MiEstadoActividadHoyDto,
+  type SesionDto,
   type UsuarioDto,
 } from '@dorado/shared-types';
 import {
@@ -30,7 +32,7 @@ import {
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
 import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
-import type { SeccionConSesionesResponse } from '../../core/api/api.types';
+import type { EnSesion, SeccionConSesionesResponse } from '../../core/api/api.types';
 import { mensajeDeError } from '../../core/api/errores';
 import { IdentityApiService } from '../../core/api/identity-api.service';
 import { ScoringApiService } from '../../core/api/scoring-api.service';
@@ -50,6 +52,10 @@ type AccionConfirmable =
   // fase-14-23 T4: el motivo del tutor se pide en la confirmación.
   | 'no-hizo'
   | 'quitar'
+  // fase-14-33: las dos que en el día son de un click y en un día ya cerrado
+  // pasan por el diálogo, porque ahí el motivo es obligatorio.
+  | 'hizo'
+  | 'conducta'
   | null;
 
 /** fase-14-18: «Registrar» es lo de siempre; «historial» es la línea de tiempo. */
@@ -61,6 +67,7 @@ type VistaPanel = 'registrar' | 'historial';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    NgTemplateOutlet,
     EncabezadoPaginaComponent,
     HistorialSesionComponent,
     EstadoSeccionBadgeComponent,
@@ -69,6 +76,34 @@ type VistaPanel = 'registrar' | 'historial';
     CampoComponent,
   ],
   template: `
+    <!-- fase-14-33: el selector de Sesión gobierna las DOS pestañas (decisión
+         12), así que vive en un template compartido en vez de duplicarse. -->
+    <ng-template #selectorSesion>
+      <div class="tarjeta">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-bold text-slate-900 dark:text-white">
+            Sección #{{ seccion()?.numero }}
+          </h2>
+          <span class="text-xs text-slate-400 dark:text-slate-500">
+            Elegí el día que querés ver o corregir
+          </span>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Sesiones de la sección">
+          @for (s of seccion()?.sesiones ?? []; track s.id) {
+            <button
+              type="button"
+              (click)="elegirSesion(s.id)"
+              [attr.aria-pressed]="sesionDeTrabajo()?.id === s.id"
+              class="rounded-lg px-2.5 py-1 text-xs font-semibold transition"
+              [class]="claseChipSesion(s)"
+            >
+              Sesión {{ s.numero }} · {{ s.estado === 'ABIERTA' ? 'abierta' : 'cerrada' }}
+            </button>
+          }
+        </div>
+      </div>
+    </ng-template>
+
     <section class="mx-auto max-w-3xl px-4 py-6">
       <app-encabezado-pagina titulo="Semana actual" subtitulo="Registrá lo del día y controlá la sección.">
         @if (seccion(); as s) {
@@ -97,10 +132,16 @@ type VistaPanel = 'registrar' | 'historial';
 
       @if (vista() === 'historial') {
         <div class="mt-4">
+          @if (selectorVisible()) {
+            <div class="mb-3">
+              <ng-container [ngTemplateOutlet]="selectorSesion" />
+            </div>
+          }
           <app-historial-sesion
             [grupoId]="grupoId()"
             [usuarios]="usuarios()"
             [conductas]="conductas()"
+            [sesionId]="sesionSel()"
           />
         </div>
       } @else if (cargando()) {
@@ -118,34 +159,61 @@ type VistaPanel = 'registrar' | 'historial';
           </button>
         </ui-estado-vacio>
       } @else {
-        <!-- Sesiones -->
-        <div class="mt-4 tarjeta">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-bold text-slate-900 dark:text-white">Sección #{{ seccion()!.numero }}</h2>
-            <span class="text-xs text-slate-400 dark:text-slate-500">
-              {{ seccion()!.sesiones.length }}
-              {{ seccion()!.sesiones.length === 1 ? 'sesión' : 'sesiones' }}
-            </span>
-          </div>
-          <div class="mt-3 flex flex-wrap gap-1.5">
-            @for (s of seccion()!.sesiones; track s.id) {
-              <span
-                class="rounded-lg px-2.5 py-1 text-xs font-semibold"
-                [class]="s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-              >
-                Sesión {{ s.numero }} · {{ s.estado === 'ABIERTA' ? 'abierta' : 'cerrada' }}
-              </span>
-            }
-          </div>
+        <!-- Sesiones: el selector si hay más de una, la foto de siempre si no.
+             En un grupo de una sesión por sección esto se ve exactamente como
+             antes del fase-14-33 (decisión: no agregar UI que no hace falta). -->
+        <div class="mt-4">
+          @if (selectorVisible()) {
+            <ng-container [ngTemplateOutlet]="selectorSesion" />
+          } @else {
+            <div class="tarjeta">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white">
+                  Sección #{{ seccion()!.numero }}
+                </h2>
+                <span class="text-xs text-slate-400 dark:text-slate-500">
+                  {{ seccion()!.sesiones.length }}
+                  {{ seccion()!.sesiones.length === 1 ? 'sesión' : 'sesiones' }}
+                </span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                @for (s of seccion()!.sesiones; track s.id) {
+                  <span
+                    class="rounded-lg px-2.5 py-1 text-xs font-semibold"
+                    [class]="s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+                  >
+                    Sesión {{ s.numero }} · {{ s.estado === 'ABIERTA' ? 'abierta' : 'cerrada' }}
+                  </span>
+                }
+              </div>
+            </div>
+          }
         </div>
+
+        <!-- fase-14-33: el aviso de que lo que se cargue no es de hoy. Ámbar y
+             no rojo: corregir un día pasado es una operación legítima, no un
+             error — lo que tiene que quedar claro es que deja rastro. -->
+        @if (esRetroactiva()) {
+          <p
+            role="status"
+            class="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-300"
+          >
+            Estás editando la <strong>sesión {{ sesionDeTrabajo()?.numero }}</strong>, que ya
+            cerró. Todo lo que cargues acá queda marcado como «cargado después» y te va a pedir
+            un motivo.
+          </p>
+        }
 
         <!-- ===== Registrar: un flujo POR PERSONA (fase-14-23 T4) =====
              Antes eran tres formularios apilados con la misma forma («elegí
              usuario → elegí ítem → Registrar»), y había que volver a elegir a
              la misma persona en cada uno. Ahora se elige una vez y todo lo de
              abajo es de ella. -->
-        @if (seccion()!.estado === 'ABIERTA') {
-          @if (sesionAbierta()) {
+        <!-- fase-14-33: se registra en la Sesión ELEGIDA, y el bloque aparece
+             mientras la Sección admita escritura (ABIERTA o EVALUACION) — antes
+             exigía Sección ABIERTA **y** Sesión abierta. -->
+        @if (seccionEditable()) {
+          @if (sesionDeTrabajo()) {
             <div class="mt-4 flex flex-wrap gap-2">
               @for (u of usuariosActivos(); track u.id) {
                 <button
@@ -343,7 +411,7 @@ type VistaPanel = 'registrar' | 'historial';
             }
           } @else {
             <p class="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              No hay una sesión abierta. Abrí la siguiente para registrar.
+              No hay ninguna sesión en esta sección todavía. Abrí la primera para registrar.
             </p>
           }
         }
@@ -415,7 +483,8 @@ type VistaPanel = 'registrar' | 'historial';
       [textoConfirmar]="textoConfirm()"
       [tono]="confirmar() === 'cerrar-seccion' || confirmPideMotivo() ? 'peligro' : 'primario'"
       [pideMotivo]="confirmPideMotivo()"
-      placeholderMotivo="Motivo (opcional) — lo lee el integrante"
+      [requiereMotivo]="confirmExigeMotivo()"
+      [placeholderMotivo]="placeholderMotivoConfirm()"
       (confirmar)="ejecutarConfirmado($event)"
       (cancelar)="cerrarConfirmacion()"
     />
@@ -500,6 +569,69 @@ export class PanelOperativoPage {
     this.seccion()?.sesiones.find((s) => s.estado === EstadoSesion.ABIERTA) ?? null
   );
 
+  /**
+   * fase-14-33: la Sesión elegida en el selector, o `null` = la de hoy.
+   *
+   * Vive en la URL (`?sesion=`) por lo mismo que la pestaña del #18: es
+   * enlazable y sobrevive un F5. Guardarla solo en memoria haría que refrescar
+   * mientras se corrige el lunes devuelva a hoy sin avisar — y la acción
+   * siguiente caería en el día equivocado.
+   */
+  protected readonly sesionSel = signal<string | null>(
+    inject(ActivatedRoute).snapshot.queryParamMap.get('sesion')
+  );
+
+  /**
+   * La Sesión sobre la que se está trabajando: la elegida si sigue existiendo
+   * en la Sección vigente, o el default (la abierta, o la última empezada).
+   *
+   * El fallback importa: el `?sesion=` de la URL puede ser de una Sección que
+   * ya rotó, y ahí la pantalla tiene que mostrar el día de hoy, no romperse.
+   */
+  protected readonly sesionDeTrabajo = computed<SesionDto | null>(() => {
+    const sesiones = this.seccion()?.sesiones ?? [];
+    const elegida = this.sesionSel();
+    const porId = elegida ? sesiones.find((s) => s.id === elegida) : undefined;
+
+    if (porId) {
+      return porId;
+    }
+
+    const abierta = sesiones.find((s) => s.estado === EstadoSesion.ABIERTA);
+    // `[0]` de un array vacío es `undefined` aunque TS lo tipe como `SesionDto`
+    // sin `noUncheckedIndexedAccess`: el `?? null` es lo que hace honesto al tipo.
+    const ultima = [...sesiones].sort((a, b) => b.numero - a.numero)[0];
+
+    return abierta ?? ultima ?? null;
+  });
+
+  /** La Sección admite escritura: cualquiera que no esté CERRADA (decisión 2). */
+  protected readonly seccionEditable = computed(() => {
+    const estado = this.seccion()?.estado;
+
+    return estado === 'ABIERTA' || estado === 'EVALUACION';
+  });
+
+  /**
+   * Se está escribiendo en un día que ya cerró: motivo obligatorio y marca en
+   * la fila. Es la misma cuenta que hace `resolverSesionDeTrabajo` del backend
+   * —y el backend sigue siendo el que decide—: acá solo sirve para pedir el
+   * motivo antes de mandar algo que el servidor va a rechazar.
+   */
+  protected readonly esRetroactiva = computed(() => {
+    const sesion = this.sesionDeTrabajo();
+
+    return (
+      sesion !== null &&
+      !(this.seccion()?.estado === 'ABIERTA' && sesion.estado === EstadoSesion.ABIERTA)
+    );
+  });
+
+  /** Con una sola Sesión no hay nada que elegir: la pantalla no cambia. */
+  protected readonly selectorVisible = computed(
+    () => (this.seccion()?.sesiones.length ?? 0) > 1
+  );
+
   /** Las filas del integrante elegido: su estado de hoy + el nombre del catálogo. */
   protected readonly filas = computed<FilaRegistro[]>(() => {
     const usuarioId = this.usuarioSel();
@@ -510,6 +642,23 @@ export class PanelOperativoPage {
   /** Las dos acciones que dejan rastro para el integrante piden motivo. */
   protected readonly confirmPideMotivo = computed(
     () => this.confirmar() === 'no-hizo' || this.confirmar() === 'quitar'
+  );
+
+  /**
+   * fase-14-33: en un día que ya cerró el motivo deja de ser opcional. Cubre
+   * también a `no-hizo` y `quitar`, que en el día lo piden pero no lo exigen.
+   *
+   * El servidor lo exige igual (400 `MOTIVO_RETROACTIVO_REQUERIDO`); esto es
+   * para que el Tutor no descubra la regla por un toast rojo.
+   */
+  protected readonly confirmExigeMotivo = computed(
+    () => this.confirmar() !== null && this.esRetroactiva()
+  );
+
+  protected readonly placeholderMotivoConfirm = computed(() =>
+    this.esRetroactiva()
+      ? 'Motivo — por qué se carga en un día ya cerrado'
+      : 'Motivo (opcional) — lo lee el integrante'
   );
 
   protected readonly tituloConfirm = computed(() => {
@@ -524,12 +673,23 @@ export class PanelOperativoPage {
         return `Marcar «${this.filaEnJuego()?.nombre ?? ''}» como no hecha`;
       case 'quitar':
         return `Quitar una de «${this.filaEnJuego()?.nombre ?? ''}»`;
+      case 'hizo':
+        return `Marcar «${this.filaEnJuego()?.nombre ?? ''}» como hecha`;
+      case 'conducta':
+        return 'Registrar la conducta';
       default:
         return '';
     }
   });
 
   protected readonly mensajeConfirm = computed(() => {
+    // fase-14-33: el aviso del día pasado va PRIMERO en las tres de registro,
+    // porque es lo que cambia el significado de lo que se está por hacer.
+    const enDiaCerrado = this.esRetroactiva()
+      ? `Se va a cargar en la sesión ${this.sesionDeTrabajo()?.numero}, que ya cerró, y queda ` +
+        'marcado como cargado después. '
+      : '';
+
     switch (this.confirmar()) {
       case 'cierre-sesion':
         return 'Se cerrará la sesión abierta. ¿Continuar?';
@@ -538,9 +698,13 @@ export class PanelOperativoPage {
       case 'cerrar-seccion':
         return 'La sección quedará cerrada definitivamente. ¿Continuar?';
       case 'no-hizo':
-        return 'Le resta los puntos y le quema el intento del día. El motivo lo va a leer en su pantalla.';
+        return `${enDiaCerrado}Le resta los puntos y le quema el intento del día. El motivo lo va a leer en su pantalla.`;
       case 'quitar':
-        return 'Le resta los puntos y ese intento se le gasta: solo vos podés devolvérselo. El motivo lo va a leer en su pantalla.';
+        return `${enDiaCerrado}Le resta los puntos y ese intento se le gasta: solo vos podés devolvérselo. El motivo lo va a leer en su pantalla.`;
+      case 'hizo':
+        return `${enDiaCerrado}Le suma los puntos de la actividad en ese día.`;
+      case 'conducta':
+        return `${enDiaCerrado}La conducta suma o resta según sea buena o mala.`;
       default:
         return '';
     }
@@ -558,6 +722,10 @@ export class PanelOperativoPage {
         return 'Marcar no hecha';
       case 'quitar':
         return 'Quitar una';
+      case 'hizo':
+        return 'Marcar hecha';
+      case 'conducta':
+        return 'Registrar';
       default:
         return 'Confirmar';
     }
@@ -568,6 +736,40 @@ export class PanelOperativoPage {
       const g = this.grupoId();
       this.cargar(g);
     });
+  }
+
+  /**
+   * fase-14-33: elegir el día sobre el que se trabaja. Recarga lo del
+   * integrante seleccionado, porque su lista del lunes no es la de hoy.
+   */
+  protected elegirSesion(sesionId: string): void {
+    if (this.sesionDeTrabajo()?.id === sesionId) {
+      return;
+    }
+
+    this.sesionSel.set(sesionId);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { sesion: sesionId },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+
+    if (this.usuarioSel()) {
+      this.cargarUsuario();
+    }
+  }
+
+  protected claseChipSesion(sesion: SesionDto): string {
+    const elegida = this.sesionDeTrabajo()?.id === sesion.id;
+
+    if (elegida) {
+      return 'bg-marca-600 text-white';
+    }
+
+    return sesion.estado === EstadoSesion.ABIERTA
+      ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300'
+      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700';
   }
 
   protected cambiarVista(vista: VistaPanel): void {
@@ -625,24 +827,63 @@ export class PanelOperativoPage {
    * historial con el Tutor como quien registró.
    */
   protected marcarHizo(fila: FilaRegistro): void {
+    if (!fila.puedeCompletar) {
+      return;
+    }
+
+    // fase-14-33: en el día se marca de un click, como siempre. En un día que
+    // ya cerró pasa por el diálogo, porque el motivo es obligatorio.
+    if (this.esRetroactiva()) {
+      this.filaEnJuego.set(fila);
+      this.confirmar.set('hizo');
+
+      return;
+    }
+
+    this.ejecutarHizo(fila, '');
+  }
+
+  private ejecutarHizo(fila: FilaRegistro, motivoRetroactivo: string): void {
     const usuarioId = this.usuarioSel();
 
-    if (!usuarioId || !fila.puedeCompletar) {
+    if (!usuarioId) {
       return;
     }
 
     this.procesando.set(true);
-    this.activity.completarActividad(fila.actividadId, usuarioId).subscribe({
-      next: () => {
-        this.toasts.exito(`«${fila.nombre}» marcada.`);
-        this.procesando.set(false);
-        this.cargarUsuario();
-      },
-      error: (e) => {
-        this.toasts.error(mensajeDeError(e));
-        this.procesando.set(false);
-      },
-    });
+    this.activity
+      .completarActividad(fila.actividadId, usuarioId, this.enSesion(motivoRetroactivo))
+      .subscribe({
+        next: () => {
+          this.toasts.exito(`«${fila.nombre}» marcada.`);
+          this.procesando.set(false);
+          this.cargarUsuario();
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.procesando.set(false);
+        },
+      });
+  }
+
+  /**
+   * fase-14-33: los dos campos de escritura en otra Sesión, o `undefined` si es
+   * la de hoy.
+   *
+   * Un solo lugar donde se arma: si cada llamada lo compusiera a mano, la
+   * primera que se olvidara del `sesionId` escribiría en el día equivocado sin
+   * error de compilación ni de runtime — el peor tipo de bug de este ítem.
+   */
+  private enSesion(motivoRetroactivo: string): EnSesion | undefined {
+    if (!this.esRetroactiva()) {
+      return undefined;
+    }
+
+    const sesion = this.sesionDeTrabajo();
+
+    return sesion
+      ? { sesionId: sesion.id, motivoRetroactivo: motivoRetroactivo.trim() || undefined }
+      : undefined;
   }
 
   /**
@@ -669,7 +910,11 @@ export class PanelOperativoPage {
 
     this.procesando.set(true);
     this.activity
-      .registrarNoHizo(fila.actividadId, usuarioId, motivo || undefined)
+      // fase-14-33: el mismo texto sirve para las dos cosas cuando el día ya
+      // cerró — el integrante lee por qué se lo marcaron, y el historial por
+      // qué apareció después. Pedirle al Tutor dos párrafos para una marca
+      // sería fricción sin información nueva.
+      .registrarNoHizo(fila.actividadId, usuarioId, motivo || undefined, this.enSesion(motivo))
       .subscribe({
         next: () => {
           this.toasts.exito(`«${fila.nombre}» marcada como no hecha.`);
@@ -691,6 +936,10 @@ export class PanelOperativoPage {
     if (!ultimo) {
       return;
     }
+
+    // fase-14-33: anular una fila de un día ya cerrado exige motivo, y el
+    // endpoint lo recibe por el mismo `?motivo=` de siempre — la fila ya sabe a
+    // qué Sesión pertenece, así que acá no viaja ningún `sesionId`.
 
     this.procesando.set(true);
     this.activity.eliminarRegistroActividad(ultimo.registroId, motivo || undefined).subscribe({
@@ -723,6 +972,21 @@ export class PanelOperativoPage {
   }
 
   protected registrarConducta(): void {
+    if (!this.usuarioSel() || !this.conductaSel) {
+      return;
+    }
+
+    // fase-14-33: mismo criterio que `marcarHizo`.
+    if (this.esRetroactiva()) {
+      this.confirmar.set('conducta');
+
+      return;
+    }
+
+    this.ejecutarConducta('');
+  }
+
+  private ejecutarConducta(motivoRetroactivo: string): void {
     const usuarioId = this.usuarioSel();
 
     if (!usuarioId || !this.conductaSel) {
@@ -730,17 +994,19 @@ export class PanelOperativoPage {
     }
 
     this.procesando.set(true);
-    this.activity.registrarConducta(this.conductaSel, usuarioId).subscribe({
-      next: () => {
-        this.toasts.exito('Conducta registrada.');
-        this.conductaSel = '';
-        this.procesando.set(false);
-      },
-      error: (e) => {
-        this.toasts.error(mensajeDeError(e));
-        this.procesando.set(false);
-      },
-    });
+    this.activity
+      .registrarConducta(this.conductaSel, usuarioId, this.enSesion(motivoRetroactivo))
+      .subscribe({
+        next: () => {
+          this.toasts.exito('Conducta registrada.');
+          this.conductaSel = '';
+          this.procesando.set(false);
+        },
+        error: (e) => {
+          this.toasts.error(mensajeDeError(e));
+          this.procesando.set(false);
+        },
+      });
   }
 
   /**
@@ -760,9 +1026,12 @@ export class PanelOperativoPage {
     }
 
     const puntos = this.puntosAjuste;
+    // fase-14-33: sin `motivoRetroactivo` — `motivo` ya es obligatorio en todo
+    // ajuste, y pedir dos textos para el mismo movimiento no agrega nada.
+    const sesionId = this.esRetroactiva() ? this.sesionDeTrabajo()?.id : undefined;
 
     this.procesando.set(true);
-    this.scoring.ajustarPuntos(this.grupoId(), usuarioId, { puntos, motivo }).subscribe({
+    this.scoring.ajustarPuntos(this.grupoId(), usuarioId, { puntos, motivo, sesionId }).subscribe({
       next: () => {
         this.toasts.exito(`${puntos > 0 ? '+' : ''}${puntos} puntos registrados.`);
         this.puntosAjuste = 0;
@@ -807,11 +1076,16 @@ export class PanelOperativoPage {
       return;
     }
 
+    // fase-14-33: las tres lecturas van a la MISMA Sesión a la que van a caer
+    // las escrituras. Leer la lista de hoy y escribir en el lunes sería el bug
+    // más difícil de ver de este ítem: la pantalla se vería impecable.
+    const sesionId = this.sesionDeTrabajo()?.id;
+
     this.cargandoUsuario.set(true);
     forkJoin({
-      estado: this.activity.estadoHoyDeUsuario(this.grupoId(), usuarioId),
-      completadas: this.activity.completadasOpcionales(this.grupoId(), usuarioId),
-      marcas: this.activity.marcasRojas(this.grupoId(), usuarioId),
+      estado: this.activity.estadoHoyDeUsuario(this.grupoId(), usuarioId, sesionId),
+      completadas: this.activity.completadasOpcionales(this.grupoId(), usuarioId, sesionId),
+      marcas: this.activity.marcasRojas(this.grupoId(), usuarioId, sesionId),
     }).subscribe({
       next: ({ estado, completadas, marcas }) => {
         this.estadoHoy.set(estado.actividades);
@@ -833,7 +1107,7 @@ export class PanelOperativoPage {
     this.confirmar.set(null);
     this.filaEnJuego.set(null);
 
-    // Las dos que operan sobre una fila no necesitan la Sección: van primero.
+    // Las que operan sobre una fila no necesitan la Sección: van primero.
     if (accion === 'no-hizo' && fila) {
       this.registrarNoHizo(fila, motivo);
 
@@ -842,6 +1116,19 @@ export class PanelOperativoPage {
 
     if (accion === 'quitar' && fila) {
       this.quitarUna(fila, motivo);
+
+      return;
+    }
+
+    // fase-14-33: las dos que solo pasan por acá cuando el día ya cerró.
+    if (accion === 'hizo' && fila) {
+      this.ejecutarHizo(fila, motivo);
+
+      return;
+    }
+
+    if (accion === 'conducta') {
+      this.ejecutarConducta(motivo);
 
       return;
     }

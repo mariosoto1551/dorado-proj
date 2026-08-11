@@ -233,10 +233,11 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
     });
   });
 
-  it('están las catorce de la spec, con nombres únicos', () => {
+  it('están las quince de la spec, con nombres únicos', () => {
     // Las ocho del fase-14-29, las cuatro del fase-14-30 (`listar_tienda` en la
-    // tanda 1; etiquetas, turnos y configuración en la tanda 3) y las dos del
-    // fase-14-31 (el estado del día y los saldos).
+    // tanda 1; etiquetas, turnos y configuración en la tanda 3), las dos del
+    // fase-14-31 (el estado del día y los saldos) y la del fase-14-33 (los días
+    // de la sección, sin la cual apuntar a otra sesión exigiría inventar un id).
     expect(NOMBRES_HERRAMIENTAS_LECTURA).toEqual([
       'listar_actividades',
       'listar_conductas',
@@ -252,6 +253,7 @@ describe('definiciones de herramientas — invariantes estructurales', () => {
       'resumen_cumplimiento',
       'estado_de_hoy',
       'listar_billeteras',
+      'listar_sesiones_de_la_seccion',
     ]);
     expect(new Set(NOMBRES_HERRAMIENTAS_LECTURA).size).toBe(HERRAMIENTAS_LECTURA.length);
   });

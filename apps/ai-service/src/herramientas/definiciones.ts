@@ -55,6 +55,10 @@ const NOMBRES = [
   // `proponer_quitar_marcas` no podría existir sin violar la decisión 1.
   'estado_de_hoy',
   'listar_billeteras',
+  // fase-14-33: la que hace resoluble «el lunes». Sin ella, apuntar una
+  // propuesta a otra sesión exigiría que el modelo invente un uuid — que es
+  // exactamente lo que prohíbe la decisión 1 del #30.
+  'listar_sesiones_de_la_seccion',
 ] as const;
 
 export type NombreHerramientaLectura = (typeof NOMBRES)[number];
@@ -271,14 +275,28 @@ export const HERRAMIENTAS_LECTURA: DefinicionHerramienta[] = [
   {
     nombre: 'estado_de_hoy',
     descripcion:
-      'Devuelve, por cada integrante, qué actividades tiene HOY, cuáles ya están marcadas y ' +
-      'cuáles no se le pueden marcar (con el motivo), más todo lo que hoy se le puede quitar o ' +
-      'deshacer con el id que lo hace. ' +
+      'Devuelve, por cada integrante, qué actividades tiene en una sesión, cuáles ya están ' +
+      'marcadas y cuáles no se le pueden marcar (con el motivo), más todo lo que se le puede ' +
+      'quitar o deshacer con el id que lo hace. Sin `sesionId` es la sesión de HOY. ' +
       'Empezá SIEMPRE por acá antes de proponer anotar o quitar algo: si `sesionAbierta` es ' +
-      'false, hoy no se puede registrar nada y hay que decirlo, no armar una propuesta. ' +
-      'Marcar algo que ya está marcado, o una actividad que hoy no le toca a esa persona, ' +
+      'false, no se puede registrar nada y hay que decirlo, no armar una propuesta. ' +
+      'Marcar algo que ya está marcado, o una actividad que ese día no le tocaba a esa persona, ' +
       'falla al aplicar — todo eso está acá resuelto.',
-    parametros: sinParametros(),
+    parametros: {
+      type: 'object',
+      properties: {
+        sesionId: {
+          type: 'string',
+          description:
+            'id (uuid) de la sesión de la sección vigente que se quiere mirar, tal como vino ' +
+            'de listar_sesiones_de_la_seccion. Nunca lo inventes. Si se omite, la de hoy.',
+          formato: 'uuid',
+          origen: ['listar_sesiones_de_la_seccion'],
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
   },
   {
     nombre: 'listar_billeteras',
@@ -288,6 +306,17 @@ export const HERRAMIENTAS_LECTURA: DefinicionHerramienta[] = [
       'Mirala antes de proponer un descuento en monedas: **el saldo no puede quedar por debajo ' +
       'de 0** y el sistema rechaza el ajuste que lo intente. No dice nada de los puntos, que ' +
       'son otro número: para eso está resumen_puntajes.',
+    parametros: sinParametros(),
+  },
+  {
+    nombre: 'listar_sesiones_de_la_seccion',
+    descripcion:
+      'Devuelve las sesiones (los días) de la sección vigente del grupo, con su número, su ' +
+      'estado, cuándo empezó cada una y cuál es la que está abierta ahora. ' +
+      'Usala cada vez que el tutor mencione un día que NO es hoy ("el lunes", "ayer", "el ' +
+      'martes pasado"): es la única forma de resolver ese día a un id de sesión real. Nunca ' +
+      'inventes un id de sesión. ' +
+      'Solo devuelve las de la sección vigente: lo de secciones anteriores no se puede editar.',
     parametros: sinParametros(),
   },
 ];

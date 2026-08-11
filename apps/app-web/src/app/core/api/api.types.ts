@@ -114,6 +114,24 @@ export interface FiltrosHistorial {
   incluirAnulados?: boolean;
   cursor?: string;
   limite?: number;
+  /** fase-14-33: qué Sesión de la Sección vigente mirar. Sin él, la de hoy. */
+  sesionId?: string;
+}
+
+/**
+ * fase-14-33: en qué Sesión cae una escritura del Tutor, y por qué si no es la
+ * de hoy.
+ *
+ * Viaja como un objeto y no como dos parámetros sueltos por la regla 2 de
+ * estilo del proyecto (máximo 7 parámetros, agrupar antes de seguir sumando
+ * argumentos): estos métodos ya tenían tres, y sumar dos más a cada uno los
+ * dejaba con una firma que nadie puede leer en la llamada.
+ *
+ * `undefined` entero = la Sesión abierta, que es el 99% de las llamadas.
+ */
+export interface EnSesion {
+  sesionId?: string;
+  motivoRetroactivo?: string;
 }
 
 // ---- Session ----
@@ -161,6 +179,11 @@ export interface CorregirEventoPuntosRequest {
 export interface AjustarPuntosRequest {
   puntos: number;
   motivo: string;
+  /**
+   * fase-14-33: en qué Sesión de la Sección vigente cae el asiento. Sin él, la
+   * abierta. No lleva `motivoRetroactivo` aparte: `motivo` ya es obligatorio.
+   */
+  sesionId?: string;
 }
 
 // ---- Rewards ----

@@ -17,6 +17,7 @@ import { IdentityClientService } from '../clientes/identity-client.service';
 import type { SeccionActualInterna } from '../clientes/session-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
+import { seccionEsEditable } from '../comun/sesion-abierta';
 import type {
   NotaRegistro,
   RegistroActividad,
@@ -60,6 +61,8 @@ interface Nombres {
 interface SesionDelHistorial {
   id: string;
   estado: EstadoSesion;
+  /** fase-14-33: 1..n dentro de la Sección — lo que dice el selector. */
+  numero: number;
 }
 
 /**
@@ -98,7 +101,13 @@ export class HistorialService {
     ]);
 
     const timezoneGrupo = grupo?.timezone ?? 'UTC';
-    const sesion = resolverSesionDelHistorial(seccion);
+    // fase-14-33: el timeline ya no es forzosamente el de la Sesión actual —
+    // el selector del panel decide, dentro de la Sección vigente.
+    const sesion = resolverSesionDelHistorial(seccion, filtros.sesionId);
+    // fase-14-33: lo que habilita los botones ya no es que la Sesión esté
+    // ABIERTA sino que la SECCIÓN admita escritura (decisión 2). El frontend lee
+    // esto y no reimplementa la regla 6 mirando dos estados.
+    const seccionEditable = seccionEsEditable(seccion);
 
     // Sin Sección vigente no es un error: es un grupo que todavía no arrancó
     // (mismo criterio que `completadas` y `marcas` del ítem 12).
@@ -106,6 +115,8 @@ export class HistorialService {
       return {
         sesionId: null,
         sesionEstado: null,
+        sesionNumero: null,
+        seccionEditable,
         timezoneGrupo,
         eventos: [],
         cursorSiguiente: null,
@@ -132,6 +143,8 @@ export class HistorialService {
     return {
       sesionId: sesion.id,
       sesionEstado: sesion.estado,
+      sesionNumero: sesion.numero,
+      seccionEditable,
       timezoneGrupo,
       eventos,
       cursorSiguiente: hayMas && ultima ? codificarCursor(ultima) : null,
@@ -303,16 +316,28 @@ export function notaADto(
  * el tutor que entra a las 22:05 ve su día en vez de una pantalla vacía.
  */
 function resolverSesionDelHistorial(
-  seccion: SeccionActualInterna | null
+  seccion: SeccionActualInterna | null,
+  sesionIdPedido?: string
 ): SesionDelHistorial | null {
   if (!seccion || seccion.sesiones.length === 0) {
     return null;
   }
 
+  // fase-14-33: el Tutor eligió una Sesión en el selector del panel. Si el id
+  // no es de la Sección vigente se cae al default en vez de fallar: la URL
+  // guarda el id y una Sección que rotó no debe dejar la pantalla rota.
+  if (sesionIdPedido) {
+    const pedida = seccion.sesiones.find((sesion) => sesion.id === sesionIdPedido);
+
+    if (pedida) {
+      return { id: pedida.id, estado: pedida.estado, numero: pedida.numero };
+    }
+  }
+
   const abierta = seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA);
 
   if (abierta) {
-    return { id: abierta.id, estado: EstadoSesion.ABIERTA };
+    return { id: abierta.id, estado: EstadoSesion.ABIERTA, numero: abierta.numero };
   }
 
   const ahora = Date.now();
@@ -322,7 +347,7 @@ function resolverSesionDelHistorial(
 
   const ultima = empezadas[0];
 
-  return ultima ? { id: ultima.id, estado: ultima.estado } : null;
+  return ultima ? { id: ultima.id, estado: ultima.estado, numero: ultima.numero } : null;
 }
 
 /** Orden del timeline: más reciente primero, con el id como desempate estable. */
@@ -365,6 +390,9 @@ function filaDeActividad(registro: RegistroActividad): FilaDelTimeline {
       motivoTutor: registro.motivoTutor,
       revertidoEn: registro.revertidoEn?.toISOString() ?? null,
       revertidoPorNombre: nombreDeTutor(registro.revertidoPorTutorId, nombres),
+      // fase-14-33: el chip «Cargado después» del timeline.
+      cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
+      motivoRetroactivo: registro.motivoRetroactivo,
       notas: [],
     }),
   };
@@ -402,6 +430,9 @@ function filaDeConducta(registro: RegistroConducta): FilaDelTimeline {
       motivoTutor: null,
       revertidoEn: null,
       revertidoPorNombre: null,
+      // fase-14-33
+      cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
+      motivoRetroactivo: registro.motivoRetroactivo,
       notas: [],
     }),
   };
@@ -440,6 +471,9 @@ function filaDeTareaEquipo(registro: RegistroTareaEquipo): FilaDelTimeline {
       motivoTutor: registro.motivoTutor,
       revertidoEn: registro.revertidoEn?.toISOString() ?? null,
       revertidoPorNombre: nombreDeTutor(registro.revertidoPorTutorId, nombres),
+      // fase-14-33
+      cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
+      motivoRetroactivo: registro.motivoRetroactivo,
       notas: [],
     }),
   };

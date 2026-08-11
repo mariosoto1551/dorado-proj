@@ -44,6 +44,8 @@ export function eventoPuntosADto(evento: EventoPuntos): EventoPuntosDto {
     registradoPorId: evento.registradoPorId,
     registradoPorTipo: evento.registradoPorTipo as PrincipalType,
     corregidoDeId: evento.corregidoDeId,
+    // fase-14-33: null = el asiento se escribió en su día.
+    cargadoRetroactivamenteEn: evento.cargadoRetroactivamenteEn?.toISOString() ?? null,
     createdAt: evento.createdAt.toISOString(),
   };
 }

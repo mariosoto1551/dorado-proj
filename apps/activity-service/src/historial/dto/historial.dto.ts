@@ -29,6 +29,14 @@ export class HistorialQuery {
   @IsUUID()
   usuarioId?: string;
 
+  /**
+   * fase-14-33: qué Sesión de la Sección vigente mostrar. Sin él, la abierta
+   * (o la última empezada, decisión 14 del #18) — el default de siempre.
+   */
+  @IsOptional()
+  @IsUUID()
+  sesionId?: string;
+
   @IsOptional()
   @IsEnum(TipoRegistroHistorial)
   tipo?: TipoRegistroHistorial;

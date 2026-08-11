@@ -1,7 +1,37 @@
-import { IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 import { EstadoReporte } from '../../generated/prisma/enums';
-import { MAX_LARGO_MOTIVO_TUTOR } from '../../registro/dto/registro.dto';
+import {
+  MAX_LARGO_MOTIVO_RETROACTIVO,
+  MAX_LARGO_MOTIVO_TUTOR,
+} from '../../registro/dto/registro.dto';
+
+/**
+ * POST /activity/equipos/:equipoId/tareas/:actividadId/completar (fase-14-33).
+ *
+ * El endpoint no tenía cuerpo: el jefe del equipo completa la tarea del día y
+ * no hay nada que elegir. Ahora un Tutor puede cargarla en una Sesión pasada de
+ * la Sección vigente, con su motivo. Sigue sin ser obligatorio nada — un jefe
+ * llamándolo sin cuerpo se comporta exactamente como antes.
+ */
+export class CompletarTareaEquipoRequest {
+  @IsOptional()
+  @IsUUID()
+  sesionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(MAX_LARGO_MOTIVO_RETROACTIVO)
+  motivoRetroactivo?: string;
+}
 
 // POST /activity/equipos/:equipoId/reportes — el jefe reporta una conducta MALA.
 export class CrearReporteMiembroRequest {

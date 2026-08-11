@@ -146,6 +146,26 @@ function crearMocks() {
         },
       ],
     })),
+    // fase-14-33: los días de la sección vigente. Sin claves de tenant, igual
+    // que el resto — es lo que hace resoluble «el lunes» sin inventar un uuid.
+    sesionesDeLaSeccion: vi.fn(async () => [
+      {
+        id: 'ses-1',
+        numero: 1,
+        estado: 'CERRADA',
+        fechaInicio: '2026-08-10T03:00:00.000Z',
+        fechaFin: '2026-08-11T03:00:00.000Z',
+        esLaAbierta: false,
+      },
+      {
+        id: 'ses-2',
+        numero: 2,
+        estado: 'ABIERTA',
+        fechaInicio: '2026-08-11T03:00:00.000Z',
+        fechaFin: null,
+        esLaAbierta: true,
+      },
+    ]),
   } as unknown as ActivityClientService;
 
   const identity = {
@@ -415,7 +435,7 @@ describe('HerramientasService', () => {
   describe('ninguna lectura manda el tenant hacia el proveedor (decisión 9 del fase-14-30)', () => {
     const PROHIBIDO = /organizacionId|grupoId|tenant/i;
 
-    it('las catorce lecturas devuelven respuestas sin ninguna clave de tenant', async () => {
+    it('las quince lecturas devuelven respuestas sin ninguna clave de tenant', async () => {
       const { servicio } = crearMocks();
       const infractoras: string[] = [];
 
@@ -439,7 +459,7 @@ describe('HerramientasService', () => {
       ).toEqual([]);
     });
 
-    it('tampoco viaja ningún dato de contacto en ninguna de las catorce', async () => {
+    it('tampoco viaja ningún dato de contacto en ninguna de las quince', async () => {
       const { servicio } = crearMocks();
 
       for (const nombre of NOMBRES_HERRAMIENTAS_LECTURA) {

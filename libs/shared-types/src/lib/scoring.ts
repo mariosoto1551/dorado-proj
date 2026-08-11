@@ -23,6 +23,13 @@ export interface EventoPuntosDto {
   registradoPorId: string;
   registradoPorTipo: PrincipalType;
   corregidoDeId: string | null;
+  /**
+   * fase-14-33: el asiento se escribió en una Sesión que ya había cerrado.
+   * `null` en todo lo anterior a ese ítem y en todo lo del día. **No afecta
+   * cómo suma**: el puntaje se sigue derivando al leer sobre todos los asientos
+   * de la Sección, con marca o sin ella (regla 1).
+   */
+  cargadoRetroactivamenteEn: string | null;
   createdAt: string;
 }
 
@@ -153,6 +160,15 @@ export interface AjustarPuntosRequest {
   puntos: number;
   /** Obligatorio: un movimiento manual sin explicación es inauditable. */
   motivo: string;
+  /**
+   * fase-14-33: en qué Sesión de la Sección vigente cae el asiento. Sin él, la
+   * abierta — el comportamiento del #31, byte por byte.
+   *
+   * **No hay `motivoRetroactivo` acá y no es un olvido**: `motivo` ya es
+   * obligatorio para todo ajuste, y pedir dos textos para el mismo movimiento
+   * es fricción sin información. La marca en la fila sí se escribe igual.
+   */
+  sesionId?: string;
 }
 
 /**

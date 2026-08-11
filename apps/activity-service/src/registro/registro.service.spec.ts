@@ -19,8 +19,10 @@ import {
   DeadlineVencidoException,
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
+  MotivoRetroactivoRequeridoException,
   NoHaySesionAbiertaException,
   ObligatoriaNoSeCompletaException,
+  SesionNoEditableException,
 } from '../comun/excepciones';
 import {
   actividadDePrueba,
@@ -603,7 +605,14 @@ describe('RegistroService — mi-estado-hoy (fase-14-08)', () => {
 
     const estado = await servicio.miEstadoHoy(tenantUsuario(), 'grupo-1');
 
-    expect(estado).toEqual({ sesionId: null, planDelDiaActivo: false, actividades: [] });
+    expect(estado).toEqual({
+      sesionId: null,
+      planDelDiaActivo: false,
+      // fase-14-33: qué Sesión se está mirando; null cuando no hay ninguna.
+      sesionEstado: null,
+      sesionNumero: null,
+      actividades: [],
+    });
   });
 
   it('devuelve vecesHechas real y confirmada por actividad', async () => {
@@ -1295,16 +1304,21 @@ describe('RegistroService — marcas rojas del tutor (fase-14-12)', () => {
     );
   });
 
-  it('revertir una marca de otra Sesión → 409 NO_HAY_SESION_ABIERTA', async () => {
+  /**
+   * fase-14-33 revisa la decisión 4 del #12 («la marca vive dentro de su
+   * Sesión»): vive dentro de su **Sección**. El test no desaparece — pasa a
+   * afirmar el borde nuevo, que es el que sostiene la regla 6.
+   */
+  it('revertir una marca de una Sesión que no es de la Sección vigente → 409 SESION_NO_EDITABLE', async () => {
     const { servicio, bd } = crearServicio();
 
     await servicio.completar(tenantUsuario(), 'actividad-1', {});
     await servicio.eliminarRegistroActividad(tenantTutor(), bd.registrosActividad[0].id);
-    // Al día siguiente, con otra Sesión abierta, la marca de ayer ya no se toca.
-    bd.registrosActividad[0].sesionId = 'sesion-de-ayer';
+    // Una Sesión de una Sección ya cerrada: el interno de session no la devuelve.
+    bd.registrosActividad[0].sesionId = 'sesion-de-otra-seccion';
 
     await expect(servicio.revertirMarca(tenantTutor(), bd.registrosActividad[0].id)).rejects.toThrow(
-      NoHaySesionAbiertaException
+      SesionNoEditableException
     );
   });
 
@@ -1699,7 +1713,13 @@ describe('RegistroService — estado-hoy de OTRO usuario, para el Tutor (fase-14
 
     const visto = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-1');
 
-    expect(visto).toEqual({ sesionId: null, planDelDiaActivo: false, actividades: [] });
+    expect(visto).toEqual({
+      sesionId: null,
+      planDelDiaActivo: false,
+      sesionEstado: null,
+      sesionNumero: null,
+      actividades: [],
+    });
   });
 });
 
@@ -1853,5 +1873,366 @@ describe('RegistroService — vigencia por fechas (fase-14-24)', () => {
     await expect(
       servicio.completar(tenantUsuario(), 'act-futura', {})
     ).rejects.toMatchObject({ code: 'ACTIVIDAD_FUERA_DE_VIGENCIA' });
+  });
+});
+
+/**
+ * fase-14-33 — editar cualquier Sesión de la Sección vigente.
+ *
+ * El eje de todos estos tests es el mismo: **sin `sesionId` nada cambia**
+ * (decisión 10), y con él la escritura cae en el día elegido con su marca y su
+ * motivo. Los ~350 tests anteriores de este archivo son, en conjunto, la mitad
+ * que importa de esa afirmación: ninguno manda `sesionId` y ninguno cambió.
+ */
+describe('RegistroService — editar una Sesión pasada de la Sección (fase-14-33)', () => {
+  const SESION_DE_AYER = 'sesion-de-ayer';
+
+  /** Sección vigente con la sesión de ayer CERRADA y la de hoy ABIERTA. */
+  function seccionConDosSesiones(
+    estadoSeccion: EstadoSeccion = EstadoSeccion.ABIERTA
+  ): SeccionActualInterna {
+    const base = seccionActualDePrueba({ estado: estadoSeccion });
+    const plantilla = base.sesiones[0];
+
+    return {
+      ...base,
+      sesiones: [
+        {
+          ...plantilla,
+          id: SESION_DE_AYER,
+          numero: 1,
+          estado: EstadoSesion.CERRADA,
+          fechaInicio: '2026-07-13T04:00:00.000Z',
+          fechaFin: '2026-07-14T04:00:00.000Z',
+        },
+        {
+          ...plantilla,
+          id: 'sesion-1',
+          numero: 2,
+          estado:
+            estadoSeccion === EstadoSeccion.ABIERTA
+              ? EstadoSesion.ABIERTA
+              : EstadoSesion.CERRADA,
+          fechaInicio: '2026-07-14T04:00:00.000Z',
+        },
+      ],
+    };
+  }
+
+  function bdConOpcional() {
+    return crearBdRegistroEnMemoria({
+      actividades: [actividadDePrueba({ tipoPuntaje: 'OPCIONAL' })],
+    });
+  }
+
+  it('el Tutor completa en la Sesión de ayer: la fila queda en ESA sesión, marcada y con motivo', async () => {
+    const { servicio, publicados } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    const registro = await servicio.completar(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'Me avisó y no llegué a marcarlo',
+    });
+
+    expect(registro).toMatchObject({
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'Me avisó y no llegué a marcarlo',
+    });
+    expect(registro.cargadoRetroactivamenteEn).not.toBeNull();
+
+    // El asiento cae en la Sesión de ayer, que es de lo que depende todo esto.
+    const evento = publicados.find((e) => e.eventType === 'ActividadCompletada');
+    expect(evento?.payload).toMatchObject({ sesionId: SESION_DE_AYER });
+  });
+
+  it('sin motivo → 400 MOTIVO_RETROACTIVO_REQUERIDO, y no se escribe nada', async () => {
+    const bd = bdConOpcional();
+    const { servicio } = crearServicio({ bd, seccionActual: seccionConDosSesiones() });
+
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', {
+        usuarioId: 'usuario-1',
+        sesionId: SESION_DE_AYER,
+      })
+    ).rejects.toThrow(MotivoRetroactivoRequeridoException);
+    expect(bd.registrosActividad).toHaveLength(0);
+  });
+
+  it('en la Sesión ABIERTA no pide motivo y NO marca la fila (decisión 10)', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    const registro = await servicio.completar(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      sesionId: 'sesion-1',
+    });
+
+    expect(registro.cargadoRetroactivamenteEn).toBeNull();
+    expect(registro.motivoRetroactivo).toBeNull();
+  });
+
+  it('con la Sección en EVALUACION se puede seguir corrigiendo (decisión 2)', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(EstadoSeccion.EVALUACION),
+    });
+
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', {
+        usuarioId: 'usuario-1',
+        sesionId: SESION_DE_AYER,
+        motivoRetroactivo: 'Corrección antes de cerrar la semana',
+      })
+    ).resolves.toMatchObject({ sesionId: SESION_DE_AYER });
+  });
+
+  it('una Sesión que no es de la Sección vigente → 409 SESION_NO_EDITABLE', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', {
+        usuarioId: 'usuario-1',
+        sesionId: 'sesion-de-la-semana-pasada',
+        motivoRetroactivo: 'no importa: ni siquiera se llega a mirar',
+      })
+    ).rejects.toThrow(SesionNoEditableException);
+  });
+
+  it('un USUARIO que manda sesionId lo ve IGNORADO, no rechazado (decisión 11)', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    const registro = await servicio.completar(tenantUsuario(), 'actividad-1', {
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'intento de escribir en ayer',
+    });
+
+    // Cae en la Sesión ABIERTA y sin marca: para él este ítem no existe.
+    expect(registro.sesionId).toBe('sesion-1');
+    expect(registro.cargadoRetroactivamenteEn).toBeNull();
+  });
+
+  it('el deadline vencido NO frena una carga retroactiva, pero sí una de hoy (decisión 5)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OPCIONAL',
+          tipoLimiteTiempo: 'DEADLINE',
+          // Una hora que ya pasó para las dos sesiones del fixture.
+          deadlineHora: '00:01',
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd, seccionActual: seccionConDosSesiones() });
+
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', {
+        usuarioId: 'usuario-1',
+        sesionId: SESION_DE_AYER,
+        motivoRetroactivo: 'se me pasó ayer',
+      })
+    ).resolves.toMatchObject({ sesionId: SESION_DE_AYER });
+
+    // La misma actividad en la Sesión de hoy sigue rechazándose: la regla del
+    // instante no se aflojó, se saltea solo donde no puede significar nada.
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', { usuarioId: 'usuario-1' })
+    ).rejects.toThrow(DeadlineVencidoException);
+  });
+
+  it('el cupo de repeticiones SÍ se respeta en la Sesión pasada (decisión 6)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({ tipoPuntaje: 'OPCIONAL', repeticionesMaximasSesion: 1 }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd, seccionActual: seccionConDosSesiones() });
+    const datos = {
+      usuarioId: 'usuario-1',
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'la hizo ayer',
+    };
+
+    await servicio.completar(tenantTutor(), 'actividad-1', datos);
+
+    await expect(servicio.completar(tenantTutor(), 'actividad-1', datos)).rejects.toThrow(
+      LimiteRepeticionesAlcanzadoException
+    );
+  });
+
+  /**
+   * EL CASO QUE MOTIVA EL ÍTEM (decisión 8).
+   *
+   * El cierre automático del #8 escribe un NO_HIZO por cada obligatoria sin
+   * confirmar. Sin esta excepción, «el castigo automático estuvo mal» —la
+   * corrección más frecuente de todas— sería imposible: `asegurarNoDenegada`
+   * frenaría la carga.
+   */
+  it('el NO_HIZO automático (SYSTEM) se levanta solo al cargar la completada', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+          puntosPorCumplir: 4,
+        }),
+      ],
+    });
+    // El castigo que dejó el cierre de ayer.
+    bd.registrosActividad.push({
+      id: 'castigo-automatico',
+      organizacionId: 'org-1',
+      grupoId: 'grupo-1',
+      usuarioId: 'usuario-1',
+      actividadId: 'actividad-1',
+      sesionId: SESION_DE_AYER,
+      seccionId: 'seccion-1',
+      tipo: 'NO_HIZO',
+      valorPuntosSnapshot: -10,
+      registradoPorId: 'SYSTEM',
+      registradoPorTipo: 'SYSTEM',
+      eliminado: false,
+      eliminadoPorTutorId: null,
+      eliminadoEn: null,
+      motivoTutor: null,
+      revertidoPorTutorId: null,
+      revertidoEn: null,
+      cargadoRetroactivamenteEn: null,
+      motivoRetroactivo: null,
+      createdAt: new Date('2026-07-14T03:59:00.000Z'),
+    } as (typeof bd.registrosActividad)[number]);
+
+    const { servicio, publicados } = crearServicio({
+      bd,
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', {
+        usuarioId: 'usuario-1',
+        sesionId: SESION_DE_AYER,
+        motivoRetroactivo: 'Sí la había hecho, el castigo automático estuvo mal',
+      })
+    ).resolves.toMatchObject({ sesionId: SESION_DE_AYER });
+
+    // El castigo quedó dado de baja...
+    const castigo = bd.registrosActividad.find((fila) => fila.id === 'castigo-automatico');
+    expect(castigo).toMatchObject({ eliminado: true, revertidoPorTutorId: 'tutor-1' });
+
+    // ...y scoring recibió la compensación: sin este evento el integrante se
+    // quedaría con el castigo Y el premio.
+    const revertido = publicados.find((e) => e.eventType === 'ActividadRegistroRevertido');
+    expect(revertido?.payload).toMatchObject({
+      registroId: 'castigo-automatico',
+      tipoRegistro: 'NO_HIZO',
+      valorPuntosSnapshot: -10,
+    });
+  });
+
+  it('un NO_HIZO puesto por un TUTOR sigue bloqueando: se deshace a mano (decisión 8)', async () => {
+    const bd = crearBdRegistroEnMemoria({
+      actividades: [
+        actividadDePrueba({
+          tipoPuntaje: 'OBLIGATORIA',
+          comportamientoAlCierre: 'REQUIERE_CONFIRMACION',
+        }),
+      ],
+    });
+    const { servicio } = crearServicio({ bd, seccionActual: seccionConDosSesiones() });
+
+    await servicio.registrarNoHizo(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'ayer no la hizo',
+    });
+
+    await expect(
+      servicio.completar(tenantTutor(), 'actividad-1', {
+        usuarioId: 'usuario-1',
+        sesionId: SESION_DE_AYER,
+        motivoRetroactivo: 'me arrepentí',
+      })
+    ).rejects.toThrow(ActividadDenegadaPorTutorException);
+  });
+
+  it('estado-hoy de una Sesión pasada devuelve SU estado, no el de hoy', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    await servicio.completar(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'la hizo ayer',
+    });
+
+    const ayer = await servicio.estadoHoyDe(
+      tenantTutor(),
+      'grupo-1',
+      'usuario-1',
+      SESION_DE_AYER
+    );
+    const hoy = await servicio.estadoHoyDe(tenantTutor(), 'grupo-1', 'usuario-1');
+
+    expect(ayer).toMatchObject({
+      sesionId: SESION_DE_AYER,
+      sesionNumero: 1,
+      sesionEstado: 'CERRADA',
+    });
+    expect(ayer.actividades[0]).toMatchObject({ vecesHechas: 1 });
+    // Lo de ayer no contamina hoy: son cupos distintos.
+    expect(hoy).toMatchObject({ sesionId: 'sesion-1', sesionNumero: 2, sesionEstado: 'ABIERTA' });
+    expect(hoy.actividades[0]).toMatchObject({ vecesHechas: 0 });
+  });
+
+  it('deshacer una marca de la Sesión de ayer ahora funciona (revisa la decisión 4 del #12)', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    const registro = await servicio.completar(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'la hizo ayer',
+    });
+    await servicio.eliminarRegistroActividad(tenantTutor(), registro.id, 'me equivoqué');
+
+    await expect(servicio.revertirMarca(tenantTutor(), registro.id)).resolves.toMatchObject({
+      eliminado: false,
+    });
+  });
+
+  it('anular una fila de un día ya cerrado exige motivo', async () => {
+    const { servicio } = crearServicio({
+      bd: bdConOpcional(),
+      seccionActual: seccionConDosSesiones(),
+    });
+
+    const registro = await servicio.completar(tenantTutor(), 'actividad-1', {
+      usuarioId: 'usuario-1',
+      sesionId: SESION_DE_AYER,
+      motivoRetroactivo: 'la hizo ayer',
+    });
+
+    await expect(
+      servicio.eliminarRegistroActividad(tenantTutor(), registro.id)
+    ).rejects.toThrow(MotivoRetroactivoRequeridoException);
+
+    // Con motivo sí: el endurecimiento es sobre el motivo, no sobre la acción.
+    await expect(
+      servicio.eliminarRegistroActividad(tenantTutor(), registro.id, 'me equivoqué de día')
+    ).resolves.toMatchObject({ eliminado: true });
   });
 });

@@ -132,6 +132,9 @@ export function registroActividadADto(registro: RegistroActividad): RegistroActi
     registradoPorTipo: registro.registradoPorTipo as PrincipalType,
     eliminado: registro.eliminado,
     motivoTutor: registro.motivoTutor,
+    // fase-14-33: null = se cargó en su día (todo lo anterior a ese ítem).
+    cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
+    motivoRetroactivo: registro.motivoRetroactivo,
     createdAt: registro.createdAt.toISOString(),
   };
 }
@@ -149,6 +152,9 @@ export function registroConductaADto(registro: RegistroConducta): RegistroConduc
     registradoPorId: registro.registradoPorId,
     registradoPorTipo: registro.registradoPorTipo as PrincipalType,
     eliminado: registro.eliminado,
+    // fase-14-33: ver `registroActividadADto`.
+    cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
+    motivoRetroactivo: registro.motivoRetroactivo,
     createdAt: registro.createdAt.toISOString(),
   };
 }

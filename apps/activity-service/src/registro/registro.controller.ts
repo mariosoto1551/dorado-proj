@@ -23,6 +23,7 @@ import {
   QuitarCompletadaQuery,
   RegistrarConductaRequest,
   RegistrarNoHizoRequest,
+  SesionDeLaSeccionQuery,
 } from './dto/registro.dto';
 
 /** Endpoints de registro de la fase 7 (Parte A), tabla exacta de la spec. */
@@ -70,15 +71,24 @@ export class RegistroController {
     return await this.registro.registrarNoHizo(tenant, actividadId, datos);
   }
 
-  /** Completadas OPCIONALES de un usuario en la sesión abierta (fase-14). */
+  /**
+   * Completadas OPCIONALES de un usuario en la sesión abierta (fase-14).
+   * fase-14-33: `?sesionId=` para mirar otra Sesión de la Sección vigente.
+   */
   @Get('grupos/:grupoId/usuarios/:usuarioId/completadas')
   @Roles(Rol.TUTOR, Rol.ORG_ADMIN)
   async completadasOpcionales(
     @CurrentTenant() tenant: TenantContext,
     @Param('grupoId') grupoId: string,
-    @Param('usuarioId') usuarioId: string
+    @Param('usuarioId') usuarioId: string,
+    @Query() query: SesionDeLaSeccionQuery
   ): Promise<CompletadaOpcionalDto[]> {
-    return await this.registro.listarCompletadasOpcionales(tenant, grupoId, usuarioId);
+    return await this.registro.listarCompletadasOpcionales(
+      tenant,
+      grupoId,
+      usuarioId,
+      query.sesionId
+    );
   }
 
   /**
@@ -94,9 +104,10 @@ export class RegistroController {
   async estadoHoyDeUsuario(
     @CurrentTenant() tenant: TenantContext,
     @Param('grupoId') grupoId: string,
-    @Param('usuarioId') usuarioId: string
+    @Param('usuarioId') usuarioId: string,
+    @Query() query: SesionDeLaSeccionQuery
   ): Promise<MiEstadoHoyDto> {
-    return await this.registro.estadoHoyDe(tenant, grupoId, usuarioId);
+    return await this.registro.estadoHoyDe(tenant, grupoId, usuarioId, query.sesionId);
   }
 
   /** Marcas rojas vivas de un usuario en la sesión abierta (fase-14-12). */
@@ -105,9 +116,10 @@ export class RegistroController {
   async marcasRojas(
     @CurrentTenant() tenant: TenantContext,
     @Param('grupoId') grupoId: string,
-    @Param('usuarioId') usuarioId: string
+    @Param('usuarioId') usuarioId: string,
+    @Query() query: SesionDeLaSeccionQuery
   ): Promise<MarcaRojaDto[]> {
-    return await this.registro.listarMarcasRojas(tenant, grupoId, usuarioId);
+    return await this.registro.listarMarcasRojas(tenant, grupoId, usuarioId, query.sesionId);
   }
 
   /** Quitar (soft-delete) una completada de actividad de un usuario (fase-14). */

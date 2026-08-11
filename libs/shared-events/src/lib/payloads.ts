@@ -37,7 +37,22 @@ export interface UsuarioUnidoPayload {
   invitacionId: string;
 }
 
-export interface ActividadCompletadaPayload {
+/**
+ * fase-14-33: la fila se cargó a una Sesión que no era la abierta (instante
+ * ISO real de la carga). Opcional en los cuatro payloads de registro y **sin
+ * consumidor todavía**: viaja para que audit y los reportes lo tengan sin una
+ * migración de eventos después. Ausente = se registró en su día, que es lo que
+ * trae todo mensaje anterior a este ítem.
+ *
+ * `sesionId`/`seccionId` ya venían apuntando a la Sesión resuelta, así que un
+ * asiento retroactivo cae solo en el lugar correcto — este campo no lo dirige,
+ * lo explica.
+ */
+interface MarcaRetroactiva {
+  cargadoRetroactivamenteEn?: string;
+}
+
+export interface ActividadCompletadaPayload extends MarcaRetroactiva {
   /** id del RegistroActividad en Activity Catalog */
   registroId: string;
   usuarioId: string;
@@ -50,7 +65,7 @@ export interface ActividadCompletadaPayload {
   registradoPorTipo: 'TUTOR' | 'USUARIO';
 }
 
-export interface NoHizoRegistradoPayload {
+export interface NoHizoRegistradoPayload extends MarcaRetroactiva {
   registroId: string;
   usuarioId: string;
   actividadId: string;
@@ -63,7 +78,7 @@ export interface NoHizoRegistradoPayload {
   registradoPorTipo: 'TUTOR' | 'SYSTEM';
 }
 
-export interface ConductaRegistradaPayload {
+export interface ConductaRegistradaPayload extends MarcaRetroactiva {
   registroId: string;
   usuarioId: string;
   conductaId: string;
@@ -126,7 +141,7 @@ export interface ActividadRegistroRevertidoPayload {
  * etiquetado con equipoId. `asignaciones` ya trae el signo/valor resuelto
  * (base + bono del jefe) para que scoring no recalcule.
  */
-export interface TareaEquipoCompletadaPayload {
+export interface TareaEquipoCompletadaPayload extends MarcaRetroactiva {
   /** id del RegistroTareaEquipo en Activity Catalog. */
   registroTareaEquipoId: string;
   actividadId: string;

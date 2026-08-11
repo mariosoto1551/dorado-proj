@@ -12,7 +12,7 @@ import type {
 import {
   LimiteRepeticionesAlcanzadoException,
   MarcaNoReversibleException,
-  NoHaySesionAbiertaException,
+  SesionNoEditableException,
 } from '../comun/excepciones';
 import {
   actividadDePrueba,
@@ -235,15 +235,17 @@ describe('TareasEquipoService — anular una tarea de equipo (fase-14-13)', () =
     expect(bd.registrosTareaEquipo[0].eliminado).toBe(false);
   });
 
-  it('una completada de otra Sesión ya no se toca → 409 NO_HAY_SESION_ABIERTA', async () => {
+  // fase-14-33: una completada de otra Sesión de la MISMA Sección sí se toca —
+  // el borde ahora es la Sección (misma corrección que en el #12 y el #18).
+  it('una completada de otra Sección ya no se toca → 409 SESION_NO_EDITABLE', async () => {
     const { servicio, bd } = crearServicio();
 
     const hecha = await servicio.completar(tenantJefe(), 'equipo-1', 'tarea-1');
-    bd.registrosTareaEquipo[0].sesionId = 'sesion-de-ayer';
+    bd.registrosTareaEquipo[0].sesionId = 'sesion-de-otra-seccion';
 
     await expect(
       servicio.anular(tenantTutor(), hecha.registroTareaEquipoId)
-    ).rejects.toThrow(NoHaySesionAbiertaException);
+    ).rejects.toThrow(SesionNoEditableException);
   });
 });
 

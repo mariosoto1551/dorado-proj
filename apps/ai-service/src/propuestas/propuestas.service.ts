@@ -2488,19 +2488,56 @@ export class PropuestasService {
       return { ok: false, error: 'Mandá al menos una fila en "anotaciones".' };
     }
 
+    // fase-14-33: a qué día apunta TODA la propuesta (uno solo, ver la nota del
+    // catálogo). Sin él, hoy — el comportamiento del #31.
+    const sesionIdPedido =
+      typeof argumentos['sesionId'] === 'string' ? argumentos['sesionId'] : undefined;
+    const motivoRetroactivo =
+      typeof argumentos['motivoRetroactivo'] === 'string' &&
+      argumentos['motivoRetroactivo'].trim() !== ''
+        ? argumentos['motivoRetroactivo'].trim()
+        : undefined;
+
     const [estado, conductas] = await Promise.all([
-      this.activity.estadoDeHoy(contexto.grupoId),
+      // La lista se lee de la MISMA Sesión a la que va a caer la escritura: leer
+      // la de hoy y escribir en el lunes fue el primer bug de este ítem.
+      this.activity.estadoDeHoy(contexto.grupoId, sesionIdPedido),
       this.activity.conductas(contexto.grupoId, 'ACTIVA'),
     ]);
 
     if (!estado.sesionAbierta) {
       return {
         ok: false,
-        error:
-          'no hay ninguna sesión abierta en este grupo, así que hoy no se puede anotar nada. ' +
-          'Decíselo al Tutor: primero abre la sesión del día desde la app.',
+        error: sesionIdPedido
+          ? 'esa sesión no es de la sección vigente del grupo, así que no se puede escribir en ' +
+            'ella. Llamá a listar_sesiones_de_la_seccion y usá un id de ahí; lo de secciones ' +
+            'anteriores está cerrado y no se puede corregir.'
+          : 'no hay ninguna sesión abierta en este grupo, así que hoy no se puede anotar nada. ' +
+            'Decíselo al Tutor: primero abre la sesión del día desde la app.',
       };
     }
+
+    // El destino rechaza la carga sin motivo (400), así que la propuesta ni se
+    // guarda: es preferible que el modelo lo arregle ahora, con el Tutor
+    // mirando, a que la tarjeta se aplique a medias.
+    const esRetroactiva = estado.esSesionAbierta === false;
+
+    if (esRetroactiva && !motivoRetroactivo) {
+      return {
+        ok: false,
+        error:
+          `estás anotando en la sesión ${estado.sesionNumero ?? ''}, que ya cerró, y eso exige ` +
+          'un `motivoRetroactivo`. Escribí en una línea por qué se está cargando esto ahora y ' +
+          'volvé a proponerlo.',
+      };
+    }
+
+    /** Los dos campos que van en TODA operación de esta propuesta. */
+    const enSesion = esRetroactiva
+      ? { sesionId: estado.sesionId, motivoRetroactivo }
+      : {};
+    /** Sufijo de la etiqueta, para que el Tutor vea a qué día apunta cada fila. */
+    const sufijoDia = esRetroactiva ? ` [sesión ${estado.sesionNumero ?? '?'}, ya cerrada]` : '';
 
     const porParticipante = new Map(
       estado.participantes.map((participante) => [participante.usuarioId, participante])
@@ -2552,7 +2589,10 @@ export class PropuestasService {
           };
         }
 
-        const parseado = esquemaRegistrarConducta.safeParse({ usuarioId: persona.usuarioId });
+        const parseado = esquemaRegistrarConducta.safeParse({
+          usuarioId: persona.usuarioId,
+          ...enSesion,
+        });
 
         if (!parseado.success) {
           return { ok: false, error: this.errorDeFila('anotaciones', indice, parseado.error) };
@@ -2569,7 +2609,8 @@ export class PropuestasService {
             `${persona.nombre}: registrarle «${conducta.nombre}» — ` +
             (conducta.tipo === 'MALA'
               ? `le resta ${conducta.valorPuntos} puntos`
-              : `le suma ${conducta.valorPuntos} puntos`),
+              : `le suma ${conducta.valorPuntos} puntos`) +
+            sufijoDia,
         });
         snapshot.push({ participanteId: persona.usuarioId, tipo, id });
         continue;
@@ -2598,7 +2639,11 @@ export class PropuestasService {
           };
         }
 
-        const parseado = esquemaNoHizo.safeParse({ usuarioId: persona.usuarioId, motivo });
+        const parseado = esquemaNoHizo.safeParse({
+          usuarioId: persona.usuarioId,
+          motivo,
+          ...enSesion,
+        });
 
         if (!parseado.success) {
           return { ok: false, error: this.errorDeFila('anotaciones', indice, parseado.error) };
@@ -2611,7 +2656,8 @@ export class PropuestasService {
           body: parseado.data,
           etiqueta:
             `${persona.nombre}: marcar «${actividad.nombre}» como NO hecha — ` +
-            `le resta ${actividad.valorPuntos} puntos`,
+            `le resta ${actividad.valorPuntos} puntos` +
+            sufijoDia,
         });
         snapshot.push({ participanteId: persona.usuarioId, tipo, id });
         continue;
@@ -2645,7 +2691,10 @@ export class PropuestasService {
         };
       }
 
-      const parseado = esquemaCompletar.safeParse({ usuarioId: persona.usuarioId });
+      const parseado = esquemaCompletar.safeParse({
+        usuarioId: persona.usuarioId,
+        ...enSesion,
+      });
 
       if (!parseado.success) {
         return { ok: false, error: this.errorDeFila('anotaciones', indice, parseado.error) };
@@ -2659,7 +2708,8 @@ export class PropuestasService {
         body: parseado.data,
         etiqueta:
           `${persona.nombre}: marcar «${actividad.nombre}» como hecha — ` +
-          `le suma ${actividad.valorPuntos} puntos`,
+          `le suma ${actividad.valorPuntos} puntos` +
+          sufijoDia,
       });
       snapshot.push({ participanteId: persona.usuarioId, tipo, id });
     }

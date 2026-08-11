@@ -156,6 +156,14 @@ export interface RegistroActividadDto {
   eliminado: boolean;
   /** fase-14-12: nota corta del tutor al marcar en rojo; la ve el integrante. */
   motivoTutor: string | null;
+  /**
+   * fase-14-33: instante real de la carga cuando la fila se escribió en una
+   * Sesión que **no** era la abierta. `null` significa «se cargó en su día» —
+   * que es el caso de todo lo anterior a ese ítem y de todo lo del día.
+   */
+  cargadoRetroactivamenteEn: string | null;
+  /** fase-14-33: por qué se cargó fuera de su día. Obligatorio si el anterior no es null. */
+  motivoRetroactivo: string | null;
   createdAt: string;
 }
 
@@ -171,6 +179,9 @@ export interface RegistroConductaDto {
   registradoPorId: string;
   registradoPorTipo: PrincipalType;
   eliminado: boolean;
+  /** fase-14-33: ver `RegistroActividadDto.cargadoRetroactivamenteEn`. */
+  cargadoRetroactivamenteEn: string | null;
+  motivoRetroactivo: string | null;
   createdAt: string;
 }
 
@@ -272,8 +283,21 @@ export interface MiEstadoActividadHoyDto {
  * ─────────────────────────────────────────────────────────────────────────────
  */
 export interface EstadoDeHoyInternoDto {
-  /** `false` = no hay Sesión ABIERTA: hoy no se puede anotar nada. */
+  /**
+   * `false` = no se puede anotar nada.
+   *
+   * fase-14-33: dejó de significar «hay Sesión ABIERTA» para significar «la
+   * Sección vigente admite escritura», que es lo que el modelo necesita saber.
+   * El nombre se mantiene porque cambiarlo rompería la propuesta armada por una
+   * versión anterior en vuelo, y lo que responde es lo mismo: ¿tiene sentido
+   * que arme algo?
+   */
   sesionAbierta: boolean;
+  /** fase-14-33: a qué Sesión corresponde lo leído. `undefined` si no hay. */
+  sesionId?: string;
+  sesionNumero?: number;
+  /** fase-14-33: `false` = es una Sesión ya cerrada de la Sección vigente. */
+  esSesionAbierta?: boolean;
   participantes: ParticipanteDeHoyInternoDto[];
 }
 
@@ -316,6 +340,14 @@ export interface MiEstadoHoyDto {
   sesionId: string | null;
   /** fase-14-17: el Grupo tiene el plan del día encendido. */
   planDelDiaActivo: boolean;
+  /**
+   * fase-14-33: qué Sesión se está mirando. Para el integrante es siempre la
+   * abierta; para el Tutor puede ser una pasada de la Sección vigente, y la
+   * pantalla necesita saberlo sin cruzarlo con otra llamada. `null` cuando
+   * `sesionId` es null.
+   */
+  sesionEstado: 'ABIERTA' | 'CERRADA' | null;
+  sesionNumero: number | null;
   actividades: MiEstadoActividadHoyDto[];
 }
 
@@ -352,17 +384,49 @@ export interface AgregarAlPlanDelDiaRequest {
 export interface CompletarActividadRequest {
   /** Solo aplica cuando registra un TUTOR/ORG_ADMIN; un USUARIO se marca a sí mismo. */
   usuarioId?: string;
+  /** fase-14-33. Ver `EscrituraEnSesionRequest`. */
+  sesionId?: string;
+  motivoRetroactivo?: string;
 }
 
 export interface RegistrarNoHizoRequest {
   usuarioId: string;
   /** Nota que el integrante lee en su pantalla (fase-14-12). Máximo 200. */
   motivo?: string;
+  /** fase-14-33. Ver `EscrituraEnSesionRequest`. */
+  sesionId?: string;
+  motivoRetroactivo?: string;
 }
 
 export interface RegistrarConductaRequest {
   /** Obligatorio si lo registra un TUTOR/ORG_ADMIN; ignorado si es autoreporte. */
   usuarioId?: string;
+  /** fase-14-33. Ver `EscrituraEnSesionRequest`. */
+  sesionId?: string;
+  motivoRetroactivo?: string;
+}
+
+/**
+ * Los dos campos que fase-14-33 le agrega a **toda** escritura del Tutor.
+ *
+ * No es una interfaz de la que hereden los requests —los tres de arriba los
+ * declaran a mano— sino la documentación de un par que aparece repetido a
+ * propósito: `extends` acá haría que agregar un campo a este par se lo agregue
+ * en silencio a endpoints que quizás no lo aceptan, y este proyecto prefiere
+ * que ampliar un contrato sea una decisión visible endpoint por endpoint.
+ *
+ * - `sesionId`: en qué Sesión de la **Sección vigente** cae la escritura. Sin
+ *   él, la Sesión abierta — el comportamiento de siempre, byte por byte. Lo
+ *   manda un `TUTOR`/`ORG_ADMIN`; a un `USUARIO` se le **ignora** (decisión 11),
+ *   igual que `usuarioId`.
+ * - `motivoRetroactivo`: **obligatorio** cuando `sesionId` apunta a una Sesión
+ *   que no es la abierta (400 `MOTIVO_RETROACTIVO_REQUERIDO` si falta). Máximo
+ *   200, igual que `motivoTutor`. A diferencia de aquel, no describe la marca:
+ *   describe por qué la fila aparece en un día que ya había terminado.
+ */
+export interface EscrituraEnSesionRequest {
+  sesionId?: string;
+  motivoRetroactivo?: string;
 }
 
 /** Una completada individual de un usuario, para que el tutor la pueda quitar. */
@@ -411,6 +475,9 @@ export interface MarcaRojaDto {
   motivoTutor: string | null;
   /** Cuándo la aplicó el tutor (para REPETICION_QUITADA, cuándo la quitó). */
   marcadaEn: string;
+  /** fase-14-33: la marca se cargó a una Sesión que ya había cerrado. */
+  cargadoRetroactivamenteEn: string | null;
+  motivoRetroactivo: string | null;
 }
 
 // --- Tareas de equipo y reportes del jefe (fase-14-09) ---
@@ -446,6 +513,9 @@ export interface RegistroTareaEquipoDto {
   eliminado: boolean;
   motivoTutor: string | null;
   completadaEn: string;
+  /** fase-14-33: la tarea se cargó a una Sesión que ya había cerrado. */
+  cargadoRetroactivamenteEn: string | null;
+  motivoRetroactivo: string | null;
 }
 
 /**
@@ -670,6 +740,13 @@ export interface EventoHistorialDto {
   motivoTutor: string | null;
   revertidoEn: string | null;
   revertidoPorNombre: string | null;
+  /**
+   * fase-14-33: la fila se cargó a una Sesión que ya había cerrado. La UI lo
+   * muestra con el chip «Cargado después»; `null` es todo lo que se registró
+   * en su propio día.
+   */
+  cargadoRetroactivamenteEn: string | null;
+  motivoRetroactivo: string | null;
   notas: NotaRegistroDto[];
 }
 
@@ -677,13 +754,44 @@ export interface EventoHistorialDto {
 export interface HistorialSesionDto {
   /** null si el grupo no tiene Sección vigente. */
   sesionId: string | null;
-  /** ABIERTA habilita las acciones; CERRADA es solo lectura (spec, decisión 14). */
+  /**
+   * fase-14-18: `ABIERTA` habilitaba las acciones y `CERRADA` era solo lectura.
+   * fase-14-33: **el estado ya no decide eso** — cualquier Sesión de la Sección
+   * vigente se puede editar, y quien decide es `seccionEditable`. El campo se
+   * mantiene porque la pantalla sí lo usa para decir qué está mirando.
+   */
   sesionEstado: EstadoSesion | null;
+  /** fase-14-33: número de la Sesión dentro de la Sección (1..n). */
+  sesionNumero: number | null;
+  /**
+   * fase-14-33: la Sección vigente admite escritura (no está `CERRADA`). Es lo
+   * que habilita o apaga los botones del historial, para que el frontend no
+   * tenga que reimplementar la regla 6 mirando dos estados.
+   */
+  seccionEditable: boolean;
   /** IANA, del Grupo: con esto el frontend formatea las horas (decisión 15). */
   timezoneGrupo: string;
   eventos: EventoHistorialDto[];
   /** null cuando no hay más páginas. */
   cursorSiguiente: string | null;
+}
+
+/**
+ * fase-14-33: una Sesión de la Sección vigente, para el selector del panel
+ * operativo y para que el asistente pueda resolver «el lunes» a un uuid sin
+ * adivinarlo (`listar_sesiones_de_la_seccion`).
+ *
+ * Es un subconjunto de `SesionDto` a propósito: lo que necesita quien elige
+ * dónde escribir, no la fila entera de session-service.
+ */
+export interface SesionDeLaSeccionDto {
+  id: string;
+  numero: number;
+  estado: EstadoSesion;
+  fechaInicio: string;
+  fechaFin: string | null;
+  /** true = es la Sesión donde caen las escrituras sin `sesionId`. */
+  esLaAbierta: boolean;
 }
 
 // --- Turnos rotativos (fase-14-21) ---

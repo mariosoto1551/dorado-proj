@@ -53,6 +53,12 @@ model EventoPuntos {
   // no null solo cuando el asiento viene de una tarea de equipo (fase-14-09);
   // permite derivar el puntaje del equipo sumando por equipoId.
   equipoId         String?
+  // fase-14-33: el asiento se escribió en una Sesión que ya había cerrado.
+  // NO cambia cómo suma —el puntaje se deriva al leer sobre TODOS los asientos
+  // de la Sección, con marca o sin ella (regla 1)—: es trazabilidad. Si algún
+  // día aparece un `where` que filtre por esta columna al sumar puntos, ese es
+  // el bug, no esta columna.
+  cargadoRetroactivamenteEn DateTime?
   createdAt        DateTime @default(now())
   // SIN updatedAt: este modelo nunca se edita, solo se agregan filas nuevas.
 

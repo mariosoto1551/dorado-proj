@@ -51,10 +51,14 @@ export class EstadoDeHoyInternoService {
     private readonly identity: IdentityClientService
   ) {}
 
-  async delGrupo(grupoId: string): Promise<EstadoDeHoyInternoDto> {
+  async delGrupo(grupoId: string, sesionIdPedido?: string): Promise<EstadoDeHoyInternoDto> {
     const seccion = await this.session.obtenerSeccionActual(grupoId);
-    const sesionAbierta =
-      seccion?.estado === EstadoSeccion.ABIERTA
+    // fase-14-33: con `sesionIdPedido` se mira otra Sesión de la Sección
+    // vigente. Un id que no es de esa Sección cae en `undefined` y devuelve el
+    // «no se puede» de siempre — la lectura no es el lugar del 409.
+    const sesionAbierta = sesionIdPedido
+      ? seccion?.sesiones.find((sesion) => sesion.id === sesionIdPedido)
+      : seccion?.estado === EstadoSeccion.ABIERTA
         ? seccion.sesiones.find((sesion) => sesion.estado === EstadoSesion.ABIERTA)
         : undefined;
 
@@ -62,6 +66,15 @@ export class EstadoDeHoyInternoService {
     // del valor de la lectura: el modelo tiene que poder contestar «hoy no se
     // puede» en vez de armar una propuesta que muere al aplicar.
     if (!sesionAbierta) {
+      return { sesionAbierta: false, participantes: [] };
+    }
+
+    // fase-14-33: `sesionAbierta: true` sigue significando «se puede anotar»,
+    // no «es hoy» — lo que decide es que la Sección admita escritura. La Sesión
+    // concreta viaja aparte para que el modelo pueda nombrarla en la propuesta.
+    const seccionEditable = seccion !== null && seccion.estado !== EstadoSeccion.CERRADA;
+
+    if (!seccionEditable) {
       return { sesionAbierta: false, participantes: [] };
     }
 
@@ -120,7 +133,7 @@ export class EstadoDeHoyInternoService {
     const participantes: ParticipanteDeHoyInternoDto[] = [];
 
     for (const usuario of usuarios) {
-      const estado = await this.registro.estadoHoyInterno(grupoId, usuario.id);
+      const estado = await this.registro.estadoHoyInterno(grupoId, usuario.id, sesionAbierta.id);
 
       participantes.push({
         usuarioId: usuario.id,
@@ -144,7 +157,16 @@ export class EstadoDeHoyInternoService {
       });
     }
 
-    return { sesionAbierta: true, participantes };
+    return {
+      sesionAbierta: true,
+      // fase-14-33: a qué Sesión corresponde lo que se está leyendo. Sin esto,
+      // una propuesta sobre el lunes sería indistinguible de una sobre hoy —
+      // exactamente el dato que el Tutor necesita para revisarla.
+      sesionId: sesionAbierta.id,
+      sesionNumero: sesionAbierta.numero,
+      esSesionAbierta: sesionAbierta.estado === EstadoSesion.ABIERTA,
+      participantes,
+    };
   }
 
   /**

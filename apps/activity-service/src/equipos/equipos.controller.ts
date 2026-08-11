@@ -17,6 +17,7 @@ import {
 
 import {
   AnularTareaEquipoQuery,
+  CompletarTareaEquipoRequest,
   CrearReporteMiembroRequest,
   ListarReportesQuery,
   RechazarReporteRequest,
@@ -39,9 +40,12 @@ export class EquiposController {
   async completarTarea(
     @CurrentTenant() tenant: TenantContext,
     @Param('equipoId') equipoId: string,
-    @Param('actividadId') actividadId: string
+    @Param('actividadId') actividadId: string,
+    // fase-14-33: el cuerpo es nuevo y opcional entero — el jefe del equipo
+    // sigue llamando a este endpoint sin mandar nada.
+    @Body() datos: CompletarTareaEquipoRequest = {}
   ): Promise<CompletarTareaEquipoResponse> {
-    return await this.tareas.completar(tenant, equipoId, actividadId);
+    return await this.tareas.completar(tenant, equipoId, actividadId, datos);
   }
 
   /** Estado de las tareas del equipo en la sesión abierta (fase-14-13). */

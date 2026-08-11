@@ -133,10 +133,18 @@ export class HerramientasService {
       // #30: la regla es que la respuesta se arme campo por campo, y armarla
       // del otro lado del cable la cumple igual.
       case 'estado_de_hoy':
-        return { ok: true, datos: await this.activity.estadoDeHoy(grupoId) };
+        return {
+          ok: true,
+          // fase-14-33: el día que se quiere mirar, si el tutor nombró uno.
+          datos: await this.activity.estadoDeHoy(grupoId, this.sesionId(argumentos)),
+        };
 
       case 'listar_billeteras':
         return { ok: true, datos: await this.rewards.billeteras(grupoId) };
+
+      // fase-14-33: pass-through — el interno ya devuelve el shape final.
+      case 'listar_sesiones_de_la_seccion':
+        return { ok: true, datos: await this.activity.sesionesDeLaSeccion(grupoId) };
 
       // Inalcanzable con el catálogo actual (el nombre ya se validó arriba),
       // pero es la rama que se va a ejecutar el día que alguien agregue una
@@ -488,5 +496,19 @@ export class HerramientasService {
     }
 
     return Math.min(Math.max(Math.trunc(numero), DIAS_CUMPLIMIENTO_MIN), DIAS_CUMPLIMIENTO_MAX);
+  }
+
+  /**
+   * `sesionId` del modelo (fase-14-33), o `undefined`.
+   *
+   * No se valida que sea un uuid real: el que decide si esa Sesión existe y es
+   * de la Sección vigente es activity-service, que es el único que puede
+   * saberlo. Acá solo se descarta lo que ni siquiera es un string — un modelo
+   * que manda `null` o un número quiso decir «hoy».
+   */
+  private sesionId(argumentos: Record<string, unknown>): string | undefined {
+    const valor = argumentos['sesionId'];
+
+    return typeof valor === 'string' && valor.trim() !== '' ? valor : undefined;
   }
 }

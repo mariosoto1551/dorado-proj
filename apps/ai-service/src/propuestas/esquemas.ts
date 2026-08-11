@@ -373,6 +373,9 @@ const ajustePuntos = z
   .object({
     puntos: z.number().int().refine(distintoDeCero, 'puntos no puede ser 0'),
     motivo: motivoDelAjuste,
+    // fase-14-33: en qué Sesión de la Sección vigente cae el asiento. Sin
+    // `motivoRetroactivo` porque `motivo` ya es obligatorio en todo ajuste.
+    sesionId: uuid.optional(),
   })
   .strict();
 
@@ -398,13 +401,38 @@ const ajusteMonedas = z
  * no: nunca hay autoreporte de por medio, porque quien habla con el asistente
  * es un Tutor (decisión 3 del #29).
  */
-const completarActividad = z.object({ usuarioId: uuid.optional() }).strict();
+/**
+ * fase-14-33: los dos campos que hacen proponible «anotá que el LUNES sí lo
+ * hizo». Van en las tres porque las tres pueden apuntar a una Sesión pasada de
+ * la Sección vigente.
+ *
+ * `motivoRetroactivo` es opcional acá y **obligatorio en el destino cuando la
+ * Sesión no es la abierta**. La validación no se duplica a propósito: quien
+ * sabe si esa Sesión ya cerró es el servidor que resuelve la Sección vigente,
+ * no el esquema que valida lo que dijo el modelo. Si falta, la propuesta no se
+ * aplica y el Tutor ve el 400 — que es el comportamiento correcto: una carga
+ * retroactiva sin explicación no debe entrar ni siquiera propuesta por la IA.
+ */
+const escrituraEnSesion = {
+  sesionId: uuid.optional(),
+  motivoRetroactivo: z.string().trim().min(1).max(200).optional(),
+};
 
-const registrarNoHizo = z
-  .object({ usuarioId: uuid, motivo: z.string().trim().min(1).max(200).optional() })
+const completarActividad = z
+  .object({ usuarioId: uuid.optional(), ...escrituraEnSesion })
   .strict();
 
-const registrarConducta = z.object({ usuarioId: uuid.optional() }).strict();
+const registrarNoHizo = z
+  .object({
+    usuarioId: uuid,
+    motivo: z.string().trim().min(1).max(200).optional(),
+    ...escrituraEnSesion,
+  })
+  .strict();
+
+const registrarConducta = z
+  .object({ usuarioId: uuid.optional(), ...escrituraEnSesion })
+  .strict();
 
 const rendimientos = z
   .object({

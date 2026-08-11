@@ -10,11 +10,15 @@ import {
   ConfiguracionActividadInternaDto,
   CumplimientoActividadDto,
   EstadoDeHoyInternoDto,
+  EstadoSeccion,
+  EstadoSesion,
   ResumenCumplimientoDto,
+  SesionDeLaSeccionDto,
   TipoPuntaje,
   TurnoActividadInternoDto,
 } from '@dorado/shared-types';
 
+import { SessionClientService } from '../clientes/session-client.service';
 import { actividadADto, conductaADto } from '../comun/mapeadores';
 import { ConfiguracionContenidoService } from '../contenido-usuario/configuracion-contenido.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,7 +49,8 @@ export class InternalController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionContenidoService,
-    private readonly estadoDeHoyInterno: EstadoDeHoyInternoService
+    private readonly estadoDeHoyInterno: EstadoDeHoyInternoService,
+    private readonly session: SessionClientService
   ) {}
 
   @Get('actividades/:id')
@@ -245,8 +250,50 @@ export class InternalController {
    * modelo solo puede inventar.
    */
   @Get('grupos/:grupoId/estado-de-hoy')
-  async estadoDeHoy(@Param('grupoId') grupoId: string): Promise<EstadoDeHoyInternoDto> {
-    return await this.estadoDeHoyInterno.delGrupo(grupoId);
+  async estadoDeHoy(
+    @Param('grupoId') grupoId: string,
+    // fase-14-33: qué Sesión de la Sección vigente mirar. Sin él, la abierta.
+    @Query('sesionId') sesionId?: string
+  ): Promise<EstadoDeHoyInternoDto> {
+    return await this.estadoDeHoyInterno.delGrupo(grupoId, sesionId);
+  }
+
+  /**
+   * fase-14-33 (herramienta `listar_sesiones_de_la_seccion`): las Sesiones de
+   * la Sección vigente, con cuál es la abierta.
+   *
+   * **Es un pass-through de session-service, y eso es a propósito.** La
+   * alternativa era darle a `ai-service` un cliente interno propio hacia
+   * session, y eso arrastra una variable de entorno nueva por entorno, por
+   * compose y por deploy para una sola lectura. `activity-service` ya tiene ese
+   * cliente y ya es el servicio al que el asistente le pregunta por el día;
+   * agregarle la ruta cuesta seis líneas y ningún archivo de configuración.
+   *
+   * Lo que **no** hace: consultar la base de session (regla 2). Es una llamada
+   * REST interna, igual que la que ya hacía para resolver la Sesión abierta.
+   */
+  @Get('grupos/:grupoId/sesiones')
+  async sesionesDeLaSeccion(
+    @Param('grupoId') grupoId: string
+  ): Promise<SesionDeLaSeccionDto[]> {
+    const seccion = await this.session.obtenerSeccionActual(grupoId);
+
+    if (!seccion) {
+      return [];
+    }
+
+    const editable = seccion.estado !== EstadoSeccion.CERRADA;
+
+    return [...seccion.sesiones]
+      .sort((a, b) => a.numero - b.numero)
+      .map((sesion) => ({
+        id: sesion.id,
+        numero: sesion.numero,
+        estado: sesion.estado,
+        fechaInicio: sesion.fechaInicio,
+        fechaFin: sesion.fechaFin,
+        esLaAbierta: editable && sesion.estado === EstadoSesion.ABIERTA,
+      }));
   }
 
   @Get('grupos/:grupoId/resumen-cumplimiento')

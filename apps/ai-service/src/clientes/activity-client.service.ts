@@ -7,6 +7,7 @@ import {
   ConfiguracionActividadInternaDto,
   EstadoDeHoyInternoDto,
   ResumenCumplimientoDto,
+  SesionDeLaSeccionDto,
   TurnoActividadInternoDto,
 } from '@dorado/shared-types';
 
@@ -80,11 +81,30 @@ export class ActivityClientService extends ClienteInternoBase {
    * hace que la propuesta no se arme. Al revés, la IA propondría marcar contra
    * una sesión que no sabe si existe.
    */
-  async estadoDeHoy(grupoId: string): Promise<EstadoDeHoyInternoDto> {
+  async estadoDeHoy(grupoId: string, sesionId?: string): Promise<EstadoDeHoyInternoDto> {
+    // fase-14-33: `sesionId` viene del modelo, así que se encodea — el interno
+    // igual valida que sea una Sesión de la Sección vigente.
+    const sufijo = sesionId ? `?sesionId=${encodeURIComponent(sesionId)}` : '';
+
     return (
       (await this.get<EstadoDeHoyInternoDto>(
-        `/internal/activity/grupos/${grupoId}/estado-de-hoy`
+        `/internal/activity/grupos/${grupoId}/estado-de-hoy${sufijo}`
       )) ?? { sesionAbierta: false, participantes: [] }
+    );
+  }
+
+  /**
+   * Los días de la Sección vigente (fase-14-33), para que el modelo pueda
+   * resolver «el lunes» a un id en vez de inventarlo.
+   *
+   * Lista vacía si no se pudo leer: sin sesiones el modelo no propone nada
+   * sobre otro día, que es el default seguro — igual criterio que `estadoDeHoy`.
+   */
+  async sesionesDeLaSeccion(grupoId: string): Promise<SesionDeLaSeccionDto[]> {
+    return (
+      (await this.get<SesionDeLaSeccionDto[]>(
+        `/internal/activity/grupos/${grupoId}/sesiones`
+      )) ?? []
     );
   }
 }
