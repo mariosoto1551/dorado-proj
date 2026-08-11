@@ -8,6 +8,38 @@
 :80 {
 	root * /srv
 	encode zstd gzip
+
+	# Cabeceras de seguridad. Las mismas que pone el Gateway para la API
+	# (ver apps/gateway/src/proxy/cabeceras-seguridad.middleware.ts), menos la
+	# CSP — ver la nota de abajo.
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		# El dictado por voz del asistente (fase-14-32) usa el micrófono desde
+		# la propia página: `microphone=(self)` lo habilita y le cierra la
+		# puerta a cualquier iframe. El resto va negado.
+		Permissions-Policy "microphone=(self), camera=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+
+	# NO hay Content-Security-Policy acá, y es una decisión, no un olvido. Dos
+	# cosas la bloquean hoy, las dos verificadas contra el bundle compilado:
+	#
+	#   1. El build de Angular inlinea la CSS crítica y agrega un `onload=` en
+	#      el <link> de estilos. Una CSP estricta lo mata; permitirlo pide
+	#      `script-src 'unsafe-inline'`, que es casi toda la protección que la
+	#      CSP venía a dar. La salida limpia es apagar `inlineCritical`.
+	#   2. `connect-src` tendría que listar el origen del Gateway, y en casa
+	#      ese origen NO se conoce al compilar: la app lo DERIVA de
+	#      `window.location` (environment.ts), que es justamente lo que hace
+	#      que la misma imagen sirva para cualquier IP de la red.
+	#
+	# O sea que una CSP acá pide apagar inlineCritical y templatear este
+	# archivo por despliegue. Se hace cuando haya un dominio fijo y una
+	# verificación en navegador; mandarla a ciegas rompe la app en silencio,
+	# que es peor que no tenerla.
+
 	try_files {path} /index.html
 	file_server
 }

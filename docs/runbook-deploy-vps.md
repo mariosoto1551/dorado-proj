@@ -125,7 +125,7 @@ docker compose -f infra/docker/docker-compose.prod.yml ps   # todos "healthy"/"r
 
 ## 7. Frontends en Vercel
 
-Dos proyectos, ambos con **Root Directory = raíz del repo**:
+**Tres** proyectos, todos con **Root Directory = raíz del repo**:
 - **app-web** (`apps/app-web/vercel.json`): antes de deployar, editá
   `apps/app-web/src/environments/environment.prod.ts` →
   `apiBaseUrl: 'https://api.tudominio.com/api'` y commiteás/pusheás. En Vercel,
@@ -133,8 +133,20 @@ Dos proyectos, ambos con **Root Directory = raíz del repo**:
 - **public-site** (`apps/public-site/vercel.json`): env de build
   `PUBLIC_GATEWAY_URL=https://api.tudominio.com`,
   `PUBLIC_APP_WEB_URL=https://app.tudominio.com`, `SITE_URL=https://tudominio.com`.
+- **admin-web** (`apps/admin-web/vercel.json`) — el panel de `PLATFORM_ADMIN`.
+  Mismo procedimiento que app-web pero con
+  `apps/admin-web/src/environments/environment.prod.ts`, y dominio
+  `admin.tudominio.com`. Es la única forma de cambiarle el plan a una
+  organización o de suspenderla: sin esto desplegado, esas dos operaciones
+  quedan sin interfaz.
 
-Apuntá los DNS `app.` y `www.` a Vercel (te da los valores al asignar el dominio).
+  > Acordate de poner `ADMIN_WEB_URL=https://admin.tudominio.com` en
+  > `.env.prod` (paso 8): sin eso el Gateway no incluye ese origen en la lista
+  > de CORS y el panel carga pero muere en el preflight de cada llamada — que
+  > se ve como un problema de login y no lo es.
+
+Apuntá los DNS `app.`, `admin.` y `www.` a Vercel (te da los valores al asignar
+cada dominio).
 
 ## 8. Cerrar CORS
 
@@ -142,6 +154,7 @@ En el VPS, editá `infra/docker/.env.prod`:
 ```
 APP_WEB_URL=https://app.tudominio.com
 PUBLIC_SITE_URL=https://tudominio.com
+ADMIN_WEB_URL=https://admin.tudominio.com   # solo si desplegaste el panel
 ```
 Recreá solo el gateway:
 ```bash
@@ -163,9 +176,42 @@ docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.
 docker compose -f infra/docker/docker-compose.prod.yml logs -f scoring-service
 # actualizar tras un git pull
 git pull && docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod up -d --build
-# backup de Postgres (recomendado semanal)
-docker compose -f infra/docker/docker-compose.prod.yml exec postgres \
-  pg_dumpall -U dorado > backup-$(date +%F).sql
+```
+
+### Backups
+
+El servicio `backup` del compose los corre **solo, todos los días a las 03:00
+UTC** (`scripts/backup-postgres.sh`): un `.sql.gz` por base, verificado apenas
+se escribe, con retención de 14 días. No hay nada que configurar ni ningún cron
+que agregar al host.
+
+```bash
+COMPOSE="-f infra/docker/docker-compose.prod.yml --env-file infra/docker/.env.prod"
+
+# ver qué backups hay
+docker compose $COMPOSE exec backup ls -1 /backups
+# forzar uno ahora (sin esperar a las 03:00)
+docker compose $COMPOSE exec backup /usr/local/bin/backup-postgres.sh
+```
+
+Una carpeta que termina en **`_INCOMPLETO`** es un backup al que le faltó al
+menos una base: la retención no las borra nunca, justamente para que se vean.
+
+**Sacar los dumps de la máquina** (esto sigue siendo manual, y es lo que
+convierte el backup en algo útil: un dump en el mismo disco que la base no te
+salva de perder el disco):
+
+```bash
+# desde tu PC, bajar el último backup
+docker compose $COMPOSE exec backup tar -cz -C /backups . > dorado-backups-$(date +%F).tar.gz
+```
+
+**Restaurar** (destructivo — dropea y recrea la base):
+
+```bash
+docker compose $COMPOSE exec backup \
+  /usr/local/bin/restore-postgres.sh /backups/2026-08-10_0300 scoring_db
+# sin el nombre de la base, restaura las 9
 ```
 
 - **RabbitMQ Management** (UI en :15672) no se expone a internet. Para verlo,

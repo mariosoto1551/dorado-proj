@@ -5,5 +5,24 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "outputDirectory": "dist/apps/admin-web/browser",
   "framework": null,
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "//headers": "Ver apps/app-web/vercel.json. El panel de plataforma no usa micrófono, así que acá también va negado.",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        {
+          "key": "Permissions-Policy",
+          "value": "microphone=(), camera=(), geolocation=(), payment=(), usb=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=15552000; includeSubDomains"
+        }
+      ]
+    }
+  ]
 }

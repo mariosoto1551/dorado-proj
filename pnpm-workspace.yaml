@@ -1,3 +1,16 @@
+# Overrides de seguridad sobre dependencias transitivas. Cada entrada dice
+# por qué existe y qué la haría innecesaria: cuando el paquete padre suba su
+# rango por su cuenta, la línea se borra (un override que ya no hace nada es
+# deuda silenciosa, no una red de seguridad).
+overrides:
+  # GHSA de severidad alta: Address4 interpreta octetos con ceros a la
+  # izquierda como decimales ("010.0.0.1"), así que dos textos distintos
+  # resuelven a la misma IP. Entra por `express-rate-limit`, que es
+  # exactamente quien decide a qué balde va cada request en el Gateway: es la
+  # única de las 30 alertas de `pnpm audit --prod` que toca código que corre
+  # en producción. Se saca cuando express-rate-limit pida >=10.3.1 solo.
+  ip-address: '>=10.3.1'
+
 allowBuilds:
   '@parcel/watcher': true
   '@prisma/engines': true

@@ -4,13 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  ip-address: '>=10.3.1'
+
 importers:
 
   .:
     dependencies:
-      '@angular-devkit/build-angular':
-        specifier: 22.0.6
-        version: 22.0.6(a233e2d6312a8ffcf64d26f607c38e85)
       '@angular/common':
         specifier: 22.0.6
         version: 22.0.6(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2)
@@ -29,9 +29,6 @@ importers:
       '@angular/router':
         specifier: 22.0.6
         version: 22.0.6(@angular/common@22.0.6(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2))(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(@angular/platform-browser@22.0.6(@angular/common@22.0.6(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2))(rxjs@7.8.2))(@angular/core@22.0.6(@angular/compiler@22.0.6)(rxjs@7.8.2)(zone.js@0.16.2)))(rxjs@7.8.2)
-      '@astrojs/sitemap':
-        specifier: ^3.7.3
-        version: 3.7.3
       '@golevelup/nestjs-rabbitmq':
         specifier: ^9.0.2
         version: 9.0.2(@nestjs/common@11.1.28(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -56,9 +53,6 @@ importers:
       '@prisma/client':
         specifier: ^7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react@19.2.17)(magicast@0.5.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@6.0.3))(typescript@6.0.3)
-      '@tailwindcss/vite':
-        specifier: ^4.3.3
-        version: 4.3.3(vite@8.0.9(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.4.2)(less@4.6.4)(sass-embedded@1.100.0)(sass@1.99.0)(terser@5.49.0)(yaml@2.9.0))
       argon2:
         specifier: ^0.44.0
         version: 0.44.0
@@ -77,6 +71,9 @@ importers:
       express-rate-limit:
         specifier: ^8.5.2
         version: 8.5.2(express@5.2.1)
+      helmet:
+        specifier: ^8.3.0
+        version: 8.3.0
       http-proxy-middleware:
         specifier: ^4.2.0
         version: 4.2.0
@@ -105,6 +102,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@angular-devkit/build-angular':
+        specifier: 22.0.6
+        version: 22.0.6(a233e2d6312a8ffcf64d26f607c38e85)
       '@angular-devkit/core':
         specifier: 22.0.6
         version: 22.0.6(chokidar@5.0.0)
@@ -123,6 +123,9 @@ importers:
       '@angular/language-service':
         specifier: 22.0.6
         version: 22.0.6
+      '@astrojs/sitemap':
+        specifier: ^3.7.3
+        version: 3.7.3
       '@eslint/js':
         specifier: ^9.8.0
         version: 9.39.5
@@ -195,6 +198,9 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.3.2
         version: 4.3.2
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.0.9(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.4.2)(less@4.6.4)(sass-embedded@1.100.0)(sass@1.99.0)(terser@5.49.0)(yaml@2.9.0))
       '@types/cookie-parser':
         specifier: ^1.4.10
         version: 1.4.10(@types/express@5.0.6)
@@ -6458,6 +6464,10 @@ packages:
     resolution: {integrity: sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==}
     hasBin: true
 
+  helmet@8.3.0:
+    resolution: {integrity: sha512-Qgpiaws3Sm30Av8Eah6sjMCZZwjlBu+E68rhpCWBshY1lb09HtLwj5GviX0OyQIn+ulUS0iX0AxN5n3tLZzz1w==}
+    engines: {node: '>=18.0.0'}
+
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
@@ -6645,8 +6655,8 @@ packages:
     resolution: {integrity: sha512-6xwYfHbajpoF0xLW+iwLkhwgvLoZDfjYfoFNu8ftMoXINzwuymNLd9u/KmwtdT2GbR+/Cz66otEGEVVUHX9QLQ==}
     engines: {node: '>=10.13.0'}
 
-  ip-address@10.2.0:
-    resolution: {integrity: sha512-/+S6j4E9AHvW9SWMSEY9Xfy66O5PWvVEJ08O0y5JGyEKQpojb0K0GKpz/v5HJ/G0vi3D2sjGK78119oXZeE0qA==}
+  ip-address@10.4.0:
+    resolution: {integrity: sha512-oSK96Grm3aP6OrS263xVxbNDGVL7rzBtYdpGqlDG8iQdoenDoTs/nkki+DflYbAEE8Xl6o5YxhxlrKvI3nqKXQ==}
     engines: {node: '>= 12'}
 
   ip-regex@2.1.0:
@@ -17078,7 +17088,7 @@ snapshots:
   express-rate-limit@8.5.2(express@5.2.1):
     dependencies:
       express: 5.2.1
-      ip-address: 10.2.0
+      ip-address: 10.4.0
 
   express@4.22.2:
     dependencies:
@@ -17535,6 +17545,8 @@ snapshots:
 
   he@1.2.0: {}
 
+  helmet@8.3.0: {}
+
   help-me@5.0.0: {}
 
   hono@4.12.30: {}
@@ -17766,7 +17778,7 @@ snapshots:
 
   interpret@3.1.1: {}
 
-  ip-address@10.2.0: {}
+  ip-address@10.4.0: {}
 
   ip-regex@2.1.0: {}
 
@@ -20496,7 +20508,7 @@ snapshots:
 
   socks@2.8.9:
     dependencies:
-      ip-address: 10.2.0
+      ip-address: 10.4.0
       smart-buffer: 4.2.0
 
   sonic-boom@4.2.1:

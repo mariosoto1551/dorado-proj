@@ -172,18 +172,37 @@ docker compose $CASA down                        # bajar todo (los datos quedan)
 git pull && docker compose $CASA up -d --build   # actualizar a la última versión
 ```
 
-**Backup** (los datos de la familia viven en el volumen `pgdata`; hacelo antes
-de cualquier actualización grande):
+### Backups
+
+Los datos de la familia viven en el volumen `pgdata` de una sola máquina que
+está en tu casa: no hay snapshots de ningún proveedor ni nadie mirando si algo
+se rompió. Por eso el backup **no es un paso que tengas que acordarte de hacer**
+— el servicio `backup` del compose corre todos los días a las 03:00 y guarda un
+`.sql.gz` por base, verificado, con 14 días de retención.
 
 ```bash
-docker compose $CASA exec -T postgres \
-  pg_dumpall -U dorado > ~/backup-dorado-$(date +%F).sql
+docker compose $CASA exec backup ls -1 /backups                        # qué hay
+docker compose $CASA exec backup /usr/local/bin/backup-postgres.sh     # uno ahora
 ```
 
-Restaurar:
+Una carpeta terminada en **`_INCOMPLETO`** es un backup al que le faltó alguna
+base. La retención nunca las borra, para que se noten.
+
+**Sacá una copia de la máquina cada tanto** (un pendrive, otra compu, tu Drive).
+Es el paso que hace que el backup sirva de verdad: si se quema el disco, todo lo
+que estaba en ese disco se fue con él.
 
 ```bash
-cat ~/backup-dorado-2026-08-07.sql | docker compose $CASA exec -T postgres psql -U dorado
+docker compose $CASA exec backup tar -cz -C /backups . > ~/dorado-backups-$(date +%F).tar.gz
+```
+
+**Restaurar** (dropea y recrea la base — pide confirmación):
+
+```bash
+docker compose $CASA exec backup \
+  /usr/local/bin/restore-postgres.sh /backups/2026-08-10_0300          # las 9 bases
+docker compose $CASA exec backup \
+  /usr/local/bin/restore-postgres.sh /backups/2026-08-10_0300 scoring_db   # solo una
 ```
 
 ## 9. Seguridad en la red de casa

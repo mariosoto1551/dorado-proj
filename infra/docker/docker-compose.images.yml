@@ -31,5 +31,7 @@ services:
     image: ghcr.io/mariosoto1551/dorado-notification-service:latest
   audit-service:
     image: ghcr.io/mariosoto1551/dorado-audit-service:latest
+  ai-service:
+    image: ghcr.io/mariosoto1551/dorado-ai-service:latest
   gateway:
     image: ghcr.io/mariosoto1551/dorado-gateway:latest

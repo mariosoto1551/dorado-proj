@@ -307,6 +307,12 @@ services:
         value: gateway
       - key: PORT
         value: '3000'
+      # El balanceador de Render es un salto delante del Gateway. Sin esto,
+      # express-rate-limit cuenta por la IP del balanceador y todo el tráfico
+      # de la plataforma comparte un solo balde — el límite de 10/min del
+      # login pasa a ser global. Ver apps/gateway/src/proxy/trust-proxy.ts.
+      - key: TRUST_PROXY
+        value: '1'
       - key: GATEWAY_INTERNAL_SECRET
         sync: false
       - key: JWT_PUBLIC_KEY

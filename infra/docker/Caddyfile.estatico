@@ -7,5 +7,18 @@
 :80 {
 	root * /srv
 	encode zstd gzip
+
+	# Mismas cabeceras que la variante SPA. Acá tampoco va CSP: el island de
+	# registro le pega al Gateway en un origen que se deriva del host en
+	# tiempo de ejecución (apps/public-site/src/scripts/registro.ts), así que
+	# `connect-src` no se puede escribir al compilar. Ver Caddyfile.spa.
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "microphone=(), camera=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+
 	file_server
 }

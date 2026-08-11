@@ -140,6 +140,25 @@ services:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
 
+  # fase-14-29. Sin OPENAI_API_KEY el asistente queda apagado (/api/ai/* → 503)
+  # y el resto del stack no cambia, que es el modo en que corre acá salvo que
+  # se le pase una key o un OPENAI_BASE_URL apuntando a un stub.
+  ai-service:
+    build: { <<: *build, args: { SERVICE: ai-service } }
+    environment:
+      <<: *common-env
+      PORT: '3009'
+      DATABASE_URL: postgresql://dorado:dorado_dev@postgres:5432/ai_db
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+
   gateway:
     build: { <<: *build, args: { SERVICE: gateway } }
     ports: ['3000:3000']
@@ -156,6 +175,7 @@ services:
       REWARDS_INTERNAL_URL: http://rewards-service:3006
       NOTIFICATION_INTERNAL_URL: http://notification-service:3007
       AUDIT_INTERNAL_URL: http://audit-service:3008
+      AI_INTERNAL_URL: http://ai-service:3009
     depends_on:
       - identity-service
       - billing-service
@@ -165,3 +185,4 @@ services:
       - rewards-service
       - notification-service
       - audit-service
+      - ai-service

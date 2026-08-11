@@ -1,6 +1,6 @@
 # Stack de PRODUCCIÓN para un VPS único (opción más barata para el piloto):
-# los 9 procesos backend + Postgres + RabbitMQ + Caddy (HTTPS automático),
-# todo en una máquina. Los 2 frontends van aparte en Vercel (estáticos).
+# los 10 procesos backend + Postgres + RabbitMQ + Caddy (HTTPS automático),
+# todo en una máquina. Los 3 frontends van aparte en Vercel (estáticos).
 #
 # Diferencias con docker-compose.stack.yml (que es para CI/local):
 #   - volúmenes persistentes (Postgres y RabbitMQ) — los datos sobreviven reinicios,
@@ -159,14 +159,42 @@ services:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
 
+  # Asistente de IA (fase-14-29). Décimo proceso del stack: tiene base propia
+  # (ai_db, ya la crea init-databases.sh) y NO consume eventos. Sin
+  # OPENAI_API_KEY levanta igual y el asistente queda apagado —/api/ai/*
+  # responde 503 y el resto del sistema no cambia—, así que se puede desplegar
+  # antes de tener la key.
+  ai-service:
+    <<: *restart
+    build: { <<: *build, args: { SERVICE: ai-service } }
+    environment:
+      <<: *common-env
+      PORT: '3009'
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/ai_db
+      BILLING_INTERNAL_URL: http://billing-service:3002
+      ACTIVITY_INTERNAL_URL: http://activity-service:3003
+      IDENTITY_INTERNAL_URL: http://identity-service:3001
+      SCORING_INTERNAL_URL: http://scoring-service:3005
+      REWARDS_INTERNAL_URL: http://rewards-service:3006
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-terra}
+    depends_on:
+      postgres: { condition: service_healthy }
+
   gateway:
     <<: *restart
     build: { <<: *build, args: { SERVICE: gateway } }
     environment:
       <<: *common-env
       PORT: '3000'
+      # Caddy es el único salto delante del Gateway. Sin esto, express-rate-limit
+      # cuenta por la IP de Caddy y TODO el tráfico del mundo cae en el mismo
+      # balde: el límite de 10/min del login pasa a ser 10/min para toda la
+      # plataforma. Ver apps/gateway/src/proxy/trust-proxy.ts.
+      TRUST_PROXY: '1'
       APP_WEB_URL: ${APP_WEB_URL}
       PUBLIC_SITE_URL: ${PUBLIC_SITE_URL}
+      ADMIN_WEB_URL: ${ADMIN_WEB_URL:-}
       IDENTITY_INTERNAL_URL: http://identity-service:3001
       BILLING_INTERNAL_URL: http://billing-service:3002
       ACTIVITY_INTERNAL_URL: http://activity-service:3003
@@ -175,6 +203,7 @@ services:
       REWARDS_INTERNAL_URL: http://rewards-service:3006
       NOTIFICATION_INTERNAL_URL: http://notification-service:3007
       AUDIT_INTERNAL_URL: http://audit-service:3008
+      AI_INTERNAL_URL: http://ai-service:3009
     depends_on:
       - identity-service
       - billing-service
@@ -184,6 +213,34 @@ services:
       - rewards-service
       - notification-service
       - audit-service
+      - ai-service
+
+  # Backup diario de las 9 bases (scripts/backup-postgres.sh). Va como servicio
+  # del compose y no como cron del host a propósito: arranca con la máquina
+  # igual que todo lo demás, y no hay un paso manual del runbook que alguien
+  # pueda saltearse — que es exactamente lo que pasó hasta ahora, cuando el
+  # backup era una línea sugerida en un documento.
+  #
+  # Los dumps quedan en el volumen `backups`. Sacarlos de la máquina es un paso
+  # aparte y sigue siendo manual (ver docs/runbook-deploy-vps.md): un backup en
+  # el mismo disco que la base no protege del caso más común, que es perder el
+  # disco.
+  backup:
+    <<: *restart
+    image: postgres:18
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_RETENCION_DIAS: ${BACKUP_RETENCION_DIAS:-14}
+      BACKUP_HORA: ${BACKUP_HORA:-03}
+    volumes:
+      - ../../scripts/backup-postgres.sh:/usr/local/bin/backup-postgres.sh:ro
+      - ../../scripts/restore-postgres.sh:/usr/local/bin/restore-postgres.sh:ro
+      - backups:/backups
+    entrypoint: ['/usr/local/bin/backup-postgres.sh', '--loop']
+    depends_on:
+      postgres: { condition: service_healthy }
 
   # Reverse proxy con HTTPS automático (Let's Encrypt) delante del gateway.
   # Es lo único expuesto a internet (80/443). Necesita GATEWAY_DOMAIN con DNS
@@ -206,3 +263,4 @@ volumes:
   rabbitmqdata:
   caddydata:
   caddyconfig:
+  backups:

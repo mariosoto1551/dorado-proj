@@ -191,9 +191,135 @@ sigue sin asistente de IA.
 - [ ] Los datos reales cargados (sin seed genérico en el piloto). → pendiente de
   los datos confirmados.
 
+## Endurecimiento previo al deploy (2026-08-10)
+
+Salió de una auditoría de "¿esto está listo para producción?" que pidió José.
+Todo lo de abajo estaba **abierto y sin registrar**: no son mejoras, son huecos
+que un deploy real habría encontrado. Rama `fase-14-tienda-de-monedas`.
+
+### Seguridad del Gateway
+
+- **`TRUST_PROXY`** (`apps/gateway/src/proxy/trust-proxy.ts`, nuevo). El rate
+  limiting cuenta por IP y detrás de un proxy —Caddy en el VPS, el balanceador
+  de Render— la IP del socket es SIEMPRE la del proxy: todos los usuarios
+  compartían un solo balde y **el límite de 10/min del login pasaba a ser
+  10/min para toda la plataforma**. La defensa no quedaba floja, quedaba
+  invertida: el primero que erraba la contraseña le cortaba el login al resto.
+  Default `false` (casa, con el Gateway expuesto directo, donde confiar en
+  `X-Forwarded-For` sería regalar el spoofeo); `1` en `prod.yml` y en
+  `render.yaml`. **`true` se rechaza en el arranque** con un mensaje que
+  explica por qué: es el valor que cualquiera pondría y el único que
+  reintroduce el problema disfrazado de solución.
+- **Cabeceras de seguridad** (`cabeceras-seguridad.middleware.ts`, nuevo):
+  `helmet` configurado para una API, no para HTML — CSP `default-src 'none'` +
+  `frame-ancestors 'none'`, CORP en `cross-origin` (el default `same-origin`
+  de helmet habría roto a `app-web`, que siempre está en otro origen),
+  `X-Frame-Options: DENY` (el default es `SAMEORIGIN`, lo destapó un test),
+  y HSTS solo cuando hay TLS delante. Las mismas cabeceras en los tres
+  frontends (`Caddyfile.spa`, `Caddyfile.estatico`, los 3 `vercel.json`).
+  **Sin CSP en los frontends, a propósito y documentado en el Caddyfile**: el
+  build de Angular inlinea CSS crítica con un `onload=`, y `connect-src` no se
+  puede escribir al compilar porque la URL del Gateway se deriva de
+  `window.location`. Mandarla a ciegas rompe la app en silencio.
+- **`ADMIN_WEB_URL`** sumada a la lista de CORS. `admin-web` tenía su
+  `vercel.json` desde la Fase 14-05 pero su origen nunca entró a la lista, así
+  que desplegado a internet cargaba y moría en el preflight de cada llamada —
+  que se ve como "el login no anda".
+
+### Dependencias
+
+- **`overrides: ip-address >=10.3.1`** en `pnpm-workspace.yaml`. GHSA alta que
+  entraba por `express-rate-limit`: la **única** de las 30 alertas de
+  `pnpm audit --prod` que tocaba código de producción, y justo el que decide a
+  qué balde va cada request.
+- `@angular-devkit/build-angular`, `@tailwindcss/vite` y `@astrojs/sitemap`
+  movidos a `devDependencies` (estaban en `dependencies` sin ser runtime). No
+  es cosmético: hacía que `pnpm audit --prod` reportara 30 hallazgos de
+  herramientas de build y **el hallazgo real se perdiera entre el ruido**.
+  Resultado: de 30 (11 altas) a **9 (2 altas)**, y las 2 que quedan entran por
+  el CLI de Prisma, que no corre en el camino de un request.
+
+### CI y tests
+
+- **`admin-web` tenía 0 specs y su target `test` no se salteaba: fallaba**
+  (`No tests found matching the following patterns`). Como CI corre
+  `nx affected -t lint,test,build`, **cualquier PR que tocara admin-web dejaba
+  el pipeline en rojo**. Se escribieron 17 tests (`jwt.util`,
+  `SesionAdminService`, `adminGuard`), incluido el caso que justifica que el
+  guard mire el rol y no solo si hay token.
+- **Flake horario en la E2E, encontrado corriendo la suite**:
+  `destinatario-y-vigencia.e2e.ts` armaba `diasSemana` con
+  `new Date().getDay()` —el día de la máquina— y después le preguntaba al
+  backend, que resuelve el día en la **timezone del Grupo**. Entre la
+  medianoche de Buenos Aires y la local los dos días son distintos, así que el
+  test dejaba HOY dentro de los días permitidos y la actividad se registraba:
+  esperaba 409, recibía 201. En un runner de CI en UTC la ventana es de 21:00 a
+  24:00 — **uno de cada ocho pipelines en rojo sin que cambie una línea de
+  código**. Se agregó `diaSemanaDelGrupo()` en `support/escenario.ts` (misma
+  cuenta que hace el servicio) y `TIMEZONE_GRUPO` como única fuente.
+
+### Despliegue
+
+- **`ai-service` sumado a `docker-compose.prod.yml`, `stack.yml`,
+  `docker-compose.images.yml` y al matrix de `images.yml`.** Estaba solo en
+  `casa.yml`: **el despliegue a internet salía sin asistente** aunque el código
+  estuviera mergeado. Era la deuda que este mismo archivo dejaba anotada.
+- **Imágenes multi-arquitectura (amd64 + arm64)** en `images.yml`, con runners
+  nativos `ubuntu-24.04-arm` (no QEMU: emular el `pnpm install` del monorepo no
+  termina) y un job `manifest` que une los dos tags en `:latest`. Habilita las
+  máquinas ARM, que es donde está el hosting gratuito de verdad.
+- **`admin-web` en el runbook del VPS** como tercer proyecto de Vercel. Sin él
+  desplegado no hay interfaz para cambiar el plan de una organización ni para
+  suspenderla.
+
+### Backups (era una línea sugerida en un documento; ahora corre solo)
+
+`scripts/backup-postgres.sh` + `scripts/restore-postgres.sh`, y un servicio
+`backup` en `prod.yml` y en `casa.yml` que corre **todos los días a las 03:00**
+con `restart: unless-stopped`. Un `.sql.gz` **por base** y no un `pg_dumpall`:
+los incidentes también son de a uno, y con un archivo por base restaurar es
+cirugía en vez de volver el reloj atrás en todo el sistema.
+
+Cada dump **se verifica apenas se escribe** (`gzip -t` + el marcador final de
+`pg_dump`) porque un backup que "anduvo" pero quedó cortado es peor que no
+tener backup. Si falla alguna base, la carpeta se renombra a `_INCOMPLETO` y la
+retención **nunca la borra**: es la evidencia de que algo viene fallando, y es
+justo lo que una limpieza automática haría desaparecer.
+
+**Probado de verdad contra Postgres**, no solo escrito: backup de las 9 bases →
+borrado de una tabla → restore → los conteos vuelven idénticos
+(`RegistroAuditoria=26302`, la fila centinela de vuelta, 7 índices intactos), y
+el camino de error verificado con una base inexistente (marcó `_INCOMPLETO`,
+salió con código 1).
+
+### Verificación de esta tanda
+
+- `nx run-many -t lint test build`: **19 proyectos en verde**, 0 errores.
+- **E2E completa contra el stack real** (`node scripts/e2e-up.mjs`, los 10
+  procesos + Postgres + RabbitMQ): **92 passed, 0 failed**. Los 23 skipped son
+  los de navegador, que piden `E2E_UI=1` a propósito.
+  - Antes del arreglo de timezone: 91 passed, **1 failed** — y se verificó el
+    arreglo *dentro de la misma ventana horaria* que provocaba la falla, que es
+    la única forma de saber que no se arregló solo por pasar la medianoche.
+- `docker compose config` en los 4 composes (incluido el overlay de imágenes).
+
+### Lo que sigue abierto (no se tocó en esta tanda)
+
+- **Sin observabilidad**: ni Sentry, ni métricas, ni alertas. Solo `pino` a
+  stdout, que en Docker se pierde al recrear el contenedor.
+- **Sin recuperación ni cambio de contraseña**: `identity` expone `login`,
+  `refresh`, `logout` y `organizaciones`, y no hay SMTP en ningún servicio. Un
+  olvido de contraseña se arregla con un `UPDATE` a mano.
+- **Sacar los backups de la máquina sigue siendo manual.** Un dump en el mismo
+  disco que la base no protege del caso más común, que es perder el disco.
+- Los tres ítems de Fase 14 que bloquean un lanzamiento comercial (pagos,
+  privacidad de menores, white-label) siguen `PENDIENTE` en su archivo.
+
 ## Qué debería verificar la próxima sesión
 
 - Confirmar con José los datos bloqueantes (catálogo/usernames/recompensas).
-- Validar el build de la imagen Docker en CI (o red rápida) y una corrida del
-  `docker-compose.stack.yml` completo.
-- Al desplegar, seguir `docs/runbook-deploy.md` en orden.
+- **`images.yml` multi-arch no se pudo verificar desde acá** (solo corre en
+  GitHub Actions, con push a `main`): mirar que los 20 builds pasen y que el
+  job `manifest` arme bien los `:latest`.
+- Al desplegar, seguir `docs/runbook-deploy.md` (Render),
+  `docs/runbook-deploy-vps.md` (VPS) o `docs/runbook-deploy-casa.md` (casa).

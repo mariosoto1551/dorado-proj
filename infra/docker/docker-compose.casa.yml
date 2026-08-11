@@ -257,6 +257,28 @@ services:
     build: { <<: *web-build, args: { APP: public-site } }
     ports: ['4321:80']
 
+  # Backup diario de las 9 bases (scripts/backup-postgres.sh). En casa importa
+  # MÁS que en el VPS, no menos: acá no hay snapshots del proveedor ni nadie
+  # mirando. Los dumps quedan en el volumen `backups`; para sacarlos de la
+  # máquina, ver docs/runbook-deploy-casa.md.
+  backup:
+    <<: *restart
+    image: postgres:18
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-dorado}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_RETENCION_DIAS: ${BACKUP_RETENCION_DIAS:-14}
+      BACKUP_HORA: ${BACKUP_HORA:-03}
+    volumes:
+      - ../../scripts/backup-postgres.sh:/usr/local/bin/backup-postgres.sh:ro
+      - ../../scripts/restore-postgres.sh:/usr/local/bin/restore-postgres.sh:ro
+      - backups:/backups
+    entrypoint: ['/usr/local/bin/backup-postgres.sh', '--loop']
+    depends_on:
+      postgres: { condition: service_healthy }
+
 volumes:
   pgdata:
   rabbitmqdata:
+  backups:

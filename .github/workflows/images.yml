@@ -1,6 +1,18 @@
-# Construye las 9 imágenes backend en GitHub Actions (red rápida) y las publica
-# en GHCR (ghcr.io). Así el VPS no necesita buildear (alcanza uno de 2 GB): solo
-# descarga y corre. Ver docs/runbook-deploy-vps.md (variante "imágenes pre-armadas").
+# Construye las 10 imágenes backend en GitHub Actions (red rápida) y las publica
+# en GHCR (ghcr.io). Así el servidor no necesita buildear: solo descarga y corre.
+# Ver docs/runbook-deploy-vps.md (variante "imágenes pre-armadas").
+#
+# MULTI-ARQUITECTURA (amd64 + arm64). No es una mejora cosmética: la opción de
+# hosting gratuito de verdad —la VM Always Free de Oracle— es **ARM**, igual que
+# una Raspberry Pi. Con imágenes solo amd64 esa máquina no puede correr nada de
+# esto y hay que compilar los 10 servicios en el propio servidor, que con 2
+# núcleos es media hora por deploy.
+#
+# Se construye en runners NATIVOS de cada arquitectura (`ubuntu-24.04-arm`), no
+# con QEMU: emular un `pnpm install` de ~1700 paquetes tarda tanto que el
+# workflow no termina. Cada arquitectura publica su tag propio y un job final
+# los une en un manifest list, que es lo que hace que `docker pull …:latest`
+# baje solo la imagen que corresponde a la máquina.
 name: build-images
 
 on:
@@ -19,9 +31,13 @@ permissions:
   contents: read
   packages: write
 
+env:
+  SERVICIOS: >-
+    gateway identity-service billing-service activity-service session-service
+    scoring-service rewards-service notification-service audit-service ai-service
+
 jobs:
   build:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +51,14 @@ jobs:
           - rewards-service
           - notification-service
           - audit-service
+          # fase-14-29. Estuvo fuera de esta lista desde que se creó, así que
+          # el VPS no tenía imagen del asistente para bajar: el despliegue a
+          # internet salía sin él aunque el código estuviera mergeado.
+          - ai-service
+        arch:
+          - { nombre: amd64, runner: ubuntu-latest }
+          - { nombre: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.arch.runner }}
     steps:
       - uses: actions/checkout@v5
 
@@ -51,7 +75,34 @@ jobs:
           context: .
           file: infra/docker/Dockerfile.service
           build-args: SERVICE=${{ matrix.service }}
+          platforms: linux/${{ matrix.arch.nombre }}
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/dorado-${{ matrix.service }}:latest
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          tags: >-
+            ghcr.io/${{ github.repository_owner }}/dorado-${{ matrix.service }}:latest-${{ matrix.arch.nombre }}
+          # Caché separado por arquitectura: comparten el Dockerfile pero no
+          # una sola capa, así que un scope común los haría pisarse entre sí.
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.arch.nombre }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.arch.nombre }}
+
+  # Une los dos tags por arquitectura en el `:latest` que usa el compose. Sin
+  # este paso `:latest` sería el último que se subió y el otro quedaría pisado.
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Unir amd64 + arm64 en :latest
+        run: |
+          for servicio in $SERVICIOS; do
+            imagen="ghcr.io/${{ github.repository_owner }}/dorado-${servicio}"
+            echo "→ ${imagen}:latest"
+            docker buildx imagetools create \
+              --tag "${imagen}:latest" \
+              "${imagen}:latest-amd64" \
+              "${imagen}:latest-arm64"
+          done

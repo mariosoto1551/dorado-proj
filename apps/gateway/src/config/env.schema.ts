@@ -46,6 +46,13 @@ export class EnvSchema {
   @Matches(URL_HTTP, { message: `PUBLIC_SITE_URL ${MENSAJE_URL}` })
   PUBLIC_SITE_URL!: string;
 
+  // Panel de PLATFORM_ADMIN (fase-14-05). Opcional: es una app aparte y puede
+  // no estar desplegada. Si lo está, su origen tiene que entrar a la lista de
+  // CORS o el preflight le corta todas las llamadas.
+  @IsOptional()
+  @Matches(URL_HTTP, { message: `ADMIN_WEB_URL ${MENSAJE_URL}` })
+  ADMIN_WEB_URL?: string;
+
   @IsOptional()
   @Matches(URL_HTTP, { message: `IDENTITY_INTERNAL_URL ${MENSAJE_URL}` })
   IDENTITY_INTERNAL_URL?: string;
@@ -83,6 +90,32 @@ export class EnvSchema {
   @IsOptional()
   @Matches(URL_HTTP, { message: `AI_INTERNAL_URL ${MENSAJE_URL}` })
   AI_INTERNAL_URL?: string;
+
+  /**
+   * Proxies delante del Gateway (ver `proxy/trust-proxy.ts`). Sin definir, no
+   * se confía en ningún `X-Forwarded-For`. Con Caddy o Render: `1`.
+   *
+   * Se valida acá igual que el resto —el proceso no arranca con un valor
+   * inválido— pero la conversión vive en `resolverTrustProxy`, que es quien la
+   * usa. `true` se rechaza a propósito (haría spoofeable el rate limiting).
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^(?!true$)(?:false|\d+|[A-Za-z0-9.:,/_-]+)$/, {
+    message:
+      'TRUST_PROXY debe ser un entero de saltos (1 con Caddy/Render), un preset ' +
+      '(loopback, uniquelocal), una lista de IPs/CIDRs, o false. `true` no se acepta: ' +
+      'confiaría en toda la cadena y cualquiera podría elegir su propia IP.',
+  })
+  TRUST_PROXY?: string;
+
+  /**
+   * Fuerza el `Strict-Transport-Security`. Por defecto se manda cuando hay un
+   * proxy delante (que es quien termina TLS). Ver `cabeceras-seguridad`.
+   */
+  @IsOptional()
+  @Matches(/^(true|false)$/, { message: 'HSTS debe ser "true" o "false"' })
+  HSTS?: string;
 
   @IsOptional()
   @IsString()

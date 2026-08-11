@@ -5,6 +5,7 @@ import {
   Organizacion,
   configurarGrupoManual,
   crearOrganizacion,
+  diaSemanaDelGrupo,
   iniciarSeccion,
   invitarYCanjearUsuario,
   poll,
@@ -393,7 +394,12 @@ test.describe('Fase 14 · Ítem 24 — vigencia por fechas', () => {
 
     // Días de la semana que NO incluyen hoy, dentro de un rango que sí lo
     // incluye: la vigencia se cumple y el día no, así que no se puede registrar.
-    const hoy = new Date().getDay();
+    //
+    // "Hoy" es el del GRUPO, no el de la máquina que corre esto: el backend
+    // resuelve el día en la timezone del Grupo, y con `new Date().getDay()`
+    // este test fallaba todas las noches entre la medianoche de Buenos Aires y
+    // la local — dejaba HOY dentro de `otrosDias` y la actividad se registraba.
+    const hoy = diaSemanaDelGrupo();
     const otrosDias = [0, 1, 2, 3, 4, 5, 6].filter((dia) => dia !== hoy);
 
     const actividad = await escenario.org.api.postOk<{ id: string }>(

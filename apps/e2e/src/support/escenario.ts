@@ -45,6 +45,39 @@ export const ESCENARIO = {
   puntajeVivoTrasCorreccion: 32,
 } as const;
 
+/**
+ * Timezone con la que se crean todos los grupos de la suite.
+ *
+ * Está acá y no repetida en cada `crearGrupo` porque el backend decide en ESTA
+ * zona qué día es hoy (`diaSemanaEnTimezone` de activity-service), y cualquier
+ * test que hable de días tiene que preguntar por la misma. Ver
+ * `diaSemanaDelGrupo`.
+ */
+export const TIMEZONE_GRUPO = 'America/Argentina/Buenos_Aires';
+
+const DIAS_EN_INGLES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/**
+ * Día de la semana (0 = domingo … 6 = sábado) **como lo ve el Grupo**, no como
+ * lo ve la máquina que corre los tests.
+ *
+ * No es una sutileza: `new Date().getDay()` devuelve el día del runner, y entre
+ * la medianoche de Buenos Aires y la medianoche local hay una ventana en la que
+ * los dos días son distintos. Un test que arme `diasSemana` con el día local y
+ * después le pregunte al backend —que responde con el día del Grupo— pasa 21
+ * horas por día y falla las otras 3. En un runner de CI en UTC esa ventana es
+ * de 21:00 a 24:00: uno de cada ocho pipelines, en rojo, sin que nada haya
+ * cambiado en el código. Replica lo que hace el servicio, con la misma zona.
+ */
+export function diaSemanaDelGrupo(instante: Date = new Date()): number {
+  const nombre = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE_GRUPO,
+    weekday: 'short',
+  }).format(instante);
+
+  return DIAS_EN_INGLES.indexOf(nombre.toLowerCase().slice(0, 3));
+}
+
 /** Contexto de una organización recién armada (tutor ORG_ADMIN + grupo). */
 export interface Organizacion {
   api: Api;
@@ -97,7 +130,7 @@ export async function crearOrganizacion(base: Api, etiqueta: string): Promise<Or
 
   const grupo = await api.postOk<{ id: string }>('/identity/grupos', {
     nombre: `Grupo ${etiqueta}`,
-    timezone: 'America/Argentina/Buenos_Aires',
+    timezone: TIMEZONE_GRUPO,
   });
 
   return {
