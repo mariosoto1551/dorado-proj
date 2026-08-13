@@ -25,6 +25,21 @@ export class SharedLoggingModule {
           pinoHttp: {
             level: process.env['LOG_LEVEL'] ?? 'info',
             base: { service: serviceName },
+            // `pino-http` serializa el request entero cuando loguea un warn o
+            // un error, headers incluidos. Sin esto, un solo turno fallido de
+            // la IA deja escritos en el log —en texto plano y para siempre— el
+            // JWT del Tutor, el secreto interno con el que un servicio puede
+            // hacerse pasar por el Gateway, y la cookie de refresh. Visto de
+            // verdad en producción el 2026-08-12, no es un riesgo teórico.
+            redact: {
+              paths: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'req.headers["x-internal-secret"]',
+                'res.headers["set-cookie"]',
+              ],
+              censor: '[redactado]',
+            },
             genReqId: (req) => {
               const entrante = req.headers[CORRELATION_HEADER];
               return typeof entrante === 'string' && entrante.length > 0

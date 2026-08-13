@@ -89,8 +89,14 @@ docker compose -f infra/docker/docker-compose.casa.yml \
 La primera vez construye 13 imágenes y tarda un rato largo (10–30 min según la
 máquina); las siguientes reusan caché.
 
-> **Si la máquina tiene 4 GB o menos**, construí de a una antes de levantar, o
-> los builds en paralelo se pelean por la RAM:
+> **Construí de a una imagen, no en paralelo.** El `--build` de arriba lanza las
+> 13 a la vez y eso no entra en RAM: verificado el 2026-08-12 en una máquina de
+> **7,6 GB**, donde el OOM killer mató el build (exit 137) y de paso se llevó
+> puestos `systemd-journald` y `unattended-upgrades`. La versión anterior de este
+> runbook decía que el problema era solo de máquinas de "4 GB o menos" — no lo
+> es; el umbral real está bastante más arriba y no está medido.
+>
+> Secuencial usa ~3,4 GB de pico y tarda ~24 min en un i5-6500:
 > ```bash
 > CASA="-f infra/docker/docker-compose.casa.yml --env-file infra/docker/.env.casa"
 > for s in $(docker compose $CASA config --services); do
