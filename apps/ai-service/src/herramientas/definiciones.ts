@@ -72,9 +72,19 @@ export type NombreHerramientaLectura = (typeof NOMBRES)[number];
  * test estructural de la decisión 1 y `aJsonSchema()` los saca antes de que
  * esto viaje al proveedor.
  */
+export type TipoEscalar = 'string' | 'integer' | 'boolean' | 'number';
+
 export type PropiedadEsquema =
   | {
-      type: 'string' | 'integer' | 'boolean' | 'number';
+      /**
+       * El par `['integer', 'null']` es la única forma de declarar un campo que
+       * admite null: **decirlo en la `description` no alcanza**. El modelo se
+       * atiene al `type`, así que un campo `required` que pide null en prosa
+       * pero se declara `integer` lo empuja a inventar un centinela (`999999`),
+       * y si algo del lado nuestro exige el null de verdad, el rechazo se
+       * repite vuelta tras vuelta hasta agotar el tope del loop.
+       */
+      type: TipoEscalar | readonly [TipoEscalar, 'null'];
       description: string;
       enum?: string[];
       minimum?: number;

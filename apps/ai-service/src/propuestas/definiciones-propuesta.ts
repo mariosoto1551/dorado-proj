@@ -391,7 +391,7 @@ function camposZona(): Record<string, PropiedadEsquema> {
         'anterior más 1.',
     },
     puntosMax: {
-      type: 'integer',
+      type: ['integer', 'null'],
       description:
         'Hasta qué puntaje llega, inclusive. **null = sin techo, y eso solo puede serlo la zona ' +
         'más alta**, que tiene que existir. Mandá siempre este campo: número o null.',
