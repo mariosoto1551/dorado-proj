@@ -3196,9 +3196,12 @@ vieron; las de tipo `AJUSTES_MANUALES` eran las invisibles.
     versión anterior de esta deuda decía que se dejaba afuera «para no agrandar
     el DTO en un arreglo de dos síntomas»: era mal criterio — el campo no
     agranda el DTO, lo hace **verdadero**, que era el punto del ítem.
-34. **No hay E2E de la fila nueva.** `ajuste-manual-puntos.e2e.ts` es de API y
-    sigue verde tal cual; lo que falta es abrir el historial en el navegador con
-    el stack arriba y ver la fila.
+34. ~~**No hay E2E de la fila nueva.**~~ **CERRADA**: se agregó a
+    `historial-sesion.e2e.ts` el test que escribe el ajuste por scoring y lo lee
+    del historial por activity — el único de la suite que cruza dos bases de
+    verdad. Verde en la corrida de cierre. Lo que **sigue** faltando es la
+    verificación humana: abrir el historial en un navegador y ajustar puntos
+    desde un celular, que es donde nació el reporte.
 
 ### Verificación
 
@@ -3217,7 +3220,47 @@ vieron; las de tipo `AJUSTES_MANUALES` eran las invisibles.
   el signo sin retipear, el «−» tipeado que no entra, vaciar la caja sin que le
   devuelvan un 0, y el reset que limpia sin perder el signo) y 2 del util.
 - `lint` verde en los 4 proyectos; `build` de app-web limpio.
-- **No se corrió la suite E2E** (necesita el stack completo levantado).
+- **Suite E2E: 93 passed, 0 failed, 23 skipped** (los skipped son los de UI, que
+  piden `E2E_UI=1`). Es la primera corrida verde de la suite desde el ítem 31.
+
+### Lo que costó correr la E2E, que era el punto
+
+La suite no corría desde el #31, y los ítems 32, 33 y la primera pasada del 34
+cerraron todos con «no se corrió la suite E2E». Correrla destapó dos cosas:
+
+1. **`scripts/e2e-up.mjs` no podía levantar el stack en esta máquina.**
+   `nx run-many -t serve` arranca los diez webpack a la vez; el build de
+   `ai-service` moría con código distinto de cero y el gateway no llegaba al
+   healthcheck en 180 s. El síntoma —«gateway no pasó el healthcheck»— no dice
+   nada de la causa. Se agregó `precompilar()`: compila los 10 de a dos antes de
+   servirlos, y el `serve` arranca procesos en vez de compilarlos. **Es la misma
+   lección que el servidor de casa dio el mismo día** (ver abajo).
+2. **El `toHaveLength` de las herramientas del asistente estaba viejo otra vez.**
+   Esperaba 32 y hay 33: el #33 agregó `listar_sesiones_de_la_seccion` y no
+   actualizó la cuenta, porque no corrió la suite. El comentario de ese mismo
+   test ya avisaba que le había pasado idéntico con el #30 («lo dejó en 12
+   durante siete tandas sin que nadie se enterara»). Corregido a 33, con la
+   aserción de la herramienta que faltaba. **No es un test frágil: es el único
+   que se entera de que el catálogo creció, y solo sirve si alguien lo corre.**
+
+### El despliegue, que tumbó el servidor
+
+Se corrió `docker compose up -d --build` en el servidor de casa. **El runbook
+advertía en contra desde el 2026-08-12**, en un bloque inmediatamente debajo del
+comando, con la misma máquina medida y el mismo código de error: construir las 13
+imágenes en paralelo no entra en RAM. El OOM killer mató el build (exit 137) y en
+la cascada se llevó puesto lo que estaba sirviendo — la familia quedó sin sistema
+y sin SSH para entrar, hasta que la máquina se reinició.
+
+Nada se perdió (los datos viven en el volumen `pgdata`, que nada de esto toca) y
+el redespliegue secuencial anduvo. Queda `scripts/deploy-casa.sh`: el loop que el
+runbook ya prescribía, hecho un comando, más `setsid` —el build iba pegado a la
+sesión SSH, que se cortó por la carga— y espera del healthcheck al final.
+
+**La lección que vale más que el script**: la información estaba escrita, fechada
+y medida en el archivo que se estaba leyendo. Leer el runbook hasta el comando y
+no hasta el final del bloque siguiente costó una caída del servidor de la
+familia.
 
 ### Qué debería verificar la próxima sesión antes de seguir
 

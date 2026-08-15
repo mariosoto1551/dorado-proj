@@ -976,19 +976,23 @@ test.describe('Fase 14 · Ítem 29 — asistente de IA', () => {
 
     expect(nombres).toContain('listar_actividades');
     expect(nombres).toContain('proponer_crear_actividades');
-    // El catálogo del fase-14-31: 14 de lectura + 18 de propuesta. Arrancó en
-    // 8 y 4 con el #29 y pasó por 12 y 14 con el #30 — este número ES el ítem,
-    // así que se afirma acá y no en una nota.
+    // El catálogo hoy: 15 de lectura + 18 de propuesta. Arrancó en 8 y 4 con el
+    // #29, pasó por 12 y 14 con el #30 y por 14 y 18 con el #31 — este número
+    // ES el ítem, así que se afirma acá y no en una nota.
     //
-    // Y este `toHaveLength` ya se quedó viejo una vez: el #30 lo dejó en 12
-    // durante siete tandas sin que nadie se enterara, porque la suite no corre
-    // sola. Actualizarlo es lo primero que hace la tanda de E2E de cada ítem.
+    // Y este `toHaveLength` ya se quedó viejo DOS veces, siempre por lo mismo:
+    // el #30 lo dejó en 12 durante siete tandas, y el #33 sumó
+    // `listar_sesiones_de_la_seccion` y lo dejó en 32 — las dos veces porque el
+    // ítem terminó sin correr la suite. No es un test frágil: es el único que
+    // se entera de que el catálogo creció, y solo sirve si alguien lo corre.
     expect(nombres).toContain('listar_tienda');
     expect(nombres).toContain('configuracion_del_grupo');
     expect(nombres).toContain('proponer_umbrales_zona');
     expect(nombres).toContain('estado_de_hoy');
     expect(nombres).toContain('proponer_archivar');
-    expect(nombres).toHaveLength(32);
+    // fase-14-33: sin esta, el asistente no puede resolver «el lunes» a un uuid.
+    expect(nombres).toContain('listar_sesiones_de_la_seccion');
+    expect(nombres).toHaveLength(33);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

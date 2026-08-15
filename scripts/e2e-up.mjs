@@ -310,6 +310,38 @@ function migrar() {
 }
 
 /**
+ * Compila los 10 servicios ANTES de servirlos, de a dos.
+ *
+ * **Por qué existe** (fase-14-34): `nx run-many -t serve` de diez targets
+ * continuos arranca los diez webpack a la vez. En una máquina de desarrollo eso
+ * no entra: el 2026-08-15 el build de `ai-service` murió con código distinto de
+ * cero y el gateway no llegó al healthcheck en 180 s, y el síntoma —«gateway no
+ * pasó el healthcheck»— no dice nada de la causa. Los mismos proyectos compilan
+ * bien de a dos.
+ *
+ * Con el `dist` ya escrito y la caché de Nx caliente, el `serve` de después
+ * arranca los procesos en vez de compilarlos. Cuesta un par de minutos la
+ * primera vez y **cero** en las siguientes (la caché de Nx los saltea), a
+ * cambio de que la suite no falle por una razón que no tiene que ver con lo que
+ * se está probando.
+ *
+ * Es la misma lección que `scripts/deploy-casa.sh` aprendió en el servidor, el
+ * mismo día y por el mismo motivo: compilar todo junto no escala con la RAM.
+ */
+function precompilar() {
+  log('build', `compilando ${SERVICIOS_SERVE.length} servicios de a 2 (evita la inanición del serve)…`);
+  correr('pnpm', [
+    'nx',
+    'run-many',
+    '-t',
+    'build',
+    '--projects',
+    SERVICIOS_SERVE.join(','),
+    '--parallel=2',
+  ]);
+}
+
+/**
  * Levanta el stack con nx run-many; devuelve el ChildProcess.
  *
  * El rate limit del Gateway se afloja **solo acá** (fase-14-23 T4·2ª): la suite
@@ -388,6 +420,7 @@ async function main() {
     prepararEntorno();
     await levantarInfra();
     migrar();
+    precompilar();
     stack = levantarStack();
     await esperarStack();
 
