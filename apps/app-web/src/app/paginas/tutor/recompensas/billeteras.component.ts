@@ -12,6 +12,7 @@ import { forkJoin } from 'rxjs';
 import type { BilleteraDto, UsuarioDto } from '@dorado/shared-types';
 
 import { EntradaAsistenteComponent } from '../../../componentes/entrada-asistente.component';
+import { EntradaConSignoComponent } from '../../../componentes/entrada-con-signo.component';
 import { ToastService } from '../../../componentes/toast.service';
 import { mensajeDeError } from '../../../core/api/errores';
 import { IdentityApiService } from '../../../core/api/identity-api.service';
@@ -31,6 +32,7 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
     CampoComponent,
     EstadoVacioComponent,
     EntradaAsistenteComponent,
+    EntradaConSignoComponent,
     FormsModule,
   ],
   template: `
@@ -111,12 +113,15 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
           </p>
 
           <div class="mt-4 space-y-3">
-            <ui-campo etiqueta="Monto (negativo para descontar)">
-              <input
-                type="number"
-                [(ngModel)]="monto"
-                name="monto"
-                class="w-32 campo"
+            <!-- fase-14-34: el signo por botón, no por tecla — el teclado
+                 numérico de varios celulares no trae la tecla «−». Ver
+                 EntradaConSignoComponent. -->
+            <ui-campo etiqueta="Monto">
+              <app-entrada-con-signo
+                [(valor)]="monto"
+                [unidad]="billetera.nombreMoneda"
+                etiquetaSumar="Dar"
+                etiquetaRestar="Descontar"
               />
             </ui-campo>
             <ui-campo etiqueta="Motivo">
@@ -137,7 +142,7 @@ import { EstadoVacioComponent, CampoComponent, ModalComponent } from '@dorado/sh
             </button>
             <button
               type="submit"
-              [disabled]="guardando() || motivo.trim().length === 0 || monto === 0"
+              [disabled]="guardando() || motivo.trim().length === 0 || monto() === 0"
               class="boton boton-primario"
             >
               {{ guardando() ? 'Guardando…' : 'Ajustar' }}
@@ -177,7 +182,8 @@ export class BilleterasComponent {
 
   private readonly usuarios = signal<UsuarioDto[]>([]);
 
-  protected monto = 0;
+  /** Signal desde fase-14-34: lo escribe el control de signo por `[(valor)]`. */
+  protected readonly monto = signal(0);
 
   protected motivo = '';
 
@@ -191,7 +197,7 @@ export class BilleterasComponent {
 
   protected abrirAjuste(billetera: BilleteraDto): void {
     this.ajustando.set(billetera);
-    this.monto = 0;
+    this.monto.set(0);
     this.motivo = '';
   }
 
@@ -200,7 +206,7 @@ export class BilleterasComponent {
 
     const billetera = this.ajustando();
 
-    if (!billetera || this.motivo.trim().length === 0 || Number(this.monto) === 0) {
+    if (!billetera || this.motivo.trim().length === 0 || this.monto() === 0) {
       return;
     }
 
@@ -208,7 +214,7 @@ export class BilleterasComponent {
 
     this.api
       .ajustarMonedas(this.grupoId(), billetera.usuarioId, {
-        monto: Number(this.monto),
+        monto: this.monto(),
         motivo: this.motivo.trim(),
       })
       .subscribe({

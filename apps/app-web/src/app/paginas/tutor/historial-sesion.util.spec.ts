@@ -8,6 +8,7 @@ import {
 
 import {
   acentoDeEvento,
+  admiteAcciones,
   etiquetaDeEvento,
   formatearHora,
   iconoDeEvento,
@@ -95,5 +96,24 @@ describe('historial-sesion.util (fase-14-18)', () => {
     expect(formatearHora('', 'UTC')).toBe('');
     expect(formatearHora('no-es-una-fecha', 'UTC')).toBe('');
     expect(formatearHora('2026-07-13T18:32:00.000Z', 'Zona/Inventada')).not.toBe('');
+  });
+
+  // ── Ajuste manual (fase-14-34) ───────────────────────────────────────────
+
+  it('el ajuste manual se nombra y se pinta como lo que es, no por su signo', () => {
+    const suma = evento({ tipo: TipoEventoHistorial.AJUSTE_MANUAL, puntos: 10 });
+    const resta = evento({ tipo: TipoEventoHistorial.AJUSTE_MANUAL, puntos: -10 });
+
+    expect(etiquetaDeEvento(suma)).toBe('Puntos a mano');
+    expect(etiquetaDeEvento(resta)).toBe('Puntos a mano');
+    expect(iconoDeEvento(suma)).toBe('✋');
+    // El signo ya está en el número de la derecha: la etiqueta dice el origen.
+    expect(acentoDeEvento(resta)).toContain('amber');
+  });
+
+  it('el ajuste no ofrece anular, deshacer ni notas: no es una fila de activity', () => {
+    expect(admiteAcciones(evento({ tipo: TipoEventoHistorial.AJUSTE_MANUAL }))).toBe(false);
+    expect(admiteAcciones(evento())).toBe(true);
+    expect(admiteAcciones(evento({ tipo: TipoEventoHistorial.CONDUCTA }))).toBe(true);
   });
 });

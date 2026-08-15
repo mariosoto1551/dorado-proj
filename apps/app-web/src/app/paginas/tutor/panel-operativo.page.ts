@@ -30,6 +30,7 @@ import {
 } from '@dorado/shared-ui';
 
 import { EncabezadoPaginaComponent } from '../../componentes/encabezado-pagina.component';
+import { EntradaConSignoComponent } from '../../componentes/entrada-con-signo.component';
 import { ToastService } from '../../componentes/toast.service';
 import { ActivityApiService } from '../../core/api/activity-api.service';
 import type { EnSesion, SeccionConSesionesResponse } from '../../core/api/api.types';
@@ -70,6 +71,7 @@ type VistaPanel = 'registrar' | 'historial';
     FormsModule,
     NgTemplateOutlet,
     EncabezadoPaginaComponent,
+    EntradaConSignoComponent,
     HistorialSesionComponent,
     EstadoSeccionBadgeComponent,
     ConfirmDialogComponent,
@@ -372,13 +374,11 @@ type VistaPanel = 'registrar' | 'historial';
                       Puntos a mano
                     </h4>
                     <div class="mt-2 flex flex-wrap items-end gap-2">
-                      <ui-campo etiqueta="Puntos (negativo para restar)">
-                        <input
-                          type="number"
-                          [(ngModel)]="puntosAjuste"
-                          name="puntosAjuste"
-                          class="w-32 campo"
-                        />
+                      <!-- fase-14-34: el signo se elige con un botón. En el
+                           teclado numérico de varios celulares no existe la
+                           tecla «−», y acá restar es la mitad del caso de uso. -->
+                      <ui-campo etiqueta="Puntos">
+                        <app-entrada-con-signo [(valor)]="puntosAjuste" unidad="puntos" />
                       </ui-campo>
                       <ui-campo etiqueta="Motivo" class="min-w-48 flex-1">
                         <input
@@ -392,7 +392,11 @@ type VistaPanel = 'registrar' | 'historial';
                       <button
                         type="button"
                         (click)="ajustarPuntos()"
-                        [disabled]="procesando() || puntosAjuste === 0 || motivoAjuste.trim().length === 0"
+                        [disabled]="
+                          procesando() ||
+                          puntosAjuste() === 0 ||
+                          motivoAjuste.trim().length === 0
+                        "
                         class="boton boton-primario"
                       >
                         Ajustar
@@ -544,8 +548,15 @@ export class PanelOperativoPage {
 
   protected conductaSel = '';
 
-  /** fase-14-31: el ajuste manual de puntos, del integrante ya elegido arriba. */
-  protected puntosAjuste = 0;
+  /**
+   * fase-14-31: el ajuste manual de puntos, del integrante ya elegido arriba.
+   *
+   * Signal y no un campo suelto desde fase-14-34: lo escriben el control de
+   * signo (por `[(valor)]`) y el reset de después de guardar, que corre dentro
+   * de un `subscribe` — y en una app zoneless una asignación ahí no repinta
+   * nada.
+   */
+  protected readonly puntosAjuste = signal(0);
 
   protected motivoAjuste = '';
 
@@ -1046,11 +1057,11 @@ export class PanelOperativoPage {
     const usuarioId = this.usuarioSel();
     const motivo = this.motivoAjuste.trim();
 
-    if (!usuarioId || this.puntosAjuste === 0 || motivo === '') {
+    if (!usuarioId || this.puntosAjuste() === 0 || motivo === '') {
       return;
     }
 
-    const puntos = this.puntosAjuste;
+    const puntos = this.puntosAjuste();
     // fase-14-33: sin `motivoRetroactivo` — `motivo` ya es obligatorio en todo
     // ajuste, y pedir dos textos para el mismo movimiento no agrega nada.
     const sesionId = this.esRetroactiva() ? this.sesionDeTrabajo()?.id : undefined;
@@ -1059,7 +1070,7 @@ export class PanelOperativoPage {
     this.scoring.ajustarPuntos(this.grupoId(), usuarioId, { puntos, motivo, sesionId }).subscribe({
       next: () => {
         this.toasts.exito(`${puntos > 0 ? '+' : ''}${puntos} puntos registrados.`);
-        this.puntosAjuste = 0;
+        this.puntosAjuste.set(0);
         this.motivoAjuste = '';
         this.procesando.set(false);
       },

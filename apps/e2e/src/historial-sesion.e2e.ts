@@ -30,7 +30,14 @@ import {
  */
 interface EventoHistorial {
   id: string;
-  tipo: 'ACTIVIDAD_COMPLETADA' | 'ACTIVIDAD_NO_HIZO' | 'CONDUCTA' | 'TAREA_EQUIPO';
+  tipo:
+    | 'ACTIVIDAD_COMPLETADA'
+    | 'ACTIVIDAD_NO_HIZO'
+    | 'CONDUCTA'
+    | 'TAREA_EQUIPO'
+    // fase-14-34: la única fila del timeline que no sale de una tabla de
+    // activity-service.
+    | 'AJUSTE_MANUAL';
   ocurridoEn: string;
   usuarioId: string | null;
   usuarioNombre: string | null;
@@ -51,6 +58,8 @@ interface Historial {
   sesionId: string | null;
   sesionEstado: 'ABIERTA' | 'CERRADA' | null;
   timezoneGrupo: string;
+  /** fase-14-34: `false` = scoring no contestó y puede faltar alguna fila. */
+  ajustesDisponibles: boolean;
   eventos: EventoHistorial[];
   cursorSiguiente: string | null;
 }
@@ -342,5 +351,85 @@ test.describe('Fase 14 · Ítem 18 — historial de la sesión', () => {
       [nota.id]
     );
     expect(filas[0].n).toBe('0');
+  });
+  /**
+   * fase-14-34 — el ajuste manual de puntos en el timeline.
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * ESTE ES EL ÚNICO TEST QUE CRUZA DOS BASES DE VERDAD.
+   *
+   * El asiento lo escribe **scoring** en `EventoPuntos`; el timeline lo arma
+   * **activity** con sus tres tablas. Hasta el ítem 34 nunca se cruzaron, y el
+   * síntoma que lo destapó fue un Tutor preguntando por qué «aplicar todo» del
+   * asistente no cambiaba nada: cambiaba, pero no había dónde verlo. Un fake de
+   * Vitest puede afirmar que el service llama al cliente; solo el stack real
+   * dice si el REST interno contesta con el secreto puesto y la fila llega.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  test('el ajuste manual de scoring aparece en el timeline de activity, con su motivo', async () => {
+    test.slow();
+
+    const escenario = await montarEscenario('HistAjuste');
+    const motivo = 'Ayudó con la mudanza de la abuela';
+
+    // Una fila de activity y una de scoring, en ese orden.
+    await escenario.org.api.postOk(`/activity/conductas/${escenario.conductaBuenaId}/registrar`, {
+      usuarioId: escenario.usuario.usuarioId,
+    });
+
+    const evento = await escenario.org.api.postOk<{ id: string }>(
+      `/scoring/grupos/${escenario.org.grupoId}/usuarios/${escenario.usuario.usuarioId}/ajuste`,
+      { puntos: -15, motivo }
+    );
+
+    const historial = await leerHistorial(escenario);
+
+    expect(historial.eventos, 'la conducta de activity y el ajuste de scoring').toHaveLength(2);
+    // Scoring contestó: sin esto la pantalla pinta el aviso de «puede faltar
+    // alguna fila», y una lista vacía sería indistinguible de un servicio
+    // caído — que es la ambigüedad que el campo existe para romper.
+    expect(historial.ajustesDisponibles).toBe(true);
+
+    // Más reciente primero: el ajuste se cargó último, así que va arriba. Es la
+    // prueba de que el merge ordena por fecha entre fuentes y no concatena.
+    const ajuste = historial.eventos[0];
+
+    expect(ajuste.tipo).toBe('AJUSTE_MANUAL');
+    // El id es el del asiento del ledger, no uno inventado por el timeline.
+    expect(ajuste.id).toBe(evento.id);
+    // El motivo viaja en `itemNombre` porque no hay ítem de catálogo detrás:
+    // eso es exactamente lo que significa «a mano», y es lo único que explica
+    // la fila.
+    expect(ajuste.itemNombre).toBe(motivo);
+    expect(ajuste.puntos).toBe(-15);
+    // Nombres resueltos igual que el resto del timeline, nunca un uuid.
+    expect(ajuste.usuarioNombre).toBe('Usuario de Prueba');
+    expect(ajuste.registradoPorTipo).toBe('TUTOR');
+    expect(ajuste.registradoPorNombre).not.toMatch(/^[0-9a-f-]{36}$/);
+    // Un asiento del ledger no se anula ni lleva notas (regla 6).
+    expect(ajuste.anulado).toBe(false);
+    expect(ajuste.notas).toHaveLength(0);
+
+    expect(historial.eventos[1].tipo).toBe('CONDUCTA');
+
+    // Los dos sentidos del filtro nuevo, que es lo que separa las fuentes.
+    const soloAjustes = await leerHistorial(escenario, '?tipo=AJUSTE');
+
+    expect(soloAjustes.eventos).toHaveLength(1);
+    expect(soloAjustes.eventos[0].tipo).toBe('AJUSTE_MANUAL');
+
+    const soloConductas = await leerHistorial(escenario, '?tipo=CONDUCTA');
+
+    expect(soloConductas.eventos).toHaveLength(1);
+    expect(soloConductas.eventos[0].tipo).toBe('CONDUCTA');
+
+    // El filtro por participante también tiene que llegar a scoring: si no, un
+    // tutor filtrando por Ana vería los ajustes de todo el grupo.
+    const deOtro = await leerHistorial(
+      escenario,
+      `?usuarioId=${escenario.org.tutorId}`
+    );
+
+    expect(deOtro.eventos.every((fila) => fila.tipo !== 'AJUSTE_MANUAL')).toBe(true);
   });
 });

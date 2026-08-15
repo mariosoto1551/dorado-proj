@@ -16,9 +16,9 @@ import {
   type ConductaDto,
   EstadoSesion,
   type EventoHistorialDto,
+  FiltroTipoHistorial,
   type HistorialSesionDto,
   TipoEventoHistorial,
-  TipoRegistroHistorial,
   type UsuarioDto,
 } from '@dorado/shared-types';
 
@@ -28,6 +28,7 @@ import { mensajeDeError } from '../../core/api/errores';
 import {
   MAX_LARGO_NOTA,
   acentoDeEvento,
+  admiteAcciones,
   etiquetaDeEvento,
   formatearHora,
   iconoDeEvento,
@@ -98,6 +99,33 @@ const MS_AUTO_REFRESCO = 30_000;
         ↻
       </button>
     </div>
+
+    <!--
+      fase-14-34: los ajustes de puntos son la única fuente del timeline que
+      vive en otro servicio. Si no contesta, la lista sale igual —tres fuentes
+      de cuatro es mejor que una pantalla vacía— pero **hay que decirlo**: un
+      historial callado afirmaría «hoy no hubo ningún ajuste», que es justo la
+      mentira que este ítem vino a sacar del medio.
+    -->
+    @if (!ajustesDisponibles()) {
+      <p
+        role="status"
+        class="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300"
+      >
+        <span class="flex-1">
+          No se pudieron traer los puntos cargados a mano: si hubo alguno hoy, puede estar
+          faltando en esta lista. El resto de lo que ves está completo.
+        </span>
+        <button
+          type="button"
+          (click)="recargarDesdeCero()"
+          [disabled]="cargando()"
+          class="boton boton-peligro boton-sm"
+        >
+          Reintentar
+        </button>
+      </p>
+    }
 
     @if (soloLectura()) {
       <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
@@ -208,13 +236,15 @@ const MS_AUTO_REFRESCO = 30_000;
                     Deshacer
                   </button>
                 }
-                <button
-                  type="button"
-                  (click)="abrirNotas(evento)"
-                  class="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                >
-                  Notas{{ evento.notas.length ? ' (' + evento.notas.length + ')' : '' }}
-                </button>
+                @if (admiteAcciones(evento)) {
+                  <button
+                    type="button"
+                    (click)="abrirNotas(evento)"
+                    class="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                  >
+                    Notas{{ evento.notas.length ? ' (' + evento.notas.length + ')' : '' }}
+                  </button>
+                }
               </div>
             </div>
 
@@ -352,9 +382,11 @@ export class HistorialSesionComponent {
 
   protected readonly chips = [
     { valor: '' as const, etiqueta: 'Todo' },
-    { valor: TipoRegistroHistorial.ACTIVIDAD, etiqueta: 'Actividades' },
-    { valor: TipoRegistroHistorial.CONDUCTA, etiqueta: 'Conductas' },
-    { valor: TipoRegistroHistorial.TAREA_EQUIPO, etiqueta: 'Equipos' },
+    { valor: FiltroTipoHistorial.ACTIVIDAD, etiqueta: 'Actividades' },
+    { valor: FiltroTipoHistorial.CONDUCTA, etiqueta: 'Conductas' },
+    { valor: FiltroTipoHistorial.TAREA_EQUIPO, etiqueta: 'Equipos' },
+    // fase-14-34: los puntos cargados a mano, propios o del asistente.
+    { valor: FiltroTipoHistorial.AJUSTE, etiqueta: 'Ajustes' },
   ];
 
   private readonly activity = inject(ActivityApiService);
@@ -383,9 +415,15 @@ export class HistorialSesionComponent {
    */
   protected readonly seccionEditable = signal(true);
 
+  /**
+   * fase-14-34: scoring contestó. `false` pinta el aviso de arriba — arranca en
+   * `true` para no mostrar una alarma mientras carga la primera página.
+   */
+  protected readonly ajustesDisponibles = signal(true);
+
   protected readonly timezone = signal('UTC');
 
-  protected readonly tipoFiltro = signal<TipoRegistroHistorial | ''>('');
+  protected readonly tipoFiltro = signal<FiltroTipoHistorial | ''>('');
 
   protected readonly notaAbiertaId = signal<string | null>(null);
 
@@ -518,13 +556,22 @@ export class HistorialSesionComponent {
       : 'text-emerald-600 dark:text-emerald-400';
   }
 
+  /** fase-14-34: el ajuste manual no lleva notas ni se anula desde acá. */
+  protected admiteAcciones(evento: EventoHistorialDto): boolean {
+    return admiteAcciones(evento);
+  }
+
   protected puedeAnular(evento: EventoHistorialDto): boolean {
+    if (!admiteAcciones(evento)) {
+      return false;
+    }
+
     return !evento.anulado && evento.tipo !== TipoEventoHistorial.ACTIVIDAD_NO_HIZO;
   }
 
   /** Deshacer una marca roja: una completada anulada, o un «no hizo» vivo. */
   protected puedeDeshacer(evento: EventoHistorialDto): boolean {
-    if (evento.tipo === TipoEventoHistorial.CONDUCTA) {
+    if (evento.tipo === TipoEventoHistorial.CONDUCTA || !admiteAcciones(evento)) {
       // Sin reversión de conductas (fuera de alcance declarado en la spec).
       return false;
     }
@@ -534,7 +581,7 @@ export class HistorialSesionComponent {
       : evento.anulado;
   }
 
-  protected cambiarTipo(valor: TipoRegistroHistorial | ''): void {
+  protected cambiarTipo(valor: FiltroTipoHistorial | ''): void {
     this.tipoFiltro.set(valor);
     this.recargarDesdeCero();
   }
@@ -743,6 +790,7 @@ export class HistorialSesionComponent {
     this.sesionEstado.set(historial.sesionEstado);
     this.sesionNumero.set(historial.sesionNumero);
     this.seccionEditable.set(historial.seccionEditable);
+    this.ajustesDisponibles.set(historial.ajustesDisponibles);
     this.timezone.set(historial.timezoneGrupo);
     this.cursor.set(historial.cursorSiguiente);
     this.eventos.update((previos) =>

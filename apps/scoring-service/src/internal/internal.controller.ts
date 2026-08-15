@@ -1,7 +1,8 @@
-import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 
 import { InternalSecretGuard } from '@dorado/shared-auth';
 import {
+  AjusteHistorialInternoDto,
   ConfiguracionScoringInternaDto,
   PuntajeResumidoDto,
   ResumenPuntajesGrupoDto,
@@ -14,7 +15,12 @@ import {
   type ResultadoSeccionResponse,
 } from '../comun/mapeadores';
 import { zonaParaPuntaje } from '../comun/zonas';
+import { TipoOrigenPuntos } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+import { AjustesSesionInternaQuery } from './dto/ajustes-sesion.query';
+
+/** Default de página; el llamador manda el suyo (`limite + 1` del timeline). */
+const LIMITE_AJUSTES = 51;
 
 /**
  * Endpoints internos servicio-a-servicio (ADR-00 §4): protegidos por
@@ -112,6 +118,66 @@ export class InternalController {
     });
 
     return { puntosIniciales: config?.puntosIniciales ?? 0 };
+  }
+
+  /**
+   * fase-14-34: los ajustes manuales de una Sesión, para el historial que arma
+   * activity-service.
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * POR QUÉ EXISTE: hasta este ítem, un ajuste a mano NO aparecía en ninguna
+   * pantalla. Se escribía en el ledger, cambiaba el puntaje y la zona, y el
+   * Tutor no tenía dónde verlo — lo mismo pasaba con los que aplica el
+   * asistente, que usan este mismo endpoint público. «Aplicar todo» sí
+   * escribía; lo que faltaba era el lugar donde comprobarlo.
+   * ───────────────────────────────────────────────────────────────────────────
+   *
+   * Devuelve `limite` filas **más nuevas que nada** o más viejas que el cursor,
+   * en el mismo orden `(createdAt desc, id desc)` que usan las tres tablas de
+   * activity: el llamador hace un merge y no reordena nada.
+   */
+  @Get('grupos/:grupoId/sesiones/:sesionId/ajustes')
+  async ajustesDeLaSesion(
+    @Param('grupoId') grupoId: string,
+    @Param('sesionId') sesionId: string,
+    @Query() query: AjustesSesionInternaQuery
+  ): Promise<AjusteHistorialInternoDto[]> {
+    const cursor = query.cursorCreatedAt
+      ? new Date(query.cursorCreatedAt)
+      : null;
+    const eventos = await this.prisma.client.eventoPuntos.findMany({
+      where: {
+        organizacionId: query.organizacionId,
+        grupoId,
+        sesionId,
+        // Solo los de origen manual: ver la nota de `AjusteHistorialInternoDto`
+        // sobre por qué las CORRECCION quedan afuera.
+        tipoOrigen: TipoOrigenPuntos.AJUSTE_MANUAL,
+        ...(query.usuarioId && { usuarioId: query.usuarioId }),
+        ...(cursor && {
+          OR: [
+            { createdAt: { lt: cursor } },
+            { createdAt: cursor, id: { lt: query.cursorId ?? '' } },
+          ],
+        }),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limite ?? LIMITE_AJUSTES,
+    });
+
+    return eventos.map((evento) => ({
+      id: evento.id,
+      usuarioId: evento.usuarioId,
+      puntos: evento.puntosSnapshot,
+      // El ajuste siempre trae motivo (lo exige el request), pero la columna es
+      // nullable porque la comparte con las correcciones: el fallback es para
+      // que el timeline nunca muestre un hueco.
+      motivo: evento.motivoCorreccion ?? 'Ajuste a mano',
+      registradoPorId: evento.registradoPorId,
+      registradoPorTipo: evento.registradoPorTipo,
+      cargadoRetroactivamenteEn: evento.cargadoRetroactivamenteEn?.toISOString() ?? null,
+      createdAt: evento.createdAt.toISOString(),
+    }));
   }
 
   @Get('grupos/:grupoId/resumen-puntajes')

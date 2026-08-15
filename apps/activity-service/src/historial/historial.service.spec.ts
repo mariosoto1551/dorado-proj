@@ -3,10 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   EstadoSeccion,
   EstadoSesion,
+  FiltroTipoHistorial,
   TipoEventoHistorial,
-  TipoRegistroHistorial,
 } from '@dorado/shared-types';
 import type {
+  AjusteHistorialInternoDto,
   EquipoInternoDto,
   GrupoDto,
   TenantContext,
@@ -15,6 +16,7 @@ import type {
 } from '@dorado/shared-types';
 
 import type { IdentityClientService } from '../clientes/identity-client.service';
+import type { ScoringClientService } from '../clientes/scoring-client.service';
 import type {
   SeccionActualInterna,
   SessionClientService,
@@ -190,10 +192,33 @@ function tareaEquipoRegistrada(
   } as RegistroTareaEquipo;
 }
 
+/** fase-14-34: el ajuste manual como lo devuelve scoring por REST interno. */
+function ajusteDePrueba(
+  sobrescribir: Partial<AjusteHistorialInternoDto> = {}
+): AjusteHistorialInternoDto {
+  return {
+    id: 'ajuste-1',
+    usuarioId: 'usuario-1',
+    puntos: 10,
+    motivo: 'Ayudó con la mudanza',
+    registradoPorId: 'tutor-1',
+    registradoPorTipo: 'TUTOR',
+    cargadoRetroactivamenteEn: null,
+    createdAt: '2026-07-13T17:00:00.000Z',
+    ...sobrescribir,
+  };
+}
+
 function armar(
   bd: BdHistorialEnMemoria,
-  seccion: SeccionActualInterna | null = seccionConSesionAbierta()
-): { servicio: HistorialService; identity: { equiposDelGrupo: ReturnType<typeof vi.fn> } } {
+  seccion: SeccionActualInterna | null = seccionConSesionAbierta(),
+  // fase-14-34: o los ajustes que devuelve scoring, o `false` = no contestó.
+  respuestaScoring: AjusteHistorialInternoDto[] | false = []
+): {
+  servicio: HistorialService;
+  identity: { equiposDelGrupo: ReturnType<typeof vi.fn> };
+  scoring: { ajustesDeLaSesion: ReturnType<typeof vi.fn> };
+} {
   const session = {
     obtenerSeccionActual: vi.fn().mockResolvedValue(seccion),
   } as unknown as SessionClientService;
@@ -205,14 +230,23 @@ function armar(
     equiposDelGrupo: vi.fn().mockResolvedValue([EQUIPO]),
   };
 
+  const scoring = {
+    ajustesDeLaSesion: vi.fn().mockResolvedValue(
+      respuestaScoring === false
+        ? { ajustes: [], disponible: false }
+        : { ajustes: respuestaScoring, disponible: true }
+    ),
+  };
+
   const servicio = new HistorialService(
     bd.prisma,
     session,
     identity as unknown as IdentityClientService,
+    scoring as unknown as ScoringClientService,
     new AccesoGrupoService(identity as unknown as IdentityClientService)
   );
 
-  return { servicio, identity };
+  return { servicio, identity, scoring };
 }
 
 describe('HistorialService (fase-14-18)', () => {
@@ -378,7 +412,7 @@ describe('HistorialService (fase-14-18)', () => {
 
     const { servicio } = armar(bd);
     const { eventos } = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {
-      tipo: TipoRegistroHistorial.CONDUCTA,
+      tipo: FiltroTipoHistorial.CONDUCTA,
     });
 
     expect(eventos).toHaveLength(1);
@@ -509,5 +543,135 @@ describe('HistorialService (fase-14-18)', () => {
     await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {});
 
     expect(identity.equiposDelGrupo).not.toHaveBeenCalled();
+  });
+
+  // ── Ajustes manuales de puntos (fase-14-34) ──────────────────────────────
+
+  it('mezcla el ajuste manual de scoring con los registros propios, por fecha', async () => {
+    const bd = crearBdHistorialEnMemoria({
+      actividades: [actividadDePrueba({ id: 'actividad-1', nombre: 'Tender la cama' })],
+      // 15:00 según `actividadRegistrada()`; el ajuste es de las 17:00.
+      registrosActividad: [actividadRegistrada()],
+    });
+
+    const { servicio } = armar(bd, seccionConSesionAbierta(), [ajusteDePrueba()]);
+    const { eventos } = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {});
+
+    expect(eventos).toHaveLength(2);
+    expect(eventos[0]).toMatchObject({
+      tipo: TipoEventoHistorial.AJUSTE_MANUAL,
+      usuarioNombre: 'Ana',
+      // El motivo va en `itemNombre`: es lo único que explica la fila.
+      itemNombre: 'Ayudó con la mudanza',
+      puntos: 10,
+      registradoPorNombre: 'Marta',
+      anulado: false,
+      notas: [],
+    });
+    expect(eventos[1]?.tipo).toBe(TipoEventoHistorial.ACTIVIDAD_COMPLETADA);
+  });
+
+  it('le pide a scoring la sesión, el tenant y el filtro de participante', async () => {
+    const bd = crearBdHistorialEnMemoria({});
+    const { servicio, scoring } = armar(bd);
+
+    await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', { usuarioId: 'usuario-1' });
+
+    expect(scoring.ajustesDeLaSesion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizacionId: 'org-1',
+        grupoId: 'grupo-1',
+        sesionId: 'sesion-1',
+        usuarioId: 'usuario-1',
+      })
+    );
+  });
+
+  it('el filtro «Ajustes» deja fuera los registros, y al revés', async () => {
+    const bd = crearBdHistorialEnMemoria({
+      actividades: [actividadDePrueba({ id: 'actividad-1' })],
+      registrosActividad: [actividadRegistrada()],
+    });
+
+    const { servicio, scoring } = armar(bd, seccionConSesionAbierta(), [ajusteDePrueba()]);
+
+    const soloAjustes = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {
+      tipo: FiltroTipoHistorial.AJUSTE,
+    });
+
+    expect(soloAjustes.eventos).toHaveLength(1);
+    expect(soloAjustes.eventos[0]?.tipo).toBe(TipoEventoHistorial.AJUSTE_MANUAL);
+
+    scoring.ajustesDeLaSesion.mockClear();
+
+    const soloActividades = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {
+      tipo: FiltroTipoHistorial.ACTIVIDAD,
+    });
+
+    expect(soloActividades.eventos).toHaveLength(1);
+    expect(soloActividades.eventos[0]?.tipo).toBe(TipoEventoHistorial.ACTIVIDAD_COMPLETADA);
+    // Ni siquiera se sale a la red: filtrar por actividades no puede costar
+    // una llamada interna que se va a descartar.
+    expect(scoring.ajustesDeLaSesion).not.toHaveBeenCalled();
+  });
+
+  it('«ocultar anuladas» no esconde los ajustes: un ajuste no se anula', async () => {
+    const bd = crearBdHistorialEnMemoria({});
+    const { servicio } = armar(bd, seccionConSesionAbierta(), [ajusteDePrueba()]);
+
+    const { eventos } = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {
+      incluirAnulados: false,
+    });
+
+    expect(eventos).toHaveLength(1);
+  });
+
+  it('si scoring no responde, el timeline sale igual pero lo DICE', async () => {
+    const bd = crearBdHistorialEnMemoria({
+      actividades: [actividadDePrueba({ id: 'actividad-1' })],
+      registrosActividad: [actividadRegistrada()],
+    });
+
+    const { servicio } = armar(bd, seccionConSesionAbierta(), false);
+    const historial = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {});
+
+    // Las otras tres fuentes salen igual: una fila faltante es mejor que una
+    // pantalla vacía…
+    expect(historial.eventos).toHaveLength(1);
+    expect(historial.eventos[0]?.tipo).toBe(TipoEventoHistorial.ACTIVIDAD_COMPLETADA);
+    // …pero la pantalla tiene que poder decir que puede faltar algo, en vez de
+    // afirmar «hoy no hubo ningún ajuste», que sería mentira.
+    expect(historial.ajustesDisponibles).toBe(false);
+  });
+
+  it('con scoring contestando, aunque no haya ajustes, no se avisa nada', async () => {
+    const bd = crearBdHistorialEnMemoria({});
+    const { servicio } = armar(bd, seccionConSesionAbierta(), []);
+
+    const historial = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {});
+
+    expect(historial.eventos).toHaveLength(0);
+    expect(historial.ajustesDisponibles).toBe(true);
+  });
+
+  it('filtrando por otro tipo no se avisa nada: no se pidieron los ajustes', async () => {
+    const bd = crearBdHistorialEnMemoria({});
+    const { servicio } = armar(bd, seccionConSesionAbierta(), false);
+
+    const historial = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {
+      tipo: FiltroTipoHistorial.CONDUCTA,
+    });
+
+    expect(historial.ajustesDisponibles).toBe(true);
+  });
+
+  it('sin Sección vigente tampoco se avisa: no se le preguntó a nadie', async () => {
+    const bd = crearBdHistorialEnMemoria({});
+    const { servicio } = armar(bd, null, false);
+
+    const historial = await servicio.historialDeLaSesion(tenantTutor(), 'grupo-1', {});
+
+    expect(historial.sesionId).toBeNull();
+    expect(historial.ajustesDisponibles).toBe(true);
   });
 });

@@ -10,6 +10,7 @@ import type {
   ComportamientoAlCierre,
   EstadoSeccion,
   EvaluarUmbralesEn,
+  FiltroTipoHistorial,
   ModoSesion,
   RecompensaDto,
   SeccionDto,
@@ -19,7 +20,6 @@ import type {
   TipoInvitado,
   TipoLimiteTiempo,
   TipoPuntaje,
-  TipoRegistroHistorial,
 } from '@dorado/shared-types';
 
 // ---- Paginación (shape común de notification/audit, ver fase-09) ----
@@ -109,7 +109,8 @@ export interface IniciarCronometroResponse {
 /** Query del historial de la sesión (fase-14-18). Todo opcional. */
 export interface FiltrosHistorial {
   usuarioId?: string;
-  tipo?: TipoRegistroHistorial;
+  /** fase-14-34: incluye `AJUSTE`, que no es una tabla de activity-service. */
+  tipo?: FiltroTipoHistorial;
   /** `false` esconde lo anulado; el default del servidor es mostrarlo. */
   incluirAnulados?: boolean;
   cursor?: string;

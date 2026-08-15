@@ -1,19 +1,22 @@
 import { Injectable } from '@nestjs/common';
 
 import {
+  AjusteHistorialInternoDto,
   EquipoInternoDto,
   EstadoSesion,
   EventoHistorialDto,
+  FiltroTipoHistorial,
   HistorialSesionDto,
   NotaRegistroDto,
   TenantContext,
   TipoEventoHistorial,
-  TipoRegistroHistorial,
   TutorDto,
   UsuarioDto,
 } from '@dorado/shared-types';
 
 import { IdentityClientService } from '../clientes/identity-client.service';
+import type { AjustesDeLaSesion } from '../clientes/scoring-client.service';
+import { ScoringClientService } from '../clientes/scoring-client.service';
 import type { SeccionActualInterna } from '../clientes/session-client.service';
 import { SessionClientService } from '../clientes/session-client.service';
 import { AccesoGrupoService } from '../comun/acceso-grupo.service';
@@ -74,9 +77,14 @@ interface SesionDelHistorial {
  * ledger en algo que puede desincronizarse — la misma prohibición que la regla
  * 1 de CLAUDE.md le impone al puntaje, aplicada a la trazabilidad.
  *
+ * fase-14-34 agrega una **cuarta fuente que no es una tabla de este servicio**:
+ * los ajustes manuales de puntos, que viven en el ledger de scoring y hasta
+ * este ítem no se veían en ninguna pantalla. Se piden por REST interno y no por
+ * un join (regla 2), y entran al mismo merge con el mismo orden.
+ *
  * Costo por request, **independiente de la cantidad de filas** (decisión 12):
- * 3 consultas de registros + 2 de catálogo + 1 de notas, y 4 llamadas REST
- * internas (grupo, usuarios, tutores, equipos).
+ * 3 consultas de registros + 2 de catálogo + 1 de notas, y 5 llamadas REST
+ * internas (grupo, usuarios, tutores, equipos, ajustes).
  */
 @Injectable()
 export class HistorialService {
@@ -84,6 +92,7 @@ export class HistorialService {
     private readonly prisma: PrismaService,
     private readonly session: SessionClientService,
     private readonly identity: IdentityClientService,
+    private readonly scoring: ScoringClientService,
     private readonly acceso: AccesoGrupoService
   ) {}
 
@@ -118,6 +127,8 @@ export class HistorialService {
         sesionNumero: null,
         seccionEditable,
         timezoneGrupo,
+        // Sin Sesión no se le preguntó nada a scoring: no falta ninguna fila.
+        ajustesDisponibles: true,
         eventos: [],
         cursorSiguiente: null,
       };
@@ -125,7 +136,14 @@ export class HistorialService {
 
     const limite = filtros.limite ?? 50;
     const cursor = filtros.cursor ? decodificarCursor(filtros.cursor) : undefined;
-    const filas = await this.leerFilas(tenant, grupoId, sesion.id, filtros, cursor, limite);
+    const { filas, ajustesDisponibles } = await this.leerFilas(
+      tenant,
+      grupoId,
+      sesion.id,
+      filtros,
+      cursor,
+      limite
+    );
 
     // k-way merge: cada tabla trajo sus `limite + 1` más nuevos posteriores al
     // cursor, así que el tope global de la página ya está contenido acá.
@@ -146,12 +164,17 @@ export class HistorialService {
       sesionNumero: sesion.numero,
       seccionEditable,
       timezoneGrupo,
+      ajustesDisponibles,
       eventos,
       cursorSiguiente: hayMas && ultima ? codificarCursor(ultima) : null,
     };
   }
 
-  /** Las tres consultas de registros, en paralelo, ya mapeadas a filas. */
+  /**
+   * Las tres consultas de registros + los ajustes de scoring, ya mapeados a
+   * filas. Devuelve también si la cuarta fuente contestó: es lo único de acá
+   * que la pantalla no puede deducir mirando las filas.
+   */
   private async leerFilas(
     tenant: TenantContext,
     grupoId: string,
@@ -159,7 +182,7 @@ export class HistorialService {
     filtros: HistorialQuery,
     cursor: ReturnType<typeof decodificarCursor> | undefined,
     limite: number
-  ): Promise<FilaDelTimeline[]> {
+  ): Promise<{ filas: FilaDelTimeline[]; ajustesDisponibles: boolean }> {
     // organizacionId y grupoId explícitos aunque la extensión de tenant ya
     // filtre: `RegistroTareaEquipo` NO es un modelo tenant-scoped declarado, y
     // el filtro automático acota por `grupoId IN grupoIds` (todos los grupos
@@ -174,25 +197,25 @@ export class HistorialService {
 
     const orden = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
     const take = limite + 1;
-    const quiere = (tipo: TipoRegistroHistorial): boolean =>
+    const quiere = (tipo: FiltroTipoHistorial): boolean =>
       filtros.tipo === undefined || filtros.tipo === tipo;
 
-    const [actividades, conductas, tareasEquipo] = await Promise.all([
-      quiere(TipoRegistroHistorial.ACTIVIDAD)
+    const [actividades, conductas, tareasEquipo, ajustes] = await Promise.all([
+      quiere(FiltroTipoHistorial.ACTIVIDAD)
         ? this.prisma.client.registroActividad.findMany({
             where: { ...base, ...(filtros.usuarioId && { usuarioId: filtros.usuarioId }) },
             orderBy: orden,
             take,
           })
         : Promise.resolve([]),
-      quiere(TipoRegistroHistorial.CONDUCTA)
+      quiere(FiltroTipoHistorial.CONDUCTA)
         ? this.prisma.client.registroConducta.findMany({
             where: { ...base, ...(filtros.usuarioId && { usuarioId: filtros.usuarioId }) },
             orderBy: orden,
             take,
           })
         : Promise.resolve([]),
-      quiere(TipoRegistroHistorial.TAREA_EQUIPO)
+      quiere(FiltroTipoHistorial.TAREA_EQUIPO)
         ? this.prisma.client.registroTareaEquipo.findMany({
             where: {
               ...base,
@@ -206,13 +229,32 @@ export class HistorialService {
             take,
           })
         : Promise.resolve([]),
+      // fase-14-34. `incluirAnulados: false` no lo excluye: un ajuste no se
+      // anula —se compensa con otro ajuste de signo contrario, que es una fila
+      // nueva—, así que nunca hay uno "tachado" que esconder.
+      quiere(FiltroTipoHistorial.AJUSTE)
+        ? this.scoring.ajustesDeLaSesion({
+            organizacionId: tenant.organizacionId,
+            grupoId,
+            sesionId,
+            usuarioId: filtros.usuarioId,
+            cursor,
+            limite: take,
+          })
+        : // Filtrando por otro tipo no se sale a la red, y no falta nada: no
+          // se pidió. `disponible: true` es la respuesta honesta acá.
+          Promise.resolve({ ajustes: [], disponible: true } as AjustesDeLaSesion),
     ]);
 
-    return [
-      ...actividades.map((fila) => filaDeActividad(fila)),
-      ...conductas.map((fila) => filaDeConducta(fila)),
-      ...tareasEquipo.map((fila) => filaDeTareaEquipo(fila)),
-    ];
+    return {
+      filas: [
+        ...actividades.map((fila) => filaDeActividad(fila)),
+        ...conductas.map((fila) => filaDeConducta(fila)),
+        ...tareasEquipo.map((fila) => filaDeTareaEquipo(fila)),
+        ...ajustes.ajustes.map((fila) => filaDeAjuste(fila)),
+      ],
+      ajustesDisponibles: ajustes.disponible,
+    };
   }
 
   /** Cuatro llamadas internas + dos consultas de catálogo, siempre las mismas. */
@@ -479,6 +521,64 @@ function filaDeTareaEquipo(registro: RegistroTareaEquipo): FilaDelTimeline {
       cargadoRetroactivamenteEn: registro.cargadoRetroactivamenteEn?.toISOString() ?? null,
       motivoRetroactivo: registro.motivoRetroactivo,
       motivoReversion: registro.motivoReversion,
+      notas: [],
+    }),
+  };
+}
+
+/**
+ * El ajuste manual de puntos como fila del timeline (fase-14-34).
+ *
+ * Dos decisiones de mapeo que se leen raro si no se dicen:
+ *
+ * - `itemId` es el id del propio asiento y no el de un ítem del catálogo —
+ *   **no hay ítem detrás**, eso es lo que significa "a mano". El id igual sirve
+ *   como clave estable del `@for` del frontend.
+ * - `itemNombre` lleva el **motivo**. El timeline pinta ese campo donde el ojo
+ *   busca "qué pasó", y en un ajuste lo único que explica la fila es el motivo
+ *   que escribió quien lo hizo. Sin esto, la fila diría "+10" y nada más, que
+ *   es exactamente el problema que este ítem viene a arreglar.
+ *
+ * Nunca `anulado` ni `revertido`: el ledger no borra filas (regla 6). Una
+ * corrección es otro ajuste, con su propia fila y su propio motivo.
+ */
+function filaDeAjuste(ajuste: AjusteHistorialInternoDto): FilaDelTimeline {
+  const createdAt = new Date(ajuste.createdAt);
+
+  return {
+    createdAt,
+    id: ajuste.id,
+    aEvento: (nombres) => ({
+      id: ajuste.id,
+      tipo: TipoEventoHistorial.AJUSTE_MANUAL,
+      ocurridoEn: createdAt.toISOString(),
+      usuarioId: ajuste.usuarioId,
+      usuarioNombre: nombres.usuarios.get(ajuste.usuarioId) ?? NOMBRE_USUARIO_AUSENTE,
+      equipoId: null,
+      equipoNombre: null,
+      itemId: ajuste.id,
+      itemNombre: ajuste.motivo,
+      puntos: ajuste.puntos,
+      bonoJefe: null,
+      cantidadMiembros: null,
+      registradoPorId: ajuste.registradoPorId,
+      registradoPorTipo: ajuste.registradoPorTipo as EventoHistorialDto['registradoPorTipo'],
+      registradoPorNombre: nombreDeAutor(
+        ajuste.registradoPorId,
+        ajuste.registradoPorTipo,
+        nombres
+      ),
+      anulado: false,
+      anuladoPorNombre: null,
+      anuladoEn: null,
+      motivoTutor: null,
+      revertidoEn: null,
+      revertidoPorNombre: null,
+      cargadoRetroactivamenteEn: ajuste.cargadoRetroactivamenteEn,
+      motivoRetroactivo: null,
+      motivoReversion: null,
+      // Un ajuste no admite notas: `NotaRegistro` cuelga de las tres tablas de
+      // este servicio y esta fila no es una de ellas (ver `FiltroTipoHistorial`).
       notas: [],
     }),
   };

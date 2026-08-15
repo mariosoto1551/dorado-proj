@@ -686,6 +686,13 @@ export enum TipoEventoHistorial {
   ACTIVIDAD_NO_HIZO = 'ACTIVIDAD_NO_HIZO',
   CONDUCTA = 'CONDUCTA',
   TAREA_EQUIPO = 'TAREA_EQUIPO',
+  /**
+   * fase-14-34: el ajuste manual de puntos del #31 (y el que aplica el
+   * asistente por el mismo endpoint). **No sale de una tabla de
+   * activity-service** sino del ledger de scoring, por REST interno: es la
+   * única fila del timeline que cruza un servicio.
+   */
+  AJUSTE_MANUAL = 'AJUSTE_MANUAL',
 }
 
 /** Sobre qué clase de registro cuelga una nota interna (espejo del enum Prisma). */
@@ -693,6 +700,21 @@ export enum TipoRegistroHistorial {
   ACTIVIDAD = 'ACTIVIDAD',
   CONDUCTA = 'CONDUCTA',
   TAREA_EQUIPO = 'TAREA_EQUIPO',
+}
+
+/**
+ * Qué clase de fila pedirle al timeline (`?tipo=`).
+ *
+ * Es un **superset** de `TipoRegistroHistorial` y no el mismo enum a propósito:
+ * ese espeja el enum Prisma de `NotaRegistro` —sobre qué tabla cuelga una nota—
+ * y un ajuste de puntos no es una fila de activity-service, así que no puede
+ * llevar notas ni entrar en ese enum sin mentir sobre el modelo.
+ */
+export enum FiltroTipoHistorial {
+  ACTIVIDAD = 'ACTIVIDAD',
+  CONDUCTA = 'CONDUCTA',
+  TAREA_EQUIPO = 'TAREA_EQUIPO',
+  AJUSTE = 'AJUSTE',
 }
 
 /**
@@ -725,8 +747,17 @@ export interface EventoHistorialDto {
   usuarioNombre: string | null;
   equipoId: string | null;
   equipoNombre: string | null;
-  /** actividadId o conductaId según el tipo. */
+  /**
+   * actividadId o conductaId según el tipo. En `AJUSTE_MANUAL` es el id del
+   * propio asiento del ledger: no hay ítem de catálogo detrás — eso es
+   * exactamente lo que un ajuste a mano significa.
+   */
   itemId: string;
+  /**
+   * Nombre del ítem, o un fallback legible. En `AJUSTE_MANUAL` lleva el
+   * **motivo** que escribió quien ajustó: es lo único que explica esa fila, y
+   * el timeline ya lo muestra en el lugar donde el ojo lo busca.
+   */
   itemNombre: string;
   /**
    * Snapshot con signo tal como quedó guardado. 0 en las confirmaciones de
@@ -781,6 +812,16 @@ export interface HistorialSesionDto {
   seccionEditable: boolean;
   /** IANA, del Grupo: con esto el frontend formatea las horas (decisión 15). */
   timezoneGrupo: string;
+  /**
+   * fase-14-34: los ajustes manuales de puntos son la única fuente del timeline
+   * que vive en otro servicio, y se piden por REST. `false` = scoring no
+   * contestó y **puede faltar alguna fila**.
+   *
+   * El campo existe porque sin él la pantalla no puede distinguir «hoy no hubo
+   * ningún ajuste» de «no pude preguntar», y mostraría lo primero cuando pasa
+   * lo segundo — que es precisamente la duda que este ítem vino a sacar.
+   */
+  ajustesDisponibles: boolean;
   eventos: EventoHistorialDto[];
   /** null cuando no hay más páginas. */
   cursorSiguiente: string | null;

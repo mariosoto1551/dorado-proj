@@ -179,3 +179,29 @@ export interface AjustarPuntosRequest {
 export interface ConfiguracionScoringInternaDto {
   puntosIniciales: number;
 }
+
+/**
+ * Un ajuste manual del ledger, servido por REST interno para el timeline
+ * (fase-14-34).
+ *
+ * Existe porque el historial de la sesión vive en activity-service y estos
+ * asientos viven en scoring: sin este endpoint, la única forma de mostrarlos
+ * juntos sería un join entre bases, que es exactamente lo que la regla 2
+ * prohíbe. Va por ID y sin nombres — quien arma el timeline ya los resolvió.
+ *
+ * **Solo `AJUSTE_MANUAL`.** Las `CORRECCION` quedan afuera a propósito: son el
+ * contra-asiento automático de una fila que el timeline ya muestra tachada, y
+ * repetirlas como una fila propia contaría dos veces el mismo hecho.
+ */
+export interface AjusteHistorialInternoDto {
+  id: string;
+  usuarioId: string;
+  /** Con signo, tal cual quedó en el ledger. */
+  puntos: number;
+  /** Siempre presente: el endpoint de ajuste lo exige. */
+  motivo: string;
+  registradoPorId: string;
+  registradoPorTipo: string;
+  cargadoRetroactivamenteEn: string | null;
+  createdAt: string;
+}

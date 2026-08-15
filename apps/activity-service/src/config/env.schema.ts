@@ -62,6 +62,15 @@ export class EnvSchema {
   })
   SESSION_INTERNAL_URL!: string;
 
+  // REST interno (ADR-00 §4): los ajustes manuales de puntos que el historial
+  // de la sesión muestra junto a los registros propios (fase-14-34). Requerida
+  // como el resto: el proceso falla al arrancar antes que servir un timeline
+  // al que le faltan filas en silencio.
+  @Matches(/^https?:\/\/.+/, {
+    message: 'SCORING_INTERNAL_URL debe ser una URL http(s)://',
+  })
+  SCORING_INTERNAL_URL!: string;
+
   // RabbitMQ (ADR-00 §5): la fase 7 publica los 4 eventos de registro.
   @Matches(/^amqps?:\/\/.+/, {
     message: 'RABBITMQ_URL debe ser una URL amqp(s)://',

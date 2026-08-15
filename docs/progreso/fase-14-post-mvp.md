@@ -3090,3 +3090,143 @@ por nombre, sin colisión con el `aria-label` nuevo («Dictar por voz»).
 3. Si la calidad no alcanza, **no parchear este componente**: el camino escrito
    es la transcripción en el servidor, con spec propia y las tres decisiones de
    arriba resueltas.
+
+## Ítem 34: Ajustes visibles en el historial + el signo sin teclado — COMPLETADO (2026-08-15)
+
+**Sin spec en `docs/phases/`**: no salió de una planificación sino de dos cosas
+que José reportó usando el sistema con su cuenta de admin. Se documenta acá, que
+es donde va lo que realmente se ejecutó.
+
+### Lo que reportó
+
+1. Ajustando puntos a mano desde el celular, **el teclado numérico no tiene la
+   tecla «−»**, así que restar era imposible.
+2. La IA «genera bien los cambios pero no sé si los registra»: después de
+   *Aplicar todo* **no aparecía nada en el historial del día**, y la sensación
+   era que no había cambiado nada.
+
+### Lo que resultó ser
+
+Dos síntomas, **una sola causa de fondo en el segundo**: el ajuste manual de
+puntos (ítem #31) escribe en `EventoPuntos` de scoring, y el historial de la
+sesión (ítem #18) se arma con **tres tablas de activity-service**. Nunca se
+cruzaron. O sea: el ajuste **sí se registraba** —cambiaba el puntaje y la zona—
+pero **no se veía en ninguna pantalla**, ni el hecho a mano ni el que aplicaba
+el asistente por ese mismo endpoint público. «Aplicar todo» escribía; lo que
+faltaba era el lugar donde comprobarlo.
+
+Se verificó que el camino de aplicado del asistente **no tiene ningún defecto**:
+`aplicarOperaciones` recorre las operaciones con el JWT del Tutor contra las
+rutas que trae cada una, y `ejecutarOperacion` compone `apiBaseUrl + ruta` sin
+tocar el body (decisión 6 del #29). Las propuestas de catálogo siempre se
+vieron; las de tipo `AJUSTES_MANUALES` eran las invisibles.
+
+### Decisiones
+
+1. **El signo deja de ser un carácter y pasa a ser un botón.** En `type="number"`
+   el teclado lo elige el sistema operativo, y en varios (iOS entero, varios
+   Android de fábrica) ese teclado es un pad de dígitos **sin menos**: un campo
+   que dice «negativo para restar» ahí es un campo donde restar es literalmente
+   imposible. `EntradaConSignoComponent` parte el número en dos controles —
+   *Sumar*/*Restar* y una magnitud siempre positiva— que es como se piensa el
+   ajuste igual. La caja es `type="text"` + `inputmode="numeric"`: con
+   `type="number"` el navegador acepta «e» y «.» y después reporta el campo
+   vacío cuando el contenido no parsea, que es la otra mitad del problema.
+2. **El historial gana una cuarta fuente, y es de otro servicio.** No se
+   materializó una copia del ledger en activity (sería la regla 1 violada para
+   la trazabilidad, que es justo lo que el #18 evitó): se agregó
+   `GET /internal/scoring/grupos/:g/sesiones/:s/ajustes` y un
+   `ScoringClientService` en activity. Cruce por ID, REST interno, regla 2 sana.
+3. **Solo `AJUSTE_MANUAL`, nunca `CORRECCION`.** Las correcciones son el
+   contra-asiento automático de una fila que el timeline ya muestra tachada;
+   como fila propia contarían dos veces el mismo hecho.
+4. **El cliente falla blando, pero no mudo.** Devuelve `[]` y loguea `warn`, al
+   revés que `SessionClientService`, que tira 503: ahí un 503 es correcto porque
+   sin Sesión no hay registro válido posible; acá el historial es lectura con
+   tres fuentes más andando, y cambiar una fila faltante por una pantalla vacía
+   sería peor. Lo que **sí** sería inaceptable es el `[]` silencioso — José lo
+   marcó al revisar y tenía razón: una lista vacía muda **afirma «hoy no hubo
+   ningún ajuste»**, que es exactamente la mentira que este ítem vino a sacar
+   del medio, y encima en el único caso donde el Tutor la creería. Así que el
+   fallo viaja: el cliente devuelve `{ ajustes, disponible }`,
+   `HistorialSesionDto` lleva `ajustesDisponibles`, y la pantalla pinta un aviso
+   rojo con un botón de reintentar. Se avisa **solo cuando se preguntó**: sin
+   Sección vigente, o filtrando por otro tipo, no falta nada y no hay aviso.
+5. **El motivo viaja en `itemNombre`.** No hay ítem de catálogo detrás de un
+   ajuste —eso es lo que significa «a mano»—, y el timeline pinta ese campo
+   justo donde el ojo busca «qué pasó». Sin esto la fila diría «+10» y nada más,
+   que es el problema original.
+6. **El ajuste no ofrece anular, deshacer ni notas.** `NotaRegistro` cuelga de
+   las tres tablas de activity y esta fila no es una de ellas; el ledger no
+   borra (regla 6), se corrige con otro ajuste de signo contrario.
+7. **Enum nuevo `FiltroTipoHistorial` en vez de ampliar `TipoRegistroHistorial`.**
+   Ese otro espeja el enum Prisma de las notas: meterle `AJUSTE` habría hecho
+   que el tipo mintiera sobre el modelo.
+
+### Cambios
+
+- `libs/shared-types`: `TipoEventoHistorial.AJUSTE_MANUAL`, `FiltroTipoHistorial`,
+  `AjusteHistorialInternoDto`.
+- `scoring-service`: endpoint interno nuevo + `AjustesSesionInternaQuery`;
+  migración **aditiva pura** `20260815100000_indice_ajustes_por_sesion_fase14_34`
+  (índice `[grupoId, sesionId, createdAt]` — ninguno de los que había servía para
+  este filtro, y el timeline se auto-refresca cada 30 s).
+- `activity-service`: `ScoringClientService`, cuarta fuente en `leerFilas`,
+  `filaDeAjuste`, `SCORING_INTERNAL_URL` **requerida** en el schema de env.
+- `app-web`: `EntradaConSignoComponent` (usado en «Puntos a mano» del panel
+  operativo y en el ajuste de monedas de Billeteras), chip «Ajustes» en el
+  historial, icono ✋ / etiqueta «Puntos a mano» / acento ámbar.
+- Infra: `SCORING_INTERNAL_URL` para activity en los 4 `docker-compose`,
+  `render.yaml`, `.env.production.example` y `.env.example`.
+
+### Deuda técnica que deja
+
+31. **Los ajustes de monedas siguen sin aparecer en ningún historial.** El
+    `MovimientoMoneda` de rewards tiene `seccionId` **nullable** y no tiene
+    `sesionId`, así que no hay dónde ubicarlo en un timeline por Sesión. Es un
+    hueco real del mismo tamaño que el que este ítem cerró para los puntos, y
+    necesita decidir antes si el historial de la sesión es el lugar o si las
+    monedas piden su propia vista.
+32. **Las `CORRECCION` del ledger siguen invisibles** (decisión 3). Hoy no
+    molesta porque cada una acompaña a una fila que el timeline sí muestra; si
+    algún día se corrige un asiento sin fila visible, no habrá dónde verlo.
+33. ~~**El fallo blando puede volver a fabricar la duda que este ítem borró.**~~
+    **CERRADA en la misma sesión**, a pedido de José. Se agregó
+    `ajustesDisponibles` al DTO y el aviso en pantalla (ver decisión 4). La
+    versión anterior de esta deuda decía que se dejaba afuera «para no agrandar
+    el DTO en un arreglo de dos síntomas»: era mal criterio — el campo no
+    agranda el DTO, lo hace **verdadero**, que era el punto del ítem.
+34. **No hay E2E de la fila nueva.** `ajuste-manual-puntos.e2e.ts` es de API y
+    sigue verde tal cual; lo que falta es abrir el historial en el navegador con
+    el stack arriba y ver la fila.
+
+### Verificación
+
+- `activity-service`: **389 tests / 20 archivos**, verdes, con 8 del timeline
+  con ajustes (mezcla por fecha, argumentos al cliente interno, los dos sentidos
+  del filtro, «ocultar anuladas», y los tres casos de `ajustesDisponibles`:
+  scoring caído avisa, scoring vacío **no** avisa, y filtrar por otro tipo o no
+  tener Sección tampoco) y 5 nuevos de `scoring-client.service.spec.ts`, que es
+  donde nace la distinción entre «no hubo ajustes» y «no pude preguntar» — las
+  dos ramas devuelven una lista vacía y solo `disponible` las separa, o sea que
+  es justo lo que se pierde en el primer refactor sin un test que lo sostenga.
+- `scoring-service`: verde, con `internal.controller.spec.ts` nuevo (5 tests:
+  mapeo, `where` con `tipoOrigen`, cursor, fallback de motivo, ISO).
+- `app-web`: **264 tests / 25 archivos**, verdes, con 7 nuevos del control de
+  signo (que la caja **no** sea `type=number`, restar sin tipear «−», dar vuelta
+  el signo sin retipear, el «−» tipeado que no entra, vaciar la caja sin que le
+  devuelvan un 0, y el reset que limpia sin perder el signo) y 2 del util.
+- `lint` verde en los 4 proyectos; `build` de app-web limpio.
+- **No se corrió la suite E2E** (necesita el stack completo levantado).
+
+### Qué debería verificar la próxima sesión antes de seguir
+
+1. **Aplicar `SCORING_INTERNAL_URL` en el servidor de casa antes de desplegar**:
+   `activity-service` ahora **no arranca sin ella** (es `@Matches` requerida, no
+   opcional). Está en los compose, pero un `.env` a mano en `192.168.1.21` no.
+2. Correr la migración de scoring (`prisma-migrate`) — es solo un índice, pero
+   sin ella la consulta del timeline escanea el ledger del grupo.
+3. Ajustar puntos **desde el celular** y confirmar las dos mitades: que se pueda
+   restar, y que la fila aparezca en «historial» con su motivo.
+4. Pedirle al asistente un ajuste manual, aplicarlo, y ver que **esa** fila
+   también aparece — es el reporte original de José, y es el que cierra el ítem.

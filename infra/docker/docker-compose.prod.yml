@@ -92,6 +92,7 @@ services:
       IDENTITY_INTERNAL_URL: http://identity-service:3001
       BILLING_INTERNAL_URL: http://billing-service:3002
       SESSION_INTERNAL_URL: http://session-service:3004
+      SCORING_INTERNAL_URL: http://scoring-service:3005
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }

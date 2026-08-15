@@ -32,6 +32,10 @@ export function iconoDeEvento(evento: EventoHistorialDto): string {
       return evento.puntos < 0 ? '▼' : '★';
     case TipoEventoHistorial.TAREA_EQUIPO:
       return '👥';
+    // fase-14-34: la mano dice "esto no salió del catálogo", que es la única
+    // cosa que distingue a un ajuste de todo lo demás del timeline.
+    case TipoEventoHistorial.AJUSTE_MANUAL:
+      return '✋';
     default:
       return '✓';
   }
@@ -45,6 +49,8 @@ export function etiquetaDeEvento(evento: EventoHistorialDto): string {
       return evento.puntos < 0 ? 'Conducta mala' : 'Conducta buena';
     case TipoEventoHistorial.TAREA_EQUIPO:
       return 'Tarea de equipo';
+    case TipoEventoHistorial.AJUSTE_MANUAL:
+      return 'Puntos a mano';
     default:
       // Una confirmación de obligatoria vale 0 y no es lo mismo que completar
       // una opcional: se nombra distinto (fase-14-08).
@@ -61,9 +67,26 @@ export function acentoDeEvento(evento: EventoHistorialDto): string {
     return 'text-teal-600 dark:text-teal-400';
   }
 
+  // fase-14-34: el ajuste tiene color propio y no el rojo/verde del signo. El
+  // signo ya está a la derecha en el número; lo que la etiqueta tiene que
+  // decir es de dónde salió la fila.
+  if (evento.tipo === TipoEventoHistorial.AJUSTE_MANUAL) {
+    return 'text-amber-600 dark:text-amber-400';
+  }
+
   return evento.puntos < 0
     ? 'text-red-600 dark:text-red-400'
     : 'text-emerald-600 dark:text-emerald-400';
+}
+
+/**
+ * fase-14-34: qué filas admiten las acciones del tutor (anular, deshacer,
+ * notas). Un ajuste manual no es una fila de activity-service — no hay
+ * `RegistroActividad` que anular ni `NotaRegistro` que colgarle. Se corrige
+ * con otro ajuste de signo contrario, desde «Registrar».
+ */
+export function admiteAcciones(evento: EventoHistorialDto): boolean {
+  return evento.tipo !== TipoEventoHistorial.AJUSTE_MANUAL;
 }
 
 /**

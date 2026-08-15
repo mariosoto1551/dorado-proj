@@ -12,7 +12,7 @@ import {
   MinLength,
 } from 'class-validator';
 
-import { TipoRegistroHistorial } from '@dorado/shared-types';
+import { FiltroTipoHistorial } from '@dorado/shared-types';
 
 /**
  * Tope de una nota interna (fase-14-18): más largo que el `motivoTutor` de 200
@@ -37,9 +37,15 @@ export class HistorialQuery {
   @IsUUID()
   sesionId?: string;
 
+  /**
+   * fase-14-34: `AJUSTE` se suma a los tres de siempre. Es `FiltroTipoHistorial`
+   * y no `TipoRegistroHistorial` porque ese otro enum espeja el de Prisma —
+   * sobre qué tabla cuelga una nota— y un ajuste no es una fila de este
+   * servicio.
+   */
   @IsOptional()
-  @IsEnum(TipoRegistroHistorial)
-  tipo?: TipoRegistroHistorial;
+  @IsEnum(FiltroTipoHistorial)
+  tipo?: FiltroTipoHistorial;
 
   /**
    * Default `true`: lo anulado se MUESTRA tachado (spec, decisión 11) — es

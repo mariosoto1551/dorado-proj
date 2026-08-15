@@ -99,11 +99,13 @@ export interface ConductaDto { id: string; organizacionId: string; grupoId: stri
 export interface RegistroActividadDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; actividadId: string; sesionId: string; seccionId: string; tipo: 'COMPLETADA' | 'NO_HIZO'; valorPuntosSnapshot: number; registradoPorId: string; registradoPorTipo: PrincipalType; createdAt: string; }
 export interface RegistroConductaDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; conductaId: string; sesionId: string; seccionId: string; valorPuntosSnapshot: number; registradoPorId: string; registradoPorTipo: PrincipalType; eliminado: boolean; createdAt: string; }
 // Historial de la sesión (fase-14-18). El timeline NO sale de una tabla propia: se arma uniendo RegistroActividad + RegistroConducta + RegistroTareaEquipo.
-export enum TipoEventoHistorial { ACTIVIDAD_COMPLETADA = 'ACTIVIDAD_COMPLETADA', ACTIVIDAD_NO_HIZO = 'ACTIVIDAD_NO_HIZO', CONDUCTA = 'CONDUCTA', TAREA_EQUIPO = 'TAREA_EQUIPO' }
-export enum TipoRegistroHistorial { ACTIVIDAD = 'ACTIVIDAD', CONDUCTA = 'CONDUCTA', TAREA_EQUIPO = 'TAREA_EQUIPO' }
+// fase-14-34 le suma una CUARTA fuente que no es de activity-service: los ajustes manuales del ledger de scoring, por REST interno (ver AjusteHistorialInternoDto).
+export enum TipoEventoHistorial { ACTIVIDAD_COMPLETADA = 'ACTIVIDAD_COMPLETADA', ACTIVIDAD_NO_HIZO = 'ACTIVIDAD_NO_HIZO', CONDUCTA = 'CONDUCTA', TAREA_EQUIPO = 'TAREA_EQUIPO', AJUSTE_MANUAL = 'AJUSTE_MANUAL' }
+export enum TipoRegistroHistorial { ACTIVIDAD = 'ACTIVIDAD', CONDUCTA = 'CONDUCTA', TAREA_EQUIPO = 'TAREA_EQUIPO' } // sobre qué tabla cuelga una NOTA (espejo del enum Prisma)
+export enum FiltroTipoHistorial { ACTIVIDAD = 'ACTIVIDAD', CONDUCTA = 'CONDUCTA', TAREA_EQUIPO = 'TAREA_EQUIPO', AJUSTE = 'AJUSTE' } // fase-14-34: el `?tipo=` del timeline. Superset del de arriba — un ajuste no lleva notas.
 export interface NotaRegistroDto { id: string; texto: string; autorTutorId: string; autorNombre: string; createdAt: string; esPropia: boolean; } // interna del Tutor — NUNCA viaja a la app del integrante
 export interface EventoHistorialDto { id: string; tipo: TipoEventoHistorial; ocurridoEn: string; usuarioId: string | null; usuarioNombre: string | null; equipoId: string | null; equipoNombre: string | null; itemId: string; itemNombre: string; puntos: number; bonoJefe: number | null; cantidadMiembros: number | null; registradoPorId: string; registradoPorTipo: 'TUTOR' | 'USUARIO' | 'SYSTEM'; registradoPorNombre: string; anulado: boolean; anuladoPorNombre: string | null; anuladoEn: string | null; motivoTutor: string | null; revertidoEn: string | null; revertidoPorNombre: string | null; notas: NotaRegistroDto[]; }
-export interface HistorialSesionDto { sesionId: string | null; sesionEstado: EstadoSesion | null; timezoneGrupo: string; eventos: EventoHistorialDto[]; cursorSiguiente: string | null; }
+export interface HistorialSesionDto { sesionId: string | null; sesionEstado: EstadoSesion | null; timezoneGrupo: string; ajustesDisponibles: boolean; eventos: EventoHistorialDto[]; cursorSiguiente: string | null; } // fase-14-34: `ajustesDisponibles: false` = scoring no contestó y PUEDE FALTAR alguna fila; la pantalla lo dice. Sin él, «no hubo ajustes» y «no pude preguntar» se ven igual.
 
 // ---------- Session/Section ----------
 export interface ConfiguracionSesionDto { grupoId: string; modo: ModoSesion; cronSesion: string | null; sesionesPorSeccion: number; cronCierreSeccion: string | null; evaluarUmbralesEn: EvaluarUmbralesEn; }
@@ -116,6 +118,8 @@ export interface UmbralZonaDto { id: string; organizacionId: string; grupoId: st
 export interface PuntajeUsuarioDto { usuarioId: string; seccionId: string; puntajeTotal: number; zona: UmbralZonaDto | null; descalificado: boolean; }
 export interface PuntajeEquipoDto { equipoId: string; seccionId: string | null; puntajeTotal: number; porMiembro: Array<{ usuarioId: string; puntos: number }>; } // fase-14-09
 export interface DescalificacionDto { id: string; organizacionId: string; grupoId: string; usuarioId: string; seccionId: string; motivo: string; registradaPorTutorId: string; createdAt: string; }
+// fase-14-34: SOLO interno (GET /internal/scoring/grupos/:g/sesiones/:s/ajustes) — se lo consume activity-service para el timeline. Solo tipoOrigen AJUSTE_MANUAL: las CORRECCION contarían dos veces una anulación que el historial ya muestra tachada.
+export interface AjusteHistorialInternoDto { id: string; usuarioId: string; puntos: number; motivo: string; registradoPorId: string; registradoPorTipo: string; cargadoRetroactivamenteEn: string | null; createdAt: string; }
 
 // ---------- Rewards ----------
 export interface RecompensaDto { id: string; organizacionId: string; grupoId: string; nombre: string; descripcion: string | null; imagenUrl: string | null; umbralZonaId: string; nombreZonaSnapshot: string; permiteSeleccion: boolean; permiteAzar: boolean; estado: 'ACTIVA' | 'ARCHIVADA'; }

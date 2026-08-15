@@ -66,6 +66,10 @@ model EventoPuntos {
   @@index([usuarioId, seccionId])
   @@index([origenId])
   @@index([equipoId])
+  // fase-14-34: el historial de la sesión pide los ajustes manuales de UNA
+  // Sesión, paginados por createdAt. Sin este índice, esa consulta es un scan
+  // de todo el ledger del grupo en cada refresco del timeline (cada 30 s).
+  @@index([grupoId, sesionId, createdAt])
 }
 
 model UmbralZona {

@@ -179,6 +179,8 @@ function prepararEntorno() {
   const rutaEnv = (servicio) => `apps/${servicio}/.env`;
   const faltantes = SERVICIOS_SERVE.filter((s) => !existsSync(rutaEnv(s)));
 
+  avisarClavesQueFaltan(SERVICIOS_SERVE.filter((s) => !faltantes.includes(s)));
+
   if (faltantes.length === 0) {
     log('env', 'todos los .env ya existen — no se toca ninguno');
 
@@ -214,6 +216,44 @@ function prepararEntorno() {
   }
 
   log('env', `${faltantes.length} .env generados desde su .env.example: ${faltantes.join(', ')}`);
+}
+
+/**
+ * Avisa qué claves tiene el `.env.example` y NO el `.env` de esa persona.
+ *
+ * **Por qué existe** (fase-14-34): el generador de arriba nunca pisa un `.env`
+ * que ya existe —y está bien, puede tener la key real de OpenAI—, pero eso
+ * significa que **una variable nueva llega a los clones limpios y no a las
+ * máquinas donde se trabaja todos los días**. El ítem 34 agregó
+ * `SCORING_INTERNAL_URL` a activity-service y el síntoma fue el de siempre: el
+ * servicio no arranca, el healthcheck se cae por timeout, y el error real queda
+ * enterrado en el log de `nx run-many` de diez procesos.
+ *
+ * Solo avisa; **no toca el archivo**. Y avisa por nombre de clave, que es lo
+ * único que hace falta para arreglarlo en diez segundos.
+ */
+function avisarClavesQueFaltan(servicios) {
+  const claves = (ruta) =>
+    existsSync(ruta)
+      ? readFileSync(ruta, 'utf8')
+          .split(/\r?\n/)
+          .map((linea) => linea.match(/^([A-Z_][A-Z0-9_]*)=/)?.[1])
+          .filter((clave) => clave !== undefined)
+      : [];
+
+  for (const servicio of servicios) {
+    const enEjemplo = claves(`apps/${servicio}/.env.example`);
+    const enLocal = new Set(claves(`apps/${servicio}/.env`));
+    const ausentes = enEjemplo.filter((clave) => !enLocal.has(clave));
+
+    if (ausentes.length > 0) {
+      console.warn(
+        `\x1b[33mAVISO\x1b[0m: apps/${servicio}/.env no tiene ${ausentes.join(', ')} — ` +
+          'está en su .env.example. Si es requerida, el servicio no va a arrancar ' +
+          'y el healthcheck va a morir por timeout sin decir por qué.'
+      );
+    }
+  }
 }
 
 /** Par RS256 ya en uso, leído de los `.env` que existan (o `null`). */
