@@ -104,6 +104,19 @@ máquina); las siguientes reusan caché.
 > done
 > docker compose $CASA up -d
 > ```
+>
+> Eso mismo, en un comando y **desacoplado de la sesión SSH** —`scripts/deploy-casa.sh`:
+> ```bash
+> setsid nohup ./scripts/deploy-casa.sh > /tmp/deploy.log 2>&1 &
+> tail -f /tmp/deploy.log
+> ```
+> El `setsid` no es adorno: lanzar el build pegado a la sesión SSH significa que
+> si la máquina se pone lenta y la conexión se corta, el build muere a mitad.
+> Volvió a pasar el **2026-08-15**, con el agravante de que esta advertencia ya
+> estaba escrita acá desde el 12 y se corrió `up -d --build` igual. Si estás
+> leyendo esto porque el servidor no responde: **la máquina necesita reiniciarse**
+> —el OOM se lleva puesto lo que estaba sirviendo, no solo el build— y los datos
+> están a salvo (viven en el volumen `pgdata`, que nada de esto toca).
 
 Después de eso:
 
